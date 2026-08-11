@@ -6,6 +6,7 @@
 #include "GameFramework/PlayerState.h"
 #include "SHPlayerState.generated.h"
 
+class ASHHand;
 /**
  * 
  */
@@ -13,5 +14,14 @@ UCLASS()
 class SEAHORSE_API ASHPlayerState : public APlayerState
 {
 	GENERATED_BODY()
+
+public:
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+
+	void SetHand(ASHHand* NewHand);
+	ASHHand* GetHand();
 	
+protected:
+	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Hand")
+	TObjectPtr<ASHHand> Hand;
 };

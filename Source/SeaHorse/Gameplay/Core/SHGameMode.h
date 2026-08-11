@@ -6,6 +6,7 @@
 #include "GameFramework/GameMode.h"
 #include "SHGameMode.generated.h"
 
+class ASHHand;
 /**
  * 
  */
@@ -18,5 +19,11 @@ public:
 	//Begin AGameMode Interface
 	virtual void PostLogin(APlayerController* NewPlayer) override;
 	virtual void Logout(AController* Exiting) override;
+
+	virtual void HandleStartingNewPlayer_Implementation(APlayerController* NewPlayer) override;
 	//End AGameMode Interface
+
+protected:
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Cards")
+	TSubclassOf<ASHHand> HandClass;
 };
