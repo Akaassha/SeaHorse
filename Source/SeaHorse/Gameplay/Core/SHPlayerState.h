@@ -20,6 +20,18 @@ public:
 
 	void SetHand(ASHHand* NewHand);
 	ASHHand* GetHand();
+
+	UPROPERTY(ReplicatedUsing = OnRep_SeatIndex, BlueprintReadOnly)
+	int32 SeatIndex = INDEX_NONE;
+
+	UFUNCTION()
+	void SetSeatIndex(int32 NewSeatIndex);
+
+	UFUNCTION()
+	int32 GetSeatIndex();
+
+	UFUNCTION()
+	void OnRep_SeatIndex() {};
 	
 protected:
 	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Hand")

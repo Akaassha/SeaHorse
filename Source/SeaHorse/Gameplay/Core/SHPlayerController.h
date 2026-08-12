@@ -18,10 +18,16 @@ class SEAHORSE_API ASHPlayerController : public APlayerController
 	UPROPERTY(EditDefaultsOnly, Category = "Gameplay")
 	TSubclassOf<ASHHand> HandClass;
 
+	UFUNCTION(BlueprintCallable)
+	void SetupTableView();
+
 protected:
 	UFUNCTION(BlueprintCallable)
 	void DebugHands();
 
 	UFUNCTION(BlueprintCallable)
 	void DebugCardDefinitions();
+
+	UFUNCTION(BlueprintCallable)
+	int32 GetVisualSeatIndex(int32 PlayerSeatIndex, int32 PlayerCount) const;
 };

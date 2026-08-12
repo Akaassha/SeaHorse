@@ -7,6 +7,56 @@
 #include "SeaHorse/Gameplay/SHHand.h"
 #include "SeaHorse/Gameplay/Cards/CardDefinition.h"
 #include "SeaHorse/Gameplay/Cards/SHCard.h"
+#include "SeaHorse/Gameplay/Board/SHTable.h"
+
+#include "Kismet/GameplayStatics.h"
+
+void ASHPlayerController::SetupTableView()
+{
+    ASHGameState* SHGameState = GetWorld()->GetGameState<ASHGameState>();
+    checkf(IsValid(SHGameState), TEXT("Invalid SHGameState"));
+
+    ASHPlayerState* LocalPlayerState = GetPlayerState<ASHPlayerState>();
+    checkf(IsValid(LocalPlayerState), TEXT("Invalid local PlayerState"));
+
+    const int32 PlayerCount = SHGameState->PlayerArray.Num();
+
+    ASHTable* Table = Cast<ASHTable>(UGameplayStatics::GetActorOfClass(GetWorld(), ASHTable::StaticClass()));
+
+    checkf(IsValid(Table), TEXT("No SHTable found in level"));
+
+    for (APlayerState* CurrentPlayerState : SHGameState->PlayerArray)
+    {
+        ASHPlayerState* SHPlayerState = Cast<ASHPlayerState>(CurrentPlayerState);
+
+        checkf(IsValid(SHPlayerState),TEXT("PlayerState is not ASHPlayerState"));
+
+        ASHHand* Hand = SHPlayerState->GetHand();
+
+        checkf(IsValid(Hand), TEXT("Player %s has no Hand"), *GetNameSafe(SHPlayerState));
+
+        const int32 VisualSeatIndex = GetVisualSeatIndex(SHPlayerState->GetSeatIndex(), PlayerCount);
+
+        USceneComponent* HandRoot = Table->GetHandRoot(PlayerCount, VisualSeatIndex);
+
+        checkf(IsValid(HandRoot), TEXT("No HandRoot for PlayerCount %d, VisualSeatIndex %d"), PlayerCount, VisualSeatIndex);
+
+        Hand->SetActorTransform(HandRoot->GetComponentTransform());
+
+        UE_LOG(
+            LogTemp,
+            Warning,
+            TEXT("LocalSeat: %d | Player: %s | LogicalSeat: %d -> VisualSeat: %d | HandRoot: %s"),
+            LocalPlayerState->GetSeatIndex(),
+            *SHPlayerState->GetPlayerName(),
+            SHPlayerState->GetSeatIndex(),
+            VisualSeatIndex,
+            *GetNameSafe(HandRoot)
+        );
+
+        Hand->UpdateCardPositions();
+    }
+}
 
 void ASHPlayerController::DebugHands()
 {
@@ -101,4 +151,17 @@ void ASHPlayerController::DebugCardDefinitions()
             );
         }
     }
+}
+
+int32 ASHPlayerController::GetVisualSeatIndex(
+    int32 PlayerSeatIndex,
+    int32 PlayerCount) const
+{
+    ASHPlayerState* LocalPlayerState = GetPlayerState<ASHPlayerState>();
+
+    checkf(IsValid(LocalPlayerState), TEXT("Invalid local PlayerState"));
+
+    const int32 LocalSeatIndex = LocalPlayerState->GetSeatIndex();
+
+    return (PlayerSeatIndex - LocalSeatIndex + PlayerCount) % PlayerCount;
 }

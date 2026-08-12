@@ -67,4 +67,5 @@ protected:
 private:
 	void TryStartGame();
 	void StartGame();
+	void AssignSeats();
 };

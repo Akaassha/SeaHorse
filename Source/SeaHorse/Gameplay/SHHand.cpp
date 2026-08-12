@@ -12,6 +12,7 @@ ASHHand::ASHHand()
 	PrimaryActorTick.bCanEverTick = true;
 
 	bReplicates = true;
+    SetReplicateMovement(false);
 }
 
 void ASHHand::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -26,6 +27,29 @@ void ASHHand::BeginPlay()
 {
 	Super::BeginPlay();
 	
+}
+
+void ASHHand::UpdateCardPositions()
+{
+    constexpr float CardSpacing = 15.0f;
+
+    const float StartOffset = - (Cards.Num() - 1) * CardSpacing * 0.5f;
+
+    for (int32 Index = 0; Index < Cards.Num(); ++Index)
+    {
+        ASHCard* Card = Cards[Index];
+
+        if (!IsValid(Card))
+        {
+            continue;
+        }
+
+        const float Offset = StartOffset + Index * CardSpacing;
+
+        const FVector CardLocation = GetActorLocation() + GetActorRightVector() * Offset;
+
+        Card->SetActorLocationAndRotation(CardLocation, GetActorRotation());
+    }
 }
 
 // Called every frame

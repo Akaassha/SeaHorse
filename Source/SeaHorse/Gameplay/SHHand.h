@@ -25,6 +25,7 @@ protected:
 
 	UPROPERTY(ReplicatedUsing = OnRep_Cards)
 	TArray<TObjectPtr<ASHCard>> Cards;
+	
 
 public:	
 	// Called every frame
@@ -44,4 +45,8 @@ public:
 
 	UFUNCTION(BlueprintPure)
 	int32 GetCardCount() const;
+
+	UFUNCTION(BlueprintCallable)
+	void UpdateCardPositions();
+
 };

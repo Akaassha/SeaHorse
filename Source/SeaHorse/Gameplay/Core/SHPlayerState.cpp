@@ -9,6 +9,7 @@ void ASHPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLi
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
 	DOREPLIFETIME(ASHPlayerState, Hand);
+	DOREPLIFETIME(ASHPlayerState, SeatIndex);
 }
 
 void ASHPlayerState::SetHand(ASHHand* NewHand)
@@ -19,4 +20,16 @@ void ASHPlayerState::SetHand(ASHHand* NewHand)
 ASHHand* ASHPlayerState::GetHand()
 {
 	return Hand;
+}
+
+void ASHPlayerState::SetSeatIndex(int32 NewSeatIndex)
+{
+	checkf(HasAuthority(), TEXT("SeatIndex can only be assigned on the server"));
+
+	SeatIndex = NewSeatIndex;
+}
+
+int32 ASHPlayerState::GetSeatIndex()
+{
+	return SeatIndex;
 }

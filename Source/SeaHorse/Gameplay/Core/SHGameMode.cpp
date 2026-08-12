@@ -173,7 +173,27 @@ void ASHGameMode::StartGame()
 {
     UE_LOG(LogTemp, Warning, TEXT("StartGame - creating deck"));
 
+    AssignSeats();
+
     CreateDeck();
     ShuffleDeck();
     DealCards();
+}
+
+void ASHGameMode::AssignSeats()
+{
+    ASHGameState* SHGameState = GetGameState<ASHGameState>();
+
+    checkf(IsValid(SHGameState), TEXT("Invalid SHGameState"));
+    checkf(!SHGameState->PlayerArray.IsEmpty(), TEXT("Cannot assign seats without players"));
+
+    for (int32 SeatIndex = 0; SeatIndex < SHGameState->PlayerArray.Num(); ++SeatIndex)
+    {
+        ASHPlayerState* PlayerState = Cast<ASHPlayerState>(SHGameState->PlayerArray[SeatIndex]);
+
+        checkf(IsValid(PlayerState), TEXT("PlayerState at index %d is not ASHPlayerState"), SeatIndex);
+
+        PlayerState->SetSeatIndex(SeatIndex);
+    }
+
 }
