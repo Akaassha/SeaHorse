@@ -29,6 +29,11 @@ TSubclassOf<UCardDefinition> ASHCard::GetCardDefinition()
 	return CardDefinition;
 }
 
+void ASHCard::SetCardDefinition(TSubclassOf<UCardDefinition> NewCardDefinition)
+{
+	CardDefinition = NewCardDefinition;
+}
+
 // Called when the game starts or when spawned
 void ASHCard::BeginPlay()
 {

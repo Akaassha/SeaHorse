@@ -25,6 +25,8 @@ public:
 	UFUNCTION(BlueprintCallable)
 	TSubclassOf<UCardDefinition> GetCardDefinition();
 
+	void SetCardDefinition(TSubclassOf<UCardDefinition> CardDefinition);
+
 protected:
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;

@@ -84,3 +84,7 @@ void ASHHand::OnRep_Cards()
     }
 }
 
+int32 ASHHand::GetCardCount() const
+{
+    return Cards.Num();
+}

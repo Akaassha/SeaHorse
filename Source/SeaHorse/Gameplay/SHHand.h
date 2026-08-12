@@ -41,4 +41,7 @@ public:
 
 	UFUNCTION()
 	void OnRep_Cards();
+
+	UFUNCTION(BlueprintPure)
+	int32 GetCardCount() const;
 };

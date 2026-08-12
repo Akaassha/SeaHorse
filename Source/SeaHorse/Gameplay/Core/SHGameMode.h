@@ -7,6 +7,21 @@
 #include "SHGameMode.generated.h"
 
 class ASHHand;
+class ASHCard;
+class UCardDefinition;
+
+USTRUCT(BlueprintType)
+struct FDeckEntry : public FTableRowBase
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	TSubclassOf<UCardDefinition> CardDefinition;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta = (ClampMin = "1"))
+	int32 Count = 1;
+};
+
 /**
  * 
  */
@@ -21,9 +36,35 @@ public:
 	virtual void Logout(AController* Exiting) override;
 
 	virtual void HandleStartingNewPlayer_Implementation(APlayerController* NewPlayer) override;
+
+	virtual void StartPlay() override;
 	//End AGameMode Interface
+
+	void CreateDeck();
 
 protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Cards")
+	TObjectPtr<UDataTable> DeckDefinition;
+
+	UPROPERTY()
+	TArray<TObjectPtr<ASHCard>> Deck;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Cards")
+	TSubclassOf<ASHCard> CardClass;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Cards")
 	TSubclassOf<ASHHand> HandClass;
+
+	UFUNCTION(BlueprintCallable)
+	void ShuffleDeck();
+
+	UFUNCTION(BlueprintCallable)
+	void DealCards();
+
+	UPROPERTY(EditDefaultsOnly)
+	int32 ExpectedPlayerCount = 3;
+
+private:
+	void TryStartGame();
+	void StartGame();
 };
