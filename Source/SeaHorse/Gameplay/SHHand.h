@@ -46,7 +46,7 @@ public:
 	UFUNCTION(BlueprintPure)
 	int32 GetCardCount() const;
 
-	UFUNCTION(BlueprintCallable)
+	UFUNCTION(BlueprintCallable, BlueprintImplementableEvent)
 	void UpdateCardPositions();
 
 };

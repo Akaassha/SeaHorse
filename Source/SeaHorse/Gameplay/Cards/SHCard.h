@@ -22,7 +22,7 @@ public:
 	UFUNCTION(BlueprintImplementableEvent, BlueprintCallable)
 	void Initialize();
 
-	UFUNCTION(BlueprintCallable)
+	UFUNCTION(BlueprintCallable, BlueprintPure)
 	TSubclassOf<UCardDefinition> GetCardDefinition();
 
 	void SetCardDefinition(TSubclassOf<UCardDefinition> CardDefinition);

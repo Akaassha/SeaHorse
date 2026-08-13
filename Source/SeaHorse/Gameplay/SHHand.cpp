@@ -29,28 +29,28 @@ void ASHHand::BeginPlay()
 	
 }
 
-void ASHHand::UpdateCardPositions()
-{
-    constexpr float CardSpacing = 15.0f;
-
-    const float StartOffset = - (Cards.Num() - 1) * CardSpacing * 0.5f;
-
-    for (int32 Index = 0; Index < Cards.Num(); ++Index)
-    {
-        ASHCard* Card = Cards[Index];
-
-        if (!IsValid(Card))
-        {
-            continue;
-        }
-
-        const float Offset = StartOffset + Index * CardSpacing;
-
-        const FVector CardLocation = GetActorLocation() + GetActorRightVector() * Offset;
-
-        Card->SetActorLocationAndRotation(CardLocation, GetActorRotation());
-    }
-}
+//void ASHHand::UpdateCardPositions()
+//{
+//    constexpr float CardSpacing = 15.0f;
+//
+//    const float StartOffset = - (Cards.Num() - 1) * CardSpacing * 0.5f;
+//
+//    for (int32 Index = 0; Index < Cards.Num(); ++Index)
+//    {
+//        ASHCard* Card = Cards[Index];
+//
+//        if (!IsValid(Card))
+//        {
+//            continue;
+//        }
+//
+//        const float Offset = StartOffset + Index * CardSpacing;
+//
+//        const FVector CardLocation = GetActorLocation() + GetActorRightVector() * Offset;
+//
+//        Card->SetActorLocationAndRotation(CardLocation, GetActorRotation());
+//    }
+//}
 
 // Called every frame
 void ASHHand::Tick(float DeltaTime)
@@ -76,6 +76,8 @@ void ASHHand::AddCard(ASHCard* Card, int32 Index)
         *GetName(),
         Cards.Num()
     );
+
+    UpdateCardPositions();
 }
 
 TArray<ASHCard*> ASHHand::GetCards()
@@ -90,6 +92,8 @@ void ASHHand::RemoveCard(ASHCard* Card)
     checkf(Cards.Contains(Card), TEXT("Card %s is not in this hand"), *GetNameSafe(Card));
 
     Cards.RemoveSingle(Card);
+
+    UpdateCardPositions();
 }
 
 void ASHHand::OnRep_Cards()
@@ -106,6 +110,8 @@ void ASHHand::OnRep_Cards()
             *GetNameSafe(Cards[Index])
         );
     }
+
+    UpdateCardPositions();
 }
 
 int32 ASHHand::GetCardCount() const
