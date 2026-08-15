@@ -336,3 +336,52 @@ ASHHand* ASHPlayerController::FindLayoutHand(int32 LayoutSeatIndex) const
 
     return nullptr;
 }
+
+void ASHPlayerController::ServerTakeCard_Implementation(ASHCard* Card, int32 InsertIndex)
+{
+    if (!IsValid(Card))
+    {
+        return;
+    }
+
+    ASHPlayerState* SHPlayerState = GetPlayerState<ASHPlayerState>();
+
+    if (!IsValid(SHPlayerState))
+    {
+        return;
+    }
+
+    ASHHand* TargetHand = SHPlayerState->GetHand();
+    ASHHand* SourceHand = Card->GetOwningHand();
+
+    UE_LOG(LogTemp, Warning,
+        TEXT("ServerTakeCard: PC=%s PS=%s TargetHand=%s IsLocalController=%s"),
+        *GetNameSafe(this),
+        *GetNameSafe(SHPlayerState),
+        *GetNameSafe(TargetHand),
+        IsLocalController() ? TEXT("TRUE") : TEXT("FALSE"));
+
+    if (!IsValid(SourceHand) || !IsValid(TargetHand))
+    {
+        return;
+    }
+
+    if (SourceHand == TargetHand)
+    {
+        return;
+    }
+
+    if (InsertIndex < 0 || InsertIndex > TargetHand->GetCardCount())
+    {
+        return;
+    }
+
+    UE_LOG(LogTemp, Warning,
+        TEXT("BEFORE ADD: TargetHand=%s Card=%s"),
+        *GetNameSafe(TargetHand),
+        *GetNameSafe(Card));
+
+    SourceHand->RemoveCard(Card);
+    TargetHand->AddCard(Card, InsertIndex);
+}
+

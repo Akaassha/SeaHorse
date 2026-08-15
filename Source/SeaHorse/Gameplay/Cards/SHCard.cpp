@@ -2,6 +2,7 @@
 
 
 #include "SeaHorse/Gameplay/Cards/SHCard.h"
+#include "SeaHorse/Gameplay/SHHand.h"
 #include "Net/UnrealNetwork.h"
 
 // Sets default values
@@ -35,6 +36,17 @@ void ASHCard::SetCardDefinition(TSubclassOf<UCardDefinition> NewCardDefinition)
 	CardDefinition = NewCardDefinition;
 }
 
+ASHHand* ASHCard::GetOwningHand()
+{
+	return Cast<ASHHand>(GetOwner());
+}
+
+void ASHCard::SetFaceUp_Implementation(bool bNewFaceUp)
+{
+	bFaceUp = bNewFaceUp;
+	UpdateCardVisual(bFaceUp);
+}
+
 // Called when the game starts or when spawned
 void ASHCard::BeginPlay()
 {
@@ -45,6 +57,19 @@ void ASHCard::BeginPlay()
 void ASHCard::OnRep_CardDefinition()
 {
 	Initialize();
+
+	UpdateCardVisual(bFaceUp);
+}
+
+void ASHCard::OnRep_Owner()
+{
+	Super::OnRep_Owner();
+
+	if (ASHHand* Hand = GetOwningHand())
+	{
+		Hand->RefreshCardsPresentation();
+		Hand->UpdateCardPositions();
+	}
 }
 
 // Called every frame

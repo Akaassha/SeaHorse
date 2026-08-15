@@ -7,6 +7,7 @@
 #include "SHCard.generated.h"
 
 class UCardDefinition;
+class ASHHand;
 
 UCLASS()
 class SEAHORSE_API ASHCard : public AActor
@@ -27,8 +28,14 @@ public:
 
 	void SetCardDefinition(TSubclassOf<UCardDefinition> CardDefinition);
 
-	UFUNCTION(BlueprintImplementableEvent, BlueprintCallable)
-	void SetFaceUp(bool bFaceUp);
+	UFUNCTION(BlueprintCallable, BlueprintPure)
+	ASHHand* GetOwningHand();
+
+	UFUNCTION(BlueprintNativeEvent, BlueprintCallable)
+	void SetFaceUp(bool bNewFaceUp);
+
+	UFUNCTION(BlueprintImplementableEvent)
+	void UpdateCardVisual(bool bShowFront);
 
 protected:
 	// Called when the game starts or when spawned
@@ -40,8 +47,12 @@ protected:
 	UFUNCTION()
 	void OnRep_CardDefinition();
 
+	virtual void OnRep_Owner() override;
+
 public:	
 	// Called every frame
 	virtual void Tick(float DeltaTime) override;
+
+	bool bFaceUp = false;
 
 };

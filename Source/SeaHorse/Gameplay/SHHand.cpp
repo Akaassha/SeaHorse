@@ -6,6 +6,8 @@
 #include "SeaHorse/Gameplay/Cards/SHCard.h"
 #include "SeaHorse/Gameplay/Core/SHPlayerController.h"
 #include "Kismet/GameplayStatics.h"
+#include "SeaHorse/Gameplay/Core/SHPlayerState.h"
+#include "Engine/EngineBaseTypes.h"
 
 // Sets default values
 ASHHand::ASHHand()
@@ -60,9 +62,16 @@ void ASHHand::AddCard(ASHCard* Card, int32 Index)
     checkf(IsValid(Card), TEXT("Cannot add invalid card to hand"));
     checkf(Index >= 0 && Index <= Cards.Num(), TEXT("Invalid hand index: %d"), Index);
 
+    UE_LOG(LogTemp, Warning,
+        TEXT("INSIDE ADD: this=%s CardOwnerBefore=%s Card=%s"),
+        *GetNameSafe(this),
+        *GetNameSafe(Card ? Card->GetOwner() : nullptr),
+        *GetNameSafe(Card));
+
     Card->SetOwner(this);
     Cards.Insert(Card, Index);
 
+    RefreshCardsPresentation();
     UpdateCardPositions();
 }
 
@@ -75,19 +84,24 @@ void ASHHand::RemoveCard(ASHCard* Card)
 {
     checkf(HasAuthority(), TEXT("RemoveCard can only be called on the server"));
     checkf(IsValid(Card), TEXT("Cannot remove invalid card from hand"));
-    checkf(Cards.Contains(Card), TEXT("Card %s is not in this hand"), *GetNameSafe(Card));
+    //checkf(Cards.Contains(Card), TEXT("Card %s is not in this hand"), *GetNameSafe(Card));
 
-    Cards.RemoveSingle(Card);
+    const int32 RemovedCount = Cards.RemoveSingle(Card);
+    Card->SetFaceUp(false);
 
+    UE_LOG(LogTemp, Warning,
+        TEXT("AddCard: Hand=%s ShowFronts=%s Card=%s"),
+        *GetName(),
+        bShowCardFronts ? TEXT("TRUE") : TEXT("FALSE"),
+        *GetNameSafe(Card));
+
+    RefreshCardsPresentation();
     UpdateCardPositions();
 }
 
 void ASHHand::OnRep_Cards()
 {
-    ASHPlayerController* PC =
-        Cast<ASHPlayerController>(
-            UGameplayStatics::GetPlayerController(this, 0)
-        );
+    ASHPlayerController* PC = Cast<ASHPlayerController>( UGameplayStatics::GetPlayerController(this, 0));
 
     if (IsValid(PC) && !PC->IsTableViewInitialized())
     {
@@ -95,26 +109,10 @@ void ASHHand::OnRep_Cards()
         return;
     }
 
-    int32 ValidCards = 0;
-
-    for (ASHCard* Card : Cards)
-    {
-        if (IsValid(Card))
-        {
-            ++ValidCards;
-        }
-    }
-
-    UE_LOG(LogTemp, Warning,
-        TEXT("[SH_INIT][%.3f][HAND] OnRep_Cards | Hand=%s LayoutSeat=%d Cards=%d Valid=%d"),
-        GetWorld()->GetTimeSeconds(),
-        *GetNameSafe(this),
-        LayoutSeatIndex,
-        Cards.Num(),
-        ValidCards);
-
-    // Normalne zmiany rêki ju¿ podczas gry.
+    RefreshCardsPresentation();
     UpdateCardPositions();
+
+    PreviousCards = Cards;
 }
 
 int32 ASHHand::GetCardCount() const
@@ -130,4 +128,59 @@ int32 ASHHand::GetLayoutSeatIndex() const
 const FTransform& ASHHand::GetLayoutTransform() const
 {
     return LayoutTransform;
+}
+
+void ASHHand::RefreshCardsPresentation()
+{
+    APlayerController* LocalPC = GetWorld()->GetFirstPlayerController();
+    ASHPlayerState* LocalPS = LocalPC
+        ? LocalPC->GetPlayerState<ASHPlayerState>()
+        : nullptr;
+
+    ASHHand* LocalHand = LocalPS
+        ? LocalPS->GetHand()
+        : nullptr;
+
+    const bool bIsListenServer = GetNetMode() == NM_ListenServer;
+    UE_LOG(LogTemp, Warning,
+        TEXT("[%s] Hand=%s LocalHand=%s ShowFronts=%s"),
+        bIsListenServer ? TEXT("LISTEN SERVER") : TEXT("CLIENT"),
+        *GetNameSafe(this),
+        *GetNameSafe(LocalHand),
+        bShowCardFronts ? TEXT("TRUE") : TEXT("FALSE"));
+
+    for (ASHCard* Card : Cards)
+    {
+        if (IsValid(Card))
+        {
+            UE_LOG(LogTemp, Warning,
+                TEXT("FACE: Hand=%s Card=%s -> %s"),
+                *GetNameSafe(this),
+                *GetNameSafe(Card),
+                bShowCardFronts ? TEXT("FRONT") : TEXT("BACK"));
+
+            Card->SetFaceUp(bShowCardFronts);
+        }
+    }
+}
+
+bool ASHHand::ShouldShowCardFronts()
+{
+    const APlayerController* LocalPC =
+        GetWorld()->GetFirstPlayerController();
+
+    if (!IsValid(LocalPC))
+    {
+        return false;
+    }
+
+    ASHPlayerState* LocalPS =
+        LocalPC->GetPlayerState<ASHPlayerState>();
+
+    if (!IsValid(LocalPS))
+    {
+        return false;
+    }
+
+    return (LocalPS->GetHand() == this);
 }

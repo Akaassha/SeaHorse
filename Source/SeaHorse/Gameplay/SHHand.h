@@ -66,6 +66,12 @@ public:
 	UFUNCTION(BlueprintCallable, BlueprintPure)
 	const FTransform& GetLayoutTransform() const;
 
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<ASHCard>> PreviousCards;
+
+	void RefreshCardsPresentation();
 private:
+	
+	bool ShouldShowCardFronts();
 	FTransform LayoutTransform;
 };
