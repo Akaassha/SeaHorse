@@ -18,10 +18,18 @@ class SEAHORSE_API ASHPlayerController : public APlayerController
 	UPROPERTY(EditDefaultsOnly, Category = "Gameplay")
 	TSubclassOf<ASHHand> HandClass;
 
+public:
 	UFUNCTION(BlueprintCallable)
+	void TrySetupTableView();
+
+	bool IsTableViewInitialized() { return bTableViewInitialized; }
+protected:
+	UFUNCTION()
 	void SetupTableView();
 
-protected:
+	// Called when the game starts or when spawned
+	virtual void BeginPlay() override;
+
 	UFUNCTION(BlueprintCallable)
 	void DebugHands();
 
@@ -30,4 +38,11 @@ protected:
 
 	UFUNCTION(BlueprintCallable)
 	int32 GetVisualSeatIndex(int32 PlayerSeatIndex, int32 PlayerCount) const;
+
+	UFUNCTION()
+	ASHHand* FindLayoutHand(int32 LayoutSeatIndex) const;
+
+
+protected:
+	bool bTableViewInitialized = false;
 };

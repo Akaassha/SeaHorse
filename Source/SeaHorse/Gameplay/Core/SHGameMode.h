@@ -42,6 +42,9 @@ public:
 
 	void CreateDeck();
 
+	void SetInitialDealtCardCount(int32 InitialDeckSize) { DeckSize = InitialDeckSize; }
+	int32 GetInitialDealtCardCount() { return DeckSize; };
+
 protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Cards")
 	TObjectPtr<UDataTable> DeckDefinition;
@@ -68,4 +71,10 @@ private:
 	void TryStartGame();
 	void StartGame();
 	void AssignSeats();
+
+	ASHHand* FindAvailableHand() const;
+
+	bool bGameStarted = false;
+
+	int32 DeckSize = -1;
 };

@@ -19,13 +19,21 @@ public:
 
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
+	UFUNCTION(BlueprintCallable, BlueprintImplementableEvent)
+	void Initialize();
+
+	void SetShowCardFronts(bool bShow);
+
 protected:
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
 
 	UPROPERTY(ReplicatedUsing = OnRep_Cards)
 	TArray<TObjectPtr<ASHCard>> Cards;
+
+
 	
+	bool bShowCardFronts = false;
 
 public:	
 	// Called every frame
@@ -34,7 +42,7 @@ public:
 	UFUNCTION(BlueprintCallable)
 	void AddCard(ASHCard* Card, int32 Index);
 
-	UFUNCTION(BlueprintCallable)
+	UFUNCTION(BlueprintCallable, BlueprintPure)
 	TArray<ASHCard*> GetCards();
 
 	UFUNCTION(BlueprintCallable)
@@ -49,4 +57,15 @@ public:
 	UFUNCTION(BlueprintCallable, BlueprintImplementableEvent)
 	void UpdateCardPositions();
 
+	UPROPERTY(EditInstanceOnly, BlueprintReadOnly)
+	int32 LayoutSeatIndex = INDEX_NONE;
+
+	UFUNCTION(BlueprintCallable, BlueprintPure)
+	int32 GetLayoutSeatIndex() const;
+
+	UFUNCTION(BlueprintCallable, BlueprintPure)
+	const FTransform& GetLayoutTransform() const;
+
+private:
+	FTransform LayoutTransform;
 };

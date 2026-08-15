@@ -4,6 +4,8 @@
 #include "SeaHorse/Gameplay/SHHand.h"
 #include "Net/UnrealNetwork.h"
 #include "SeaHorse/Gameplay/Cards/SHCard.h"
+#include "SeaHorse/Gameplay/Core/SHPlayerController.h"
+#include "Kismet/GameplayStatics.h"
 
 // Sets default values
 ASHHand::ASHHand()
@@ -13,6 +15,8 @@ ASHHand::ASHHand()
 
 	bReplicates = true;
     SetReplicateMovement(false);
+
+
 }
 
 void ASHHand::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -27,30 +31,21 @@ void ASHHand::BeginPlay()
 {
 	Super::BeginPlay();
 	
+    LayoutTransform = GetActorTransform();
 }
 
-//void ASHHand::UpdateCardPositions()
-//{
-//    constexpr float CardSpacing = 15.0f;
-//
-//    const float StartOffset = - (Cards.Num() - 1) * CardSpacing * 0.5f;
-//
-//    for (int32 Index = 0; Index < Cards.Num(); ++Index)
-//    {
-//        ASHCard* Card = Cards[Index];
-//
-//        if (!IsValid(Card))
-//        {
-//            continue;
-//        }
-//
-//        const float Offset = StartOffset + Index * CardSpacing;
-//
-//        const FVector CardLocation = GetActorLocation() + GetActorRightVector() * Offset;
-//
-//        Card->SetActorLocationAndRotation(CardLocation, GetActorRotation());
-//    }
-//}
+void ASHHand::SetShowCardFronts(bool bShow)
+{
+    bShowCardFronts = bShow;
+
+    for (ASHCard* Card : Cards)
+    {
+        if (IsValid(Card))
+        {
+            Card->SetFaceUp(bShowCardFronts);
+        }
+    }
+}
 
 // Called every frame
 void ASHHand::Tick(float DeltaTime)
@@ -67,15 +62,6 @@ void ASHHand::AddCard(ASHCard* Card, int32 Index)
 
     Card->SetOwner(this);
     Cards.Insert(Card, Index);
-
-    UE_LOG(
-        LogTemp,
-        Warning,
-        TEXT("SERVER: Added %s to %s | Cards: %d"),
-        *GetNameSafe(Card),
-        *GetName(),
-        Cards.Num()
-    );
 
     UpdateCardPositions();
 }
@@ -98,23 +84,50 @@ void ASHHand::RemoveCard(ASHCard* Card)
 
 void ASHHand::OnRep_Cards()
 {
-    UE_LOG(LogTemp, Warning, TEXT("Hand %s updated. Count: %d"), *GetName(), Cards.Num());
-
-    for (int32 Index = 0; Index < Cards.Num(); ++Index)
-    {
-        UE_LOG(
-            LogTemp,
-            Warning,
-            TEXT("[%d] %s"),
-            Index,
-            *GetNameSafe(Cards[Index])
+    ASHPlayerController* PC =
+        Cast<ASHPlayerController>(
+            UGameplayStatics::GetPlayerController(this, 0)
         );
+
+    if (IsValid(PC) && !PC->IsTableViewInitialized())
+    {
+        PC->TrySetupTableView();
+        return;
     }
 
+    int32 ValidCards = 0;
+
+    for (ASHCard* Card : Cards)
+    {
+        if (IsValid(Card))
+        {
+            ++ValidCards;
+        }
+    }
+
+    UE_LOG(LogTemp, Warning,
+        TEXT("[SH_INIT][%.3f][HAND] OnRep_Cards | Hand=%s LayoutSeat=%d Cards=%d Valid=%d"),
+        GetWorld()->GetTimeSeconds(),
+        *GetNameSafe(this),
+        LayoutSeatIndex,
+        Cards.Num(),
+        ValidCards);
+
+    // Normalne zmiany rêki ju¿ podczas gry.
     UpdateCardPositions();
 }
 
 int32 ASHHand::GetCardCount() const
 {
     return Cards.Num();
+}
+
+int32 ASHHand::GetLayoutSeatIndex() const
+{
+    return LayoutSeatIndex;
+}
+
+const FTransform& ASHHand::GetLayoutTransform() const
+{
+    return LayoutTransform;
 }

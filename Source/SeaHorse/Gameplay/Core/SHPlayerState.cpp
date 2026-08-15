@@ -2,6 +2,8 @@
 
 
 #include "SeaHorse/Gameplay/Core/SHPlayerState.h"
+#include "SeaHorse/Gameplay/Core/SHPlayerController.h"
+#include "Kismet/GameplayStatics.h"
 #include "Net/UnrealNetwork.h"
 
 void ASHPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -32,4 +34,26 @@ void ASHPlayerState::SetSeatIndex(int32 NewSeatIndex)
 int32 ASHPlayerState::GetSeatIndex()
 {
 	return SeatIndex;
+}
+
+void ASHPlayerState::OnRep_SeatIndex()
+{
+    UE_LOG(
+        LogTemp,
+        Warning,
+        TEXT("[SH_INIT][%.3f][PS] OnRep_SeatIndex | PS=%s Seat=%d"),
+        GetWorld()->GetTimeSeconds(),
+        *GetNameSafe(this),
+        SeatIndex
+    );
+
+    ASHPlayerController* PC =
+        Cast<ASHPlayerController>(
+            UGameplayStatics::GetPlayerController(this, 0)
+        );
+
+    if (IsValid(PC))
+    {
+        PC->TrySetupTableView();
+    }
 }

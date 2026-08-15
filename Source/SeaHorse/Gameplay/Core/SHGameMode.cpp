@@ -10,6 +10,7 @@
 #include "SeaHorse/Gameplay/Cards/CardDefinition.h"
 #include "Algo/RandomShuffle.h"
 #include "SeaHorse/Gameplay/Core/SHGameState.h"
+#include "EngineUtils.h"
 
 void ASHGameMode::PostLogin(APlayerController* NewPlayer)
 {
@@ -25,29 +26,34 @@ void ASHGameMode::Logout(AController* Exiting)
 
 void ASHGameMode::HandleStartingNewPlayer_Implementation(APlayerController* NewPlayer)
 {
-	Super::HandleStartingNewPlayer_Implementation(NewPlayer);
+    Super::HandleStartingNewPlayer_Implementation(NewPlayer);
 
-	checkf(HandClass, TEXT("HandClass is not configured in %s"), *GetNameSafe(this));
-	checkf(IsValid(NewPlayer), TEXT("HandleStartingNewPlayer received invalid PlayerController"));
+    checkf(
+        IsValid(NewPlayer),
+        TEXT("HandleStartingNewPlayer received invalid PlayerController")
+    );
 
-	FActorSpawnParameters SpawnParams;
-	SpawnParams.Owner = NewPlayer;
+    ASHPlayerState* SHPlayerState =
+        NewPlayer->GetPlayerState<ASHPlayerState>();
 
-	ASHHand* Hand = GetWorld()->SpawnActor<ASHHand>(
-		HandClass,
-		FVector::ZeroVector,
-		FRotator::ZeroRotator,
-		SpawnParams
-	);
+    checkf(
+        IsValid(SHPlayerState),
+        TEXT("Player %s does not have a valid ASHPlayerState"),
+        *GetNameSafe(NewPlayer)
+    );
 
-	checkf(IsValid(Hand), TEXT("Failed to spawn Hand for player %s"), *GetNameSafe(NewPlayer));
+    ASHHand* Hand = FindAvailableHand();
 
-	ASHPlayerState* SHPlayerState = NewPlayer->GetPlayerState<ASHPlayerState>();
+    checkf(
+        IsValid(Hand),
+        TEXT("No available Hand found in level for player %s"),
+        *GetNameSafe(NewPlayer)
+    );
 
-	checkf(IsValid(SHPlayerState), TEXT("Player %s does not have a valid ASHPlayerState"), *GetNameSafe(NewPlayer));
+    Hand->SetOwner(NewPlayer);
 
-	SHPlayerState->SetHand(Hand);
-	
+    SHPlayerState->SetHand(Hand);
+
     TryStartGame();
 }
 
@@ -79,36 +85,20 @@ void ASHGameMode::CreateDeck()
         {
             const FTransform SpawnTransform = FTransform::Identity;
 
-            UE_LOG(LogTemp, Warning, TEXT("BEFORE SPAWN | Definition: %s"), *GetNameSafe(Entry->CardDefinition.Get()));
-
             ASHCard* Card = GetWorld()->SpawnActorDeferred<ASHCard>(CardClass, SpawnTransform);
 
             checkf(IsValid(Card), TEXT("Failed to spawn card"));
 
             Card->SetCardDefinition(Entry->CardDefinition);
 
-            UE_LOG(
-                LogTemp,
-                Warning,
-                TEXT("AFTER SET | Definition: %s"),
-                *GetNameSafe(Card->GetCardDefinition().Get())
-            );
-
             UGameplayStatics::FinishSpawningActor(Card, SpawnTransform);
-
-            UE_LOG(
-                LogTemp,
-                Warning,
-                TEXT("AFTER FINISH SPAWN | Definition: %s"),
-                *GetNameSafe(Card->GetCardDefinition().Get())
-            );
 
             Card->Initialize();
             Deck.Add(Card);
         }
     }
 
-
+    DeckSize = Deck.Num();
 }
 
 void ASHGameMode::ShuffleDeck()
@@ -148,6 +138,11 @@ void ASHGameMode::DealCards()
 
 void ASHGameMode::TryStartGame()
 {
+    if (bGameStarted)
+    {
+        return;
+    }
+
     ASHGameState* SHGameState = GetGameState<ASHGameState>();
     checkf(IsValid(SHGameState), TEXT("Invalid SHGameState"));
 
@@ -166,18 +161,42 @@ void ASHGameMode::TryStartGame()
         }
     }
 
+    bGameStarted = true;
     StartGame();
 }
 
 void ASHGameMode::StartGame()
 {
-    UE_LOG(LogTemp, Warning, TEXT("StartGame - creating deck"));
+    UE_LOG(LogTemp, Warning,
+        TEXT("[SH_INIT][%.3f][SERVER] StartGame BEGIN"),
+        GetWorld()->GetTimeSeconds());
 
     AssignSeats();
 
+    UE_LOG(LogTemp, Warning,
+        TEXT("[SH_INIT][%.3f][SERVER] AssignSeats DONE"),
+        GetWorld()->GetTimeSeconds());
+
     CreateDeck();
     ShuffleDeck();
+
+    UE_LOG(LogTemp, Warning,
+        TEXT("[SH_INIT][%.3f][SERVER] Deck ready | Cards: %d"),
+        GetWorld()->GetTimeSeconds(),
+        Deck.Num());
+
     DealCards();
+
+    ASHGameState* SHGameState = GetGameState<ASHGameState>();
+    checkf(IsValid(SHGameState), TEXT("Invalid SHGameState"));
+
+    SHGameState->SetInitialDealtCardCount(DeckSize);
+
+    UE_LOG(LogTemp, Warning,
+        TEXT("[SH_INIT][%.3f][SERVER] Setting MatchReady TRUE"),
+        GetWorld()->GetTimeSeconds());
+
+    SHGameState->SetMatchReady(true);
 }
 
 void ASHGameMode::AssignSeats()
@@ -196,4 +215,52 @@ void ASHGameMode::AssignSeats()
         PlayerState->SetSeatIndex(SeatIndex);
     }
 
+   //for (APlayerState* CurrentPlayerState : SHGameState->PlayerArray)
+   //{
+   //    ASHPlayerState* SHPlayerState =
+   //        CastChecked<ASHPlayerState>(CurrentPlayerState);
+   //
+   //    ASHHand* Hand = SHPlayerState->GetHand();
+   //
+   //    Hand->Initialize();
+   //    Hand->UpdateCardPositions();
+   //}
+
+}
+
+ASHHand* ASHGameMode::FindAvailableHand() const
+{
+    ASHHand* AvailableHand = nullptr;
+
+    for (TActorIterator<ASHHand> It(GetWorld()); It; ++It)
+    {
+        ASHHand* Hand = *It;
+
+        if (!IsValid(Hand))
+        {
+            continue;
+        }
+
+        // Rêce ustawione na levelu maj¹ LayoutSeatIndex
+        if (Hand->GetLayoutSeatIndex() == INDEX_NONE)
+        {
+            continue;
+        }
+
+        // Jeœli ma Ownera, zosta³a ju¿ przypisana graczowi
+        if (IsValid(Hand->GetOwner()))
+        {
+            continue;
+        }
+
+        // Wybieramy najni¿szy wolny LayoutSeatIndex,
+        // ¿eby przypisanie by³o deterministyczne.
+        if (!IsValid(AvailableHand) ||
+            Hand->GetLayoutSeatIndex() < AvailableHand->GetLayoutSeatIndex())
+        {
+            AvailableHand = Hand;
+        }
+    }
+
+    return AvailableHand;
 }

@@ -31,7 +31,7 @@ public:
 	int32 GetSeatIndex();
 
 	UFUNCTION()
-	void OnRep_SeatIndex() {};
+	void OnRep_SeatIndex();
 	
 protected:
 	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Hand")

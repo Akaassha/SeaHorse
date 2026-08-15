@@ -27,6 +27,9 @@ public:
 
 	void SetCardDefinition(TSubclassOf<UCardDefinition> CardDefinition);
 
+	UFUNCTION(BlueprintImplementableEvent, BlueprintCallable)
+	void SetFaceUp(bool bFaceUp);
+
 protected:
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;

@@ -8,54 +8,236 @@
 #include "SeaHorse/Gameplay/Cards/CardDefinition.h"
 #include "SeaHorse/Gameplay/Cards/SHCard.h"
 #include "SeaHorse/Gameplay/Board/SHTable.h"
-
 #include "Kismet/GameplayStatics.h"
+#include "SeaHorse/Gameplay/Core/SHGameMode.h"
 
-void ASHPlayerController::SetupTableView()
+void ASHPlayerController::TrySetupTableView()
 {
+    UE_LOG(LogTemp, Warning,
+        TEXT("[SH_INIT][%.3f][PC:%s] TryInitialTableSetup BEGIN | Initialized=%d"),
+        GetWorld()->GetTimeSeconds(),
+        *GetNameSafe(this),
+        bTableViewInitialized);
+
+    if (bTableViewInitialized)
+    {
+        UE_LOG(LogTemp, Warning,
+            TEXT("[SH_INIT] -> SKIP: already initialized"));
+        return;
+    }
+
+    if (!IsLocalController())
+    {
+        UE_LOG(LogTemp, Warning,
+            TEXT("[SH_INIT] -> WAIT: not local controller"));
+        return;
+    }
+
     ASHGameState* SHGameState = GetWorld()->GetGameState<ASHGameState>();
-    checkf(IsValid(SHGameState), TEXT("Invalid SHGameState"));
+
+    if (!IsValid(SHGameState))
+    {
+        UE_LOG(LogTemp, Warning,
+            TEXT("[SH_INIT] -> WAIT: no GameState"));
+        return;
+    }
+
+    if (!SHGameState->IsMatchReady())
+    {
+        UE_LOG(LogTemp, Warning,
+            TEXT("[SH_INIT] -> WAIT: MatchReady=false"));
+        return;
+    }
+
+    UE_LOG(LogTemp, Warning,
+        TEXT("[SH_INIT] MatchReady=true | Players=%d | ExpectedCards=%d"),
+        SHGameState->PlayerArray.Num(),
+        SHGameState->GetInitialDealtCardCount());
 
     ASHPlayerState* LocalPlayerState = GetPlayerState<ASHPlayerState>();
-    checkf(IsValid(LocalPlayerState), TEXT("Invalid local PlayerState"));
 
-    const int32 PlayerCount = SHGameState->PlayerArray.Num();
+    if (!IsValid(LocalPlayerState) ||
+        LocalPlayerState->GetSeatIndex() == INDEX_NONE)
+    {
+        return;
+    }
 
-    ASHTable* Table = Cast<ASHTable>(UGameplayStatics::GetActorOfClass(GetWorld(), ASHTable::StaticClass()));
+    if (SHGameState->PlayerArray.IsEmpty())
+    {
+        return;
+    }
 
-    checkf(IsValid(Table), TEXT("No SHTable found in level"));
+    int32 ReceivedCardCount = 0;
 
     for (APlayerState* CurrentPlayerState : SHGameState->PlayerArray)
     {
         ASHPlayerState* SHPlayerState = Cast<ASHPlayerState>(CurrentPlayerState);
 
-        checkf(IsValid(SHPlayerState),TEXT("PlayerState is not ASHPlayerState"));
+        if (!IsValid(SHPlayerState))
+        {
+            UE_LOG(LogTemp, Warning,
+                TEXT("[SH_INIT] -> WAIT: invalid PlayerState"));
+            return;
+        }
+
+        if (SHPlayerState->GetSeatIndex() == INDEX_NONE)
+        {
+            UE_LOG(LogTemp, Warning,
+                TEXT("[SH_INIT] -> WAIT: %s has no SeatIndex"), *GetNameSafe(SHPlayerState));
+            return;
+        }
 
         ASHHand* Hand = SHPlayerState->GetHand();
 
-        checkf(IsValid(Hand), TEXT("Player %s has no Hand"), *GetNameSafe(SHPlayerState));
+        if (!IsValid(Hand))
+        {
+            UE_LOG(LogTemp, Warning,
+                TEXT("[SH_INIT] -> WAIT: %s has no Hand"),
+                *GetNameSafe(SHPlayerState));
+            return;
+        }
 
-        const int32 VisualSeatIndex = GetVisualSeatIndex(SHPlayerState->GetSeatIndex(), PlayerCount);
+        int32 ValidCards = 0;
 
-        USceneComponent* HandRoot = Table->GetHandRoot(PlayerCount, VisualSeatIndex);
+        for (ASHCard* Card : Hand->GetCards())
+        {
+            if (IsValid(Card))
+            {
+                ++ValidCards;
+            }
+        }
 
-        checkf(IsValid(HandRoot), TEXT("No HandRoot for PlayerCount %d, VisualSeatIndex %d"), PlayerCount, VisualSeatIndex);
 
-        Hand->SetActorTransform(HandRoot->GetComponentTransform());
+        UE_LOG(LogTemp, Warning,
+            TEXT("[SH_INIT] Player=%s LogicalSeat=%d Hand=%s LayoutSeat=%d Cards=%d Valid=%d"),
+            *GetNameSafe(SHPlayerState),
+            SHPlayerState->GetSeatIndex(),
+            *GetNameSafe(Hand),
+            Hand->GetLayoutSeatIndex(),
+            Hand->GetCardCount(),
+            ValidCards);
 
-        UE_LOG(
-            LogTemp,
-            Warning,
-            TEXT("LocalSeat: %d | Player: %s | LogicalSeat: %d -> VisualSeat: %d | HandRoot: %s"),
-            LocalPlayerState->GetSeatIndex(),
-            *SHPlayerState->GetPlayerName(),
+
+        if (ValidCards != Hand->GetCardCount())
+        {
+            UE_LOG(LogTemp, Warning,
+                TEXT("[SH_INIT] -> WAIT: unresolved Card actors"));
+            return;
+        }
+
+        ReceivedCardCount += Hand->GetCardCount();
+    }
+
+    UE_LOG(LogTemp, Warning,
+        TEXT("[SH_INIT] ReceivedCards=%d ExpectedCards=%d"),
+        ReceivedCardCount,
+        SHGameState->GetInitialDealtCardCount());
+
+    if (ReceivedCardCount != SHGameState->GetInitialDealtCardCount())
+    {
+        UE_LOG(LogTemp, Warning,
+            TEXT("[SH_INIT] -> WAIT: incomplete initial deal"));
+        return;
+    }
+
+    UE_LOG(LogTemp, Warning,
+        TEXT("[SH_INIT][%.3f] >>> READY - calling SetupTableView"),
+        GetWorld()->GetTimeSeconds());
+
+    SetupTableView();
+    bTableViewInitialized = true;
+
+    UE_LOG(LogTemp, Warning,
+        TEXT("[SH_INIT][%.3f] <<< TABLE INITIALIZED"),
+        GetWorld()->GetTimeSeconds());
+}
+
+void ASHPlayerController::SetupTableView()
+{
+    ASHGameState* SHGameState = GetWorld()->GetGameState<ASHGameState>();
+
+    checkf(IsValid(SHGameState), TEXT("Invalid SHGameState"));
+
+    const int32 PlayerCount = SHGameState->PlayerArray.Num();
+
+    TArray<ASHHand*> HandsToUpdate;
+
+    for (APlayerState* CurrentPlayerState : SHGameState->PlayerArray)
+    {
+        ASHPlayerState* SHPlayerState =
+            CastChecked<ASHPlayerState>(CurrentPlayerState);
+
+        ASHHand* Hand = SHPlayerState->GetHand();
+
+        checkf(
+            IsValid(Hand),
+            TEXT("Player %s has no Hand"),
+            *GetNameSafe(SHPlayerState)
+        );
+
+        const int32 VisualSeatIndex =
+            GetVisualSeatIndex(
+                SHPlayerState->GetSeatIndex(),
+                PlayerCount
+            );
+
+        ASHHand* LayoutHand =
+            FindLayoutHand(VisualSeatIndex);
+
+        checkf(
+            IsValid(LayoutHand),
+            TEXT("No LayoutHand for VisualSeatIndex %d"),
+            VisualSeatIndex
+        );
+
+        const FTransform& LayoutTransform =
+            LayoutHand->GetLayoutTransform();
+
+        UE_LOG(LogTemp, Warning,
+            TEXT("[SH_INIT][LAYOUT] Player=%s Logical=%d -> Visual=%d | Hand=%s -> LayoutHand=%s"),
+            *GetNameSafe(SHPlayerState),
             SHPlayerState->GetSeatIndex(),
             VisualSeatIndex,
-            *GetNameSafe(HandRoot)
+            *GetNameSafe(Hand),
+            *GetNameSafe(LayoutHand));
+
+        Hand->SetActorLocationAndRotation(
+            LayoutTransform.GetLocation(),
+            LayoutTransform.GetRotation()
         );
+
+        UE_LOG(LogTemp, Warning,
+            TEXT("[SH_INIT][LAYOUT] Hand=%s SET | Loc=%s Rot=%s"),
+            *GetNameSafe(Hand),
+            *LayoutTransform.GetLocation().ToString(),
+            *LayoutTransform.GetRotation().ToString());
+
+        HandsToUpdate.Add(Hand);
+     
+           
+        const bool bIsLocalHand = (SHPlayerState == GetPlayerState<ASHPlayerState>());
+
+        Hand->SetShowCardFronts(bIsLocalHand);
+    }
+
+
+    for (ASHHand* Hand : HandsToUpdate)
+    {
+        Hand->Initialize();
+
+        UE_LOG(LogTemp, Warning,
+            TEXT("[SH_INIT][LAYOUT] UpdateCardPositions | Hand=%s Cards=%d"),
+            *GetNameSafe(Hand),
+            Hand->GetCardCount());
 
         Hand->UpdateCardPositions();
     }
+}
+
+void ASHPlayerController::BeginPlay()
+{
+    Super::BeginPlay();
+
 }
 
 void ASHPlayerController::DebugHands()
@@ -67,8 +249,6 @@ void ASHPlayerController::DebugHands()
         return;
     }
 
-    UE_LOG(LogTemp, Warning, TEXT("=== HANDS ON %s ==="), *GetName());
-
     for (APlayerState* CurrentPlayerState : SHGameState->PlayerArray)
     {
         ASHPlayerState* SHPlayerState = Cast<ASHPlayerState>(CurrentPlayerState);
@@ -78,14 +258,6 @@ void ASHPlayerController::DebugHands()
             continue;
         }
 
-        UE_LOG(
-            LogTemp,
-            Warning,
-            TEXT("PlayerId: %d | PlayerState: %s | Hand: %s"),
-            SHPlayerState->GetPlayerId(),
-            *GetNameSafe(SHPlayerState),
-            *GetNameSafe(SHPlayerState->GetHand())
-        );
     }
 }
 
@@ -96,13 +268,6 @@ void ASHPlayerController::DebugCardDefinitions()
 
     const ASHPlayerState* LocalPlayerState = GetPlayerState<ASHPlayerState>();
     checkf(IsValid(LocalPlayerState), TEXT("Invalid local SHPlayerState"));
-
-    UE_LOG(
-        LogTemp,
-        Warning,
-        TEXT("=== LOCAL PLAYER ID: %d ==="),
-        LocalPlayerState->GetPlayerId()
-    );
 
     for (APlayerState* CurrentPlayerState : SHGameState->PlayerArray)
     {
@@ -120,13 +285,6 @@ void ASHPlayerController::DebugCardDefinitions()
             continue;
         }
 
-        UE_LOG(
-            LogTemp,
-            Warning,
-            TEXT("Hand owner PlayerId: %d"),
-            SHPlayerState->GetPlayerId()
-        );
-
         TArray<ASHCard*> Cards = Hand->GetCards();
 
         for (int32 Index = 0; Index < Cards.Num(); ++Index)
@@ -135,27 +293,16 @@ void ASHPlayerController::DebugCardDefinitions()
 
             if (!IsValid(Card))
             {
-                UE_LOG(LogTemp, Warning, TEXT("[%d] Card: None"), Index);
                 continue;
             }
 
             TSubclassOf<UCardDefinition> Definition = Card->GetCardDefinition();
 
-            UE_LOG(
-                LogTemp,
-                Warning,
-                TEXT("[%d] Card: %s | Definition: %s"),
-                Index,
-                *GetNameSafe(Card),
-                *GetNameSafe(Definition.Get())
-            );
         }
     }
 }
 
-int32 ASHPlayerController::GetVisualSeatIndex(
-    int32 PlayerSeatIndex,
-    int32 PlayerCount) const
+int32 ASHPlayerController::GetVisualSeatIndex(int32 PlayerSeatIndex, int32 PlayerCount) const
 {
     ASHPlayerState* LocalPlayerState = GetPlayerState<ASHPlayerState>();
 
@@ -164,4 +311,28 @@ int32 ASHPlayerController::GetVisualSeatIndex(
     const int32 LocalSeatIndex = LocalPlayerState->GetSeatIndex();
 
     return (PlayerSeatIndex - LocalSeatIndex + PlayerCount) % PlayerCount;
+}
+
+ASHHand* ASHPlayerController::FindLayoutHand(int32 LayoutSeatIndex) const
+{
+    TArray<AActor*> Hands;
+
+    UGameplayStatics::GetAllActorsOfClass(
+        GetWorld(),
+        ASHHand::StaticClass(),
+        Hands
+    );
+
+    for (AActor* Actor : Hands)
+    {
+        ASHHand* Hand = Cast<ASHHand>(Actor);
+
+        if (IsValid(Hand) &&
+            Hand->GetLayoutSeatIndex() == LayoutSeatIndex)
+        {
+            return Hand;
+        }
+    }
+
+    return nullptr;
 }
