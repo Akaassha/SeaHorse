@@ -9,6 +9,16 @@
 class UCardDefinition;
 class ASHHand;
 
+UENUM(BlueprintType)
+enum class ECardZone : uint8
+{
+	None,
+	Deck,
+	Hand,
+	Activation,
+	Victory
+};
+
 UCLASS()
 class SEAHORSE_API ASHCard : public AActor
 {
@@ -42,6 +52,11 @@ public:
 	UFUNCTION()
 	void OnRep_RevealedCardDefinition();
 
+	void SetCardZone(ECardZone NewZone);
+
+	UFUNCTION(BlueprintPure)
+	ECardZone GetCardZone() const;
+
 protected:
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
@@ -52,6 +67,12 @@ protected:
 	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_RevealedCardDefinition)
 	TSubclassOf<UCardDefinition> RevealedCardDefinition;
 	
+	UPROPERTY(ReplicatedUsing = OnRep_CardZone, BlueprintReadOnly)
+	ECardZone CardZone = ECardZone::None;
+
+	UFUNCTION()
+	void OnRep_CardZone();
+
 	UFUNCTION()
 	void OnRep_CardDefinition();
 
@@ -63,4 +84,7 @@ public:
 
 	bool bFaceUp = false;
 
+private:
+
+	void OnCardZoneChanged();
 };

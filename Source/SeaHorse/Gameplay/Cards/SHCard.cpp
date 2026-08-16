@@ -20,6 +20,7 @@ void ASHCard::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeP
 
 	DOREPLIFETIME_CONDITION(ASHCard, CardDefinition, COND_OwnerOnly);
 	DOREPLIFETIME(ASHCard, RevealedCardDefinition);
+	DOREPLIFETIME(ASHCard, CardZone);
 }
 
 TSubclassOf<UCardDefinition> ASHCard::GetCardDefinition()
@@ -88,6 +89,24 @@ void ASHCard::BeginPlay()
 	
 }
 
+ECardZone ASHCard::GetCardZone() const
+{
+	return CardZone;
+}
+
+void ASHCard::SetCardZone(ECardZone NewZone)
+{
+	checkf(HasAuthority(), TEXT("CardZone can only be changed on server"));
+
+	CardZone = NewZone;
+	OnCardZoneChanged();
+}
+
+void ASHCard::OnRep_CardZone()
+{
+	OnCardZoneChanged();
+}
+
 void ASHCard::OnRep_CardDefinition()
 {
 	Initialize();
@@ -110,5 +129,9 @@ void ASHCard::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
+}
+
+void ASHCard::OnCardZoneChanged()
+{
 }
 

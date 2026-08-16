@@ -20,18 +20,17 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere)
 	TObjectPtr<ASHCard> CardB;
 
+	UPROPERTY(BlueprintReadWrite, EditAnywhere)
+	bool bActivated = false;
+
 	bool operator==(const FActivatedPair& Other) const
 	{
-		return CardA == Other.CardA
-			&& CardB == Other.CardB;
+		return CardA == Other.CardA && CardB == Other.CardB;
 	}
 
 	friend uint32 GetTypeHash(const FActivatedPair& Pair)
 	{
-		return HashCombine(
-			GetTypeHash(Pair.CardA.Get()),
-			GetTypeHash(Pair.CardB.Get())
-		);
+		return HashCombine(GetTypeHash(Pair.CardA.Get()), GetTypeHash(Pair.CardB.Get()));
 	}
 };
 
@@ -51,6 +50,12 @@ public:
 
 	void SetShowCardFronts(bool bShow);
 
+	UFUNCTION(NetMulticast, Reliable)
+	void MulticastPairActivated(ASHCard* CardA, ASHCard* CardB);
+
+	UFUNCTION(BlueprintImplementableEvent)
+	void OnPairActivated(ASHCard* CardA, ASHCard* CardB);
+
 protected:
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
@@ -59,7 +64,7 @@ protected:
 	TArray<TObjectPtr<ASHCard>> Cards;
 
 	UPROPERTY(ReplicatedUsing = OnRep_ActivatonCards)
-	TArray<FActivatedPair> ActivatonCards;
+	TArray<FActivatedPair> ActivationPairs;
 	
 	bool bShowCardFronts = false;
 
@@ -112,6 +117,9 @@ public:
 	void RefreshCardsPresentation();
 
 	bool ContainsCard(ASHCard* CardB);
+
+	FActivatedPair* FindActivationPair(ASHCard* Card);
+
 private:
 	
 	bool ShouldShowCardFronts();

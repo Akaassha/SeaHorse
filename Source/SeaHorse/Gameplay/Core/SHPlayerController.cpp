@@ -337,6 +337,48 @@ ASHHand* ASHPlayerController::FindLayoutHand(int32 LayoutSeatIndex) const
     return nullptr;
 }
 
+void ASHPlayerController::ServerActivateStoredPair_Implementation(ASHCard* Card)
+{
+
+
+    if (!IsValid(Card))
+    {
+        return;
+    }
+
+    if (Card->GetCardZone() != ECardZone::Activation)
+    {
+        return;
+    }
+
+    ASHPlayerState* SHPlayerState = GetPlayerState<ASHPlayerState>();
+    if (!IsValid(SHPlayerState))
+    {
+        return;
+    }
+
+    ASHHand* Hand = SHPlayerState->GetHand();
+    if (!IsValid(Hand))
+    {
+        return;
+    }
+
+    FActivatedPair* Pair = Hand->FindActivationPair(Card);
+
+    if (!Pair)
+    {
+        return;
+    }
+
+    if (Pair->bActivated)
+    {
+        return;
+    }
+
+    Pair->bActivated = true;
+    Hand->MulticastPairActivated(Pair->CardA, Pair->CardB);
+}
+
 void ASHPlayerController::ServerActivatePair_Implementation(ASHCard* CardA, ASHCard* CardB)
 {
     if (!IsValid(CardA) || !IsValid(CardB) || CardA == CardB)

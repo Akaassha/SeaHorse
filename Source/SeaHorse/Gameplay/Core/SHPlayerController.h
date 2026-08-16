@@ -45,6 +45,9 @@ protected:
 	UFUNCTION(BlueprintCallable, Server, Reliable)
 	void ServerActivatePair(ASHCard* CardA, ASHCard* CardB);
 
+	UFUNCTION(BlueprintCallable, Server, Reliable)
+	void ServerActivateStoredPair(ASHCard* Card);
+
 	UFUNCTION(BlueprintImplementableEvent)
 	void OnPairActivated(ASHCard* CardA, ASHCard* CardB);
 

@@ -26,7 +26,7 @@ void ASHHand::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeP
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
 	DOREPLIFETIME(ASHHand, Cards);
-    DOREPLIFETIME(ASHHand, ActivatonCards);
+    DOREPLIFETIME(ASHHand, ActivationPairs);
 }
 
 // Called when the game starts or when spawned
@@ -50,12 +50,21 @@ void ASHHand::SetShowCardFronts(bool bShow)
     }
 }
 
+void ASHHand::MulticastPairActivated_Implementation(ASHCard* CardA, ASHCard* CardB)
+{
+    OnPairActivated(CardA, CardB);
+}
+
 void ASHHand::AddActivationPair(ASHCard* CardA, ASHCard* CardB)
 {
     FActivatedPair Pair;
+
+    CardA->SetCardZone(ECardZone::Activation);
+    CardB->SetCardZone(ECardZone::Activation);
+
     Pair.CardA = CardA;
     Pair.CardB = CardB;
-    ActivatonCards.Add(Pair);
+    ActivationPairs.Add(Pair);
 }
 
 // Called every frame
@@ -78,6 +87,7 @@ void ASHHand::AddCard(ASHCard* Card, int32 Index)
         *GetNameSafe(Card));
 
     Card->SetOwner(this);
+    Card->SetCardZone(ECardZone::Hand);
     Cards.Insert(Card, Index);
 
     RefreshCardsPresentation();
@@ -91,15 +101,15 @@ TArray<ASHCard*> ASHHand::GetCards()
 
 TArray<FActivatedPair> ASHHand::GetActivationPairs()
 {
-    return ActivatonCards;
+    return ActivationPairs;
 }
 
 TArray<ASHCard*> ASHHand::GetActivationCards()
 {
     TArray<ASHCard*> ReturnCards;
-    ReturnCards.Reserve(ActivatonCards.Num() * 2);
+    ReturnCards.Reserve(ActivationPairs.Num() * 2);
 
-    for (const FActivatedPair& Pair : ActivatonCards)
+    for (const FActivatedPair& Pair : ActivationPairs)
     {
         if (IsValid(Pair.CardA))
         {
@@ -207,6 +217,15 @@ void ASHHand::RefreshCardsPresentation()
 bool ASHHand::ContainsCard(ASHCard* CardB)
 {
     return Cards.Contains(CardB);
+}
+
+FActivatedPair* ASHHand::FindActivationPair(ASHCard* Card)
+{
+    return ActivationPairs.FindByPredicate(
+        [Card](const FActivatedPair& Pair)
+        {
+            return Pair.CardA == Card || Pair.CardB == Card;
+        });
 }
 
 bool ASHHand::ShouldShowCardFronts()
