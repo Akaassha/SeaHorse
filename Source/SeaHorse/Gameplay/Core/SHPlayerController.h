@@ -14,9 +14,6 @@ UCLASS()
 class SEAHORSE_API ASHPlayerController : public APlayerController
 {
 	GENERATED_BODY()
-	
-	//UPROPERTY(EditDefaultsOnly, Category = "Gameplay")
-	//TSubclassOf<ASHHand> HandClass;
 
 public:
 	UFUNCTION(BlueprintCallable)
@@ -44,6 +41,12 @@ protected:
 
 	UFUNCTION(BlueprintCallable, Server, Reliable)
 	void ServerTakeCard(ASHCard* Card, int32 InsertIndex);
+
+	UFUNCTION(BlueprintCallable, Server, Reliable)
+	void ServerActivatePair(ASHCard* CardA, ASHCard* CardB);
+
+	UFUNCTION(BlueprintImplementableEvent)
+	void OnPairActivated(ASHCard* CardA, ASHCard* CardB);
 
 protected:
 	bool bTableViewInitialized = false;

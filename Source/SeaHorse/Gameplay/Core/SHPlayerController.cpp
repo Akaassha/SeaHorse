@@ -337,6 +337,51 @@ ASHHand* ASHPlayerController::FindLayoutHand(int32 LayoutSeatIndex) const
     return nullptr;
 }
 
+void ASHPlayerController::ServerActivatePair_Implementation(ASHCard* CardA, ASHCard* CardB)
+{
+    if (!IsValid(CardA) || !IsValid(CardB) || CardA == CardB)
+    {
+        return;
+    }
+
+    ASHPlayerState* SHPlayerState = GetPlayerState<ASHPlayerState>();
+    if (!IsValid(SHPlayerState))
+    {
+        return;
+    }
+
+    ASHHand* Hand = SHPlayerState->GetHand();
+    if (!IsValid(Hand))
+    {
+        return;
+    }
+
+    if (CardA->GetOwningHand() != Hand || CardB->GetOwningHand() != Hand)
+    {
+        return;
+    }
+
+    if (!Hand->ContainsCard(CardA) || !Hand->ContainsCard(CardB))
+    {
+        return;
+    }
+
+    ASHGameMode* SHGameMode = GetWorld()->GetAuthGameMode<ASHGameMode>();
+
+    if (!IsValid(SHGameMode))
+    {
+        return;
+    }
+
+    if (!SHGameMode->AreCardsPairCompatible(CardA, CardB))
+    {
+        return;
+    }
+
+    SHGameMode->ActivatePair(SHPlayerState, CardA, CardB);
+    OnPairActivated(CardA, CardB);
+}
+
 void ASHPlayerController::ServerTakeCard_Implementation(ASHCard* Card, int32 InsertIndex)
 {
     if (!IsValid(Card))

@@ -31,11 +31,16 @@ public:
 	UFUNCTION(BlueprintCallable, BlueprintPure)
 	ASHHand* GetOwningHand();
 
-	UFUNCTION(BlueprintNativeEvent, BlueprintCallable)
+	UFUNCTION(BlueprintCallable)
 	void SetFaceUp(bool bNewFaceUp);
 
 	UFUNCTION(BlueprintImplementableEvent)
 	void UpdateCardVisual(bool bShowFront);
+
+	void Reveal();
+
+	UFUNCTION()
+	void OnRep_RevealedCardDefinition();
 
 protected:
 	// Called when the game starts or when spawned
@@ -43,6 +48,9 @@ protected:
 
 	UPROPERTY(ReplicatedUsing = OnRep_CardDefinition, BlueprintReadOnly, EditAnywhere, meta = (ExposeOnSpawn = "true"))
 	TSubclassOf<UCardDefinition> CardDefinition;
+
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_RevealedCardDefinition)
+	TSubclassOf<UCardDefinition> RevealedCardDefinition;
 	
 	UFUNCTION()
 	void OnRep_CardDefinition();

@@ -3,12 +3,11 @@
 
 #include "SeaHorse/Gameplay/Cards/SHCard.h"
 #include "SeaHorse/Gameplay/SHHand.h"
+#include "SeaHorse/Gameplay/Cards/CardDefinition.h"
 #include "Net/UnrealNetwork.h"
 
-// Sets default values
 ASHCard::ASHCard()
 {
- 	// Set this actor to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
 	PrimaryActorTick.bCanEverTick = true;
 
 	bReplicates = true;
@@ -19,11 +18,8 @@ void ASHCard::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeP
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
-	DOREPLIFETIME_CONDITION(
-		ASHCard,
-		CardDefinition,
-		COND_OwnerOnly
-	);
+	DOREPLIFETIME_CONDITION(ASHCard, CardDefinition, COND_OwnerOnly);
+	DOREPLIFETIME(ASHCard, RevealedCardDefinition);
 }
 
 TSubclassOf<UCardDefinition> ASHCard::GetCardDefinition()
@@ -41,13 +37,51 @@ ASHHand* ASHCard::GetOwningHand()
 	return Cast<ASHHand>(GetOwner());
 }
 
-void ASHCard::SetFaceUp_Implementation(bool bNewFaceUp)
+void ASHCard::SetFaceUp(bool bNewFaceUp)
 {
 	bFaceUp = bNewFaceUp;
-	UpdateCardVisual(bFaceUp);
+
+	const bool bShouldActuallyBeFaceUp = IsValid(RevealedCardDefinition) || bFaceUp;
+
+	UE_LOG(LogTemp, Warning,
+		TEXT("[SET FACE] World=%s Card=%s Requested=%d Revealed=%s Final=%d"),
+		*GetWorld()->GetName(),
+		*GetNameSafe(this),
+		bNewFaceUp,
+		*GetNameSafe(RevealedCardDefinition.Get()),
+		bShouldActuallyBeFaceUp);
+
+	UpdateCardVisual(bShouldActuallyBeFaceUp);
 }
 
-// Called when the game starts or when spawned
+void ASHCard::Reveal()
+{
+	checkf(HasAuthority(), TEXT("Reveal can only be called on server"));
+
+	RevealedCardDefinition = CardDefinition;
+
+	UE_LOG(LogTemp, Warning,
+		TEXT("[REVEAL SERVER] World=%s Card=%s Revealed=%s"),
+		*GetWorld()->GetName(),
+		*GetNameSafe(this),
+		*GetNameSafe(RevealedCardDefinition.Get()));
+
+
+	OnRep_RevealedCardDefinition();
+}
+
+void ASHCard::OnRep_RevealedCardDefinition()
+{
+	UE_LOG(LogTemp, Warning,
+		TEXT("[REVEAL ONREP] World=%s Card=%s Revealed=%s bFaceUp=%d"),
+		*GetWorld()->GetName(),
+		*GetNameSafe(this),
+		*GetNameSafe(RevealedCardDefinition.Get()),
+		bFaceUp);
+
+	SetFaceUp(true);
+}
+
 void ASHCard::BeginPlay()
 {
 	Super::BeginPlay();
@@ -72,7 +106,6 @@ void ASHCard::OnRep_Owner()
 	}
 }
 
-// Called every frame
 void ASHCard::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);

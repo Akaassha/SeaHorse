@@ -101,6 +101,34 @@ void ASHGameMode::CreateDeck()
     DeckSize = Deck.Num();
 }
 
+bool ASHGameMode::AreCardsPairCompatible(ASHCard* CardA, ASHCard* CardB)
+{
+
+    if (!IsValid(CardA) || !IsValid(CardB))
+    {
+        return false;
+    }
+    
+    if (CardA == CardB)
+    {
+        return false;
+    }
+    
+    const TSubclassOf<UCardDefinition> DefinitionA =
+        CardA->GetCardDefinition();
+    
+    const TSubclassOf<UCardDefinition> DefinitionB =
+        CardB->GetCardDefinition();
+    
+    if (!IsValid(DefinitionA) || !IsValid(DefinitionB))
+    {
+        return false;
+    }
+    
+    return DefinitionA == DefinitionB;
+    
+}
+
 void ASHGameMode::ShuffleDeck()
 {
     Algo::RandomShuffle(Deck);
@@ -253,8 +281,6 @@ ASHHand* ASHGameMode::FindAvailableHand() const
             continue;
         }
 
-        // Wybieramy najni¿szy wolny LayoutSeatIndex,
-        // ¿eby przypisanie by³o deterministyczne.
         if (!IsValid(AvailableHand) ||
             Hand->GetLayoutSeatIndex() < AvailableHand->GetLayoutSeatIndex())
         {
@@ -263,4 +289,19 @@ ASHHand* ASHGameMode::FindAvailableHand() const
     }
 
     return AvailableHand;
+}
+
+void ASHGameMode::ActivatePair(ASHPlayerState* PlayerState, ASHCard* CardA, ASHCard* CardB)
+{
+    checkf(IsValid(PlayerState), TEXT("Invalid PlayerState"));
+    checkf(IsValid(CardA) && IsValid(CardB), TEXT("Invalid pair"));
+
+    ASHHand* Hand = PlayerState->GetHand();
+    checkf(IsValid(Hand), TEXT("Player has no Hand"));
+
+    Hand->RemoveCard(CardA);
+    Hand->RemoveCard(CardB);
+
+    CardA->Reveal();
+    CardB->Reveal();
 }

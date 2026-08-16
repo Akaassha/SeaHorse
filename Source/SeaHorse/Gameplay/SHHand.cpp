@@ -26,6 +26,7 @@ void ASHHand::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeP
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
 	DOREPLIFETIME(ASHHand, Cards);
+    DOREPLIFETIME(ASHHand, ActivatonCards);
 }
 
 // Called when the game starts or when spawned
@@ -47,6 +48,14 @@ void ASHHand::SetShowCardFronts(bool bShow)
             Card->SetFaceUp(bShowCardFronts);
         }
     }
+}
+
+void ASHHand::AddActivationPair(ASHCard* CardA, ASHCard* CardB)
+{
+    FActivatedPair Pair;
+    Pair.CardA = CardA;
+    Pair.CardB = CardB;
+    ActivatonCards.Add(Pair);
 }
 
 // Called every frame
@@ -78,6 +87,32 @@ void ASHHand::AddCard(ASHCard* Card, int32 Index)
 TArray<ASHCard*> ASHHand::GetCards()
 {
     return Cards;
+}
+
+TArray<FActivatedPair> ASHHand::GetActivationPairs()
+{
+    return ActivatonCards;
+}
+
+TArray<ASHCard*> ASHHand::GetActivationCards()
+{
+    TArray<ASHCard*> ReturnCards;
+    ReturnCards.Reserve(ActivatonCards.Num() * 2);
+
+    for (const FActivatedPair& Pair : ActivatonCards)
+    {
+        if (IsValid(Pair.CardA))
+        {
+            ReturnCards.Add(Pair.CardA);
+        }
+
+        if (IsValid(Pair.CardB))
+        {
+            ReturnCards.Add(Pair.CardB);
+        }
+    }
+
+    return ReturnCards;
 }
 
 void ASHHand::RemoveCard(ASHCard* Card)
@@ -113,6 +148,11 @@ void ASHHand::OnRep_Cards()
     UpdateCardPositions();
 
     PreviousCards = Cards;
+}
+
+void ASHHand::OnRep_ActivatonCards()
+{
+
 }
 
 int32 ASHHand::GetCardCount() const
@@ -164,18 +204,21 @@ void ASHHand::RefreshCardsPresentation()
     }
 }
 
+bool ASHHand::ContainsCard(ASHCard* CardB)
+{
+    return Cards.Contains(CardB);
+}
+
 bool ASHHand::ShouldShowCardFronts()
 {
-    const APlayerController* LocalPC =
-        GetWorld()->GetFirstPlayerController();
+    const APlayerController* LocalPC = GetWorld()->GetFirstPlayerController();
 
     if (!IsValid(LocalPC))
     {
         return false;
     }
 
-    ASHPlayerState* LocalPS =
-        LocalPC->GetPlayerState<ASHPlayerState>();
+    ASHPlayerState* LocalPS = LocalPC->GetPlayerState<ASHPlayerState>();
 
     if (!IsValid(LocalPS))
     {

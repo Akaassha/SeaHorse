@@ -9,6 +9,7 @@
 class ASHHand;
 class ASHCard;
 class UCardDefinition;
+class ASHPlayerState;
 
 USTRUCT(BlueprintType)
 struct FDeckEntry : public FTableRowBase
@@ -45,6 +46,10 @@ public:
 	void SetInitialDealtCardCount(int32 InitialDeckSize) { DeckSize = InitialDeckSize; }
 	int32 GetInitialDealtCardCount() { return DeckSize; };
 
+	bool AreCardsPairCompatible(ASHCard* CardA, ASHCard* CardB);
+
+	void ActivatePair(ASHPlayerState* PlayerState, ASHCard* CardA, ASHCard* CardB);
+
 protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Cards")
 	TObjectPtr<UDataTable> DeckDefinition;
@@ -77,4 +82,6 @@ private:
 	bool bGameStarted = false;
 
 	int32 DeckSize = -1;
+
+	
 };

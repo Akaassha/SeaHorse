@@ -8,6 +8,33 @@
 
 class ASHCard;
 
+USTRUCT(BlueprintType)
+struct FActivatedPair
+{
+	GENERATED_BODY()
+
+public:
+	UPROPERTY(BlueprintReadWrite, EditAnywhere)
+	TObjectPtr<ASHCard> CardA;
+
+	UPROPERTY(BlueprintReadWrite, EditAnywhere)
+	TObjectPtr<ASHCard> CardB;
+
+	bool operator==(const FActivatedPair& Other) const
+	{
+		return CardA == Other.CardA
+			&& CardB == Other.CardB;
+	}
+
+	friend uint32 GetTypeHash(const FActivatedPair& Pair)
+	{
+		return HashCombine(
+			GetTypeHash(Pair.CardA.Get()),
+			GetTypeHash(Pair.CardB.Get())
+		);
+	}
+};
+
 UCLASS()
 class SEAHORSE_API ASHHand : public AActor
 {
@@ -31,9 +58,13 @@ protected:
 	UPROPERTY(ReplicatedUsing = OnRep_Cards)
 	TArray<TObjectPtr<ASHCard>> Cards;
 
-
+	UPROPERTY(ReplicatedUsing = OnRep_ActivatonCards)
+	TArray<FActivatedPair> ActivatonCards;
 	
 	bool bShowCardFronts = false;
+
+	UFUNCTION(BlueprintCallable)
+	void AddActivationPair(ASHCard* CardA, ASHCard* CardB);
 
 public:	
 	// Called every frame
@@ -45,11 +76,20 @@ public:
 	UFUNCTION(BlueprintCallable, BlueprintPure)
 	TArray<ASHCard*> GetCards();
 
+	UFUNCTION(BlueprintCallable, BlueprintPure)
+	TArray<FActivatedPair> GetActivationPairs();
+
+	UFUNCTION(BlueprintCallable, BlueprintPure)
+	TArray<ASHCard*> GetActivationCards();
+
 	UFUNCTION(BlueprintCallable)
 	void RemoveCard(ASHCard* Card);
 
 	UFUNCTION()
 	void OnRep_Cards();
+
+	UFUNCTION()
+	void OnRep_ActivatonCards();
 
 	UFUNCTION(BlueprintPure)
 	int32 GetCardCount() const;
@@ -70,6 +110,8 @@ public:
 	TArray<TObjectPtr<ASHCard>> PreviousCards;
 
 	void RefreshCardsPresentation();
+
+	bool ContainsCard(ASHCard* CardB);
 private:
 	
 	bool ShouldShowCardFronts();
