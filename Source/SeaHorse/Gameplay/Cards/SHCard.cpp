@@ -4,6 +4,7 @@
 #include "SeaHorse/Gameplay/Cards/SHCard.h"
 #include "SeaHorse/Gameplay/SHHand.h"
 #include "SeaHorse/Gameplay/Cards/CardDefinition.h"
+#include "Blueprint/UserWidget.h"
 #include "Net/UnrealNetwork.h"
 
 ASHCard::ASHCard()
@@ -12,6 +13,20 @@ ASHCard::ASHCard()
 
 	bReplicates = true;
 	SetReplicateMovement(false);
+}
+
+void ASHCard::Initialize_Implementation()
+{
+	WidgetRenderer = MakeUnique<FWidgetRenderer>(
+		true,   // gamma correction
+		true    // clear target
+	);
+
+	CardFaceWidget = CreateWidget<UUserWidget>(GetWorld(), CardFaceWidgetClass);
+
+	checkf(IsValid(CardFaceWidget), TEXT("Failed to create CardFaceWidget"));
+
+	RefreshCardFace();
 }
 
 void ASHCard::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -80,6 +95,8 @@ void ASHCard::OnRep_RevealedCardDefinition()
 		*GetNameSafe(RevealedCardDefinition.Get()),
 		bFaceUp);
 
+	RefreshCardFace();
+
 	SetFaceUp(true);
 }
 
@@ -92,6 +109,30 @@ void ASHCard::BeginPlay()
 ECardZone ASHCard::GetCardZone() const
 {
 	return CardZone;
+}
+
+void ASHCard::RefreshCardFace()
+{
+	checkf(IsValid(CardFaceWidget), TEXT("CardFaceWidget is invalid"));
+
+	if (!WidgetRenderer)
+	{
+		WidgetRenderer = MakeUnique<FWidgetRenderer>(true, true);
+	}
+
+	const FVector2D DrawSize(512.0f, 768.0f);
+
+	CardFaceRenderTarget = WidgetRenderer->DrawWidget(
+		CardFaceWidget->TakeWidget(),
+		DrawSize
+	);
+
+	//checkf(
+	//	IsValid(CardFaceRenderTarget),
+	//	TEXT("Failed to render CardFaceWidget")
+	//);
+
+	OnCardFaceRendered(CardFaceRenderTarget);
 }
 
 void ASHCard::SetCardZone(ECardZone NewZone)
@@ -110,6 +151,8 @@ void ASHCard::OnRep_CardZone()
 void ASHCard::OnRep_CardDefinition()
 {
 	Initialize();
+
+	RefreshCardFace();
 
 	UpdateCardVisual(bFaceUp);
 }

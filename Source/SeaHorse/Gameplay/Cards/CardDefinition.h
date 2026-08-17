@@ -20,7 +20,13 @@ public:
 	FText CardName;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Display")
-	FText CardDescription;
+	FText SkillName;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Display")
+	FText SkillDesc;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Display")
+	FText AdditionalText;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Display")
 	TObjectPtr<UTexture2D> CardTextrue;

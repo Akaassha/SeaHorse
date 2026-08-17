@@ -4,10 +4,12 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "Slate/WidgetRenderer.h"
 #include "SHCard.generated.h"
 
 class UCardDefinition;
 class ASHHand;
+class UTextureRenderTarget2D;
 
 UENUM(BlueprintType)
 enum class ECardZone : uint8
@@ -30,7 +32,7 @@ public:
 
 	void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const;
 
-	UFUNCTION(BlueprintImplementableEvent, BlueprintCallable)
+	UFUNCTION(BlueprintNativeEvent, BlueprintCallable)
 	void Initialize();
 
 	UFUNCTION(BlueprintCallable, BlueprintPure)
@@ -57,6 +59,9 @@ public:
 	UFUNCTION(BlueprintPure)
 	ECardZone GetCardZone() const;
 
+	UFUNCTION(BlueprintCallable)
+	void RefreshCardFace();
+
 protected:
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
@@ -78,6 +83,16 @@ protected:
 
 	virtual void OnRep_Owner() override;
 
+	UPROPERTY(EditDefaultsOnly, Category = "Card|Visual")
+	TSubclassOf<UUserWidget> CardFaceWidgetClass;
+
+	UFUNCTION(BlueprintImplementableEvent, Category = "Card|Visual")
+	void OnCardFaceRendered(UTextureRenderTarget2D* RenderTarget);
+
+
+	UPROPERTY(BlueprintReadWrite, EditAnywhere)
+	TObjectPtr<UUserWidget> CardFaceWidget;
+
 public:	
 	// Called every frame
 	virtual void Tick(float DeltaTime) override;
@@ -87,4 +102,9 @@ public:
 private:
 
 	void OnCardZoneChanged();
+
+	TUniquePtr<FWidgetRenderer> WidgetRenderer;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UTextureRenderTarget2D> CardFaceRenderTarget;
 };
