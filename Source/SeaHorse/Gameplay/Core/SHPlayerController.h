@@ -20,6 +20,10 @@ public:
 	void TrySetupTableView();
 
 	bool IsTableViewInitialized() { return bTableViewInitialized; }
+
+	UFUNCTION(BlueprintCallable, Server, Reliable)
+	void ServerSkipCurrentPhase();
+
 protected:
 	UFUNCTION()
 	void SetupTableView();
@@ -43,7 +47,7 @@ protected:
 	void ServerTakeCard(ASHCard* Card, int32 InsertIndex);
 
 	UFUNCTION(BlueprintCallable, Server, Reliable)
-	void ServerActivatePair(ASHCard* CardA, ASHCard* CardB);
+	void ServerCreatePair(ASHCard* CardA, ASHCard* CardB);
 
 	UFUNCTION(BlueprintCallable, Server, Reliable)
 	void ServerActivateStoredPair(ASHCard* Card);

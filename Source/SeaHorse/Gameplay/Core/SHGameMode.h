@@ -23,6 +23,16 @@ struct FDeckEntry : public FTableRowBase
 	int32 Count = 1;
 };
 
+UENUM(BlueprintType)
+enum class ETurnPhaseEndReason : uint8
+{
+	None,
+	AutoSkipped,
+	PlayerSkipped,
+	PairCreated,
+	CardDrawn
+};
+
 /**
  * 
  */
@@ -33,12 +43,7 @@ class SEAHORSE_API ASHGameMode : public AGameMode
 	
 public:
 	//Begin AGameMode Interface
-	virtual void PostLogin(APlayerController* NewPlayer) override;
-	virtual void Logout(AController* Exiting) override;
-
 	virtual void HandleStartingNewPlayer_Implementation(APlayerController* NewPlayer) override;
-
-	virtual void StartPlay() override;
 	//End AGameMode Interface
 
 	void CreateDeck();
@@ -49,6 +54,20 @@ public:
 	bool AreCardsPairCompatible(ASHCard* CardA, ASHCard* CardB);
 
 	void ActivatePair(ASHPlayerState* PlayerState, ASHCard* CardA, ASHCard* CardB);
+
+	UFUNCTION(BlueprintNativeEvent, Category = "Turn")
+	ETurnPhase GetNextTurnPhase(ETurnPhase CurrentPhase, ETurnPhaseEndReason Reason);
+	virtual ETurnPhase GetNextTurnPhase_Implementation(ETurnPhase CurrentPhase, ETurnPhaseEndReason Reason);
+
+	UFUNCTION(BlueprintNativeEvent, Category = "Turn")
+	ASHPlayerState* ChooseNextPlayer(ASHPlayerState* CurrentPlayer);
+	virtual ASHPlayerState* ChooseNextPlayer_Implementation(ASHPlayerState* CurrentPlayer);
+
+	void CompleteCurrentPhase(ETurnPhaseEndReason Reason);
+
+	void SkipCurrentPhase(ASHPlayerState* RequestingPlayer);
+
+	void EndTurn();
 
 protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Cards")
@@ -71,6 +90,16 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly)
 	int32 ExpectedPlayerCount = 3;
+
+	void StartTurn();
+
+	UFUNCTION(BlueprintNativeEvent, Category = "Game|Setup")
+	ASHPlayerState* ChooseStartingPlayer();
+	virtual ASHPlayerState* ChooseStartingPlayer_Implementation();
+
+	UFUNCTION(BlueprintNativeEvent, Category = "Game|Setup")
+	ASHPlayerState* ChooseFirstDealtPlayer();
+	virtual ASHPlayerState* ChooseFirstDealtPlayer_Implementation();
 
 private:
 	void TryStartGame();

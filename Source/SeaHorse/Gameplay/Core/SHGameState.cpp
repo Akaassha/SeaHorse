@@ -13,6 +13,8 @@ void ASHGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLife
 
     DOREPLIFETIME(ASHGameState, InitialDealtCardCount);
     DOREPLIFETIME(ASHGameState, bMatchReady);
+    DOREPLIFETIME(ASHGameState, CurrentPlayer);
+    DOREPLIFETIME(ASHGameState, CurrentTurnPhase);
 }
 
 void ASHGameState::AddPlayerState(APlayerState* PlayerState)
@@ -70,6 +72,55 @@ void ASHGameState::OnRep_MatchReady()
     HandleMatchReady();
 }
 
+void ASHGameState::OnRep_CurrentPlayer()
+{
+    NotifyTurnStateChanged();
+    OnCurrentPlayerChanged();
+}
+
+void ASHGameState::OnRep_TurnPhase()
+{
+    NotifyTurnStateChanged();
+    OnTurnPhaseChanged();
+}
+
+void ASHGameState::SetCurrentPlayer(ASHPlayerState* PlayerState)
+{
+    checkf(HasAuthority(), TEXT("CurrentPlayer can only be changed by server"));
+
+    CurrentPlayer = PlayerState;
+
+    NotifyTurnStateChanged();
+    OnCurrentPlayerChanged();
+}
+
+bool ASHGameState::IsCurrentPlayer(const ASHPlayerState* PlayerState) const
+{
+    
+    return CurrentPlayer == PlayerState;
+    
+}
+
+ASHPlayerState* ASHGameState::GetCurrentPlayer()
+{
+    return CurrentPlayer;
+}
+
+ETurnPhase ASHGameState::GetTurnPhase() const
+{
+    return CurrentTurnPhase;
+}
+
+void ASHGameState::SetTurnPhase(ETurnPhase NewTurnPhase)
+{
+    checkf(HasAuthority(), TEXT("TurnPhase can only be changed by server"));
+
+    CurrentTurnPhase = NewTurnPhase;
+
+    NotifyTurnStateChanged();
+    OnTurnPhaseChanged();
+}
+
 void ASHGameState::HandleMatchReady()
 {
 
@@ -91,4 +142,30 @@ void ASHGameState::HandleMatchReady()
         *GetNameSafe(PC));
 
     PC->TrySetupTableView();
+}
+
+void ASHGameState::NotifyTurnStateChanged()
+{
+    APlayerController* LocalPC = GetWorld()->GetFirstPlayerController();
+
+    if (!IsValid(LocalPC))
+    {
+        return;
+    }
+
+    ASHPlayerState* LocalPS =
+        LocalPC->GetPlayerState<ASHPlayerState>();
+
+    if (!IsValid(LocalPS))
+    {
+        return;
+    }
+
+    const bool bIsMyTurn = LocalPS == CurrentPlayer;
+
+    OnTurnStateChanged(
+        CurrentPlayer,
+        CurrentTurnPhase,
+        bIsMyTurn
+    );
 }

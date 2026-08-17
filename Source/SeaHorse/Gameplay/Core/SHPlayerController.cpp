@@ -152,6 +152,26 @@ void ASHPlayerController::TrySetupTableView()
         GetWorld()->GetTimeSeconds());
 }
 
+void ASHPlayerController::ServerSkipCurrentPhase_Implementation()
+{
+    ASHPlayerState* SHPlayerState = GetPlayerState<ASHPlayerState>();
+
+    if (!IsValid(SHPlayerState))
+    {
+        return;
+    }
+
+    ASHGameMode* SHGameMode =
+        GetWorld()->GetAuthGameMode<ASHGameMode>();
+
+    if (!IsValid(SHGameMode))
+    {
+        return;
+    }
+
+    SHGameMode->SkipCurrentPhase(SHPlayerState);
+}
+
 void ASHPlayerController::SetupTableView()
 {
     ASHGameState* SHGameState = GetWorld()->GetGameState<ASHGameState>();
@@ -379,7 +399,7 @@ void ASHPlayerController::ServerActivateStoredPair_Implementation(ASHCard* Card)
     Hand->MulticastPairActivated(Pair->CardA, Pair->CardB);
 }
 
-void ASHPlayerController::ServerActivatePair_Implementation(ASHCard* CardA, ASHCard* CardB)
+void ASHPlayerController::ServerCreatePair_Implementation(ASHCard* CardA, ASHCard* CardB)
 {
     if (!IsValid(CardA) || !IsValid(CardB) || CardA == CardB)
     {
@@ -420,8 +440,29 @@ void ASHPlayerController::ServerActivatePair_Implementation(ASHCard* CardA, ASHC
         return;
     }
 
+    ASHGameState* SHGameState = GetWorld()->GetGameState<ASHGameState>();
+
+    if (!IsValid(SHGameState))
+    {
+        return;
+    }
+
+    if (SHGameState->GetCurrentPlayer() != SHPlayerState)
+    {
+        return;
+    }
+
+    const ETurnPhase Phase = SHGameState->GetTurnPhase();
+
+    if (Phase != ETurnPhase::FirstPairing && Phase != ETurnPhase::SecondPairing)
+    {
+        return;
+    }
+
     SHGameMode->ActivatePair(SHPlayerState, CardA, CardB);
     OnPairActivated(CardA, CardB);
+
+    SHGameMode->CompleteCurrentPhase(ETurnPhaseEndReason::PairCreated);
 }
 
 void ASHPlayerController::ServerTakeCard_Implementation(ASHCard* Card, int32 InsertIndex)
@@ -463,12 +504,43 @@ void ASHPlayerController::ServerTakeCard_Implementation(ASHCard* Card, int32 Ins
         return;
     }
 
+    ASHGameMode* SHGameMode = GetWorld()->GetAuthGameMode<ASHGameMode>();
+
     UE_LOG(LogTemp, Warning,
         TEXT("BEFORE ADD: TargetHand=%s Card=%s"),
         *GetNameSafe(TargetHand),
         *GetNameSafe(Card));
 
+    ASHGameState* SHGameState = GetWorld()->GetGameState<ASHGameState>();
+
+    if (!IsValid(SHGameState))
+    {
+        return;
+    }
+
+    if (SHGameState->GetCurrentPlayer() != SHPlayerState)
+    {
+        return;
+    }
+
+    if (SHGameState->GetTurnPhase() != ETurnPhase::DrawCard)
+    {
+        return;
+    }
+
+    if (Card->GetCardZone() != ECardZone::Hand)
+    {
+        return;
+    }
+
+    if (!SourceHand->ContainsCard(Card))
+    {
+        return;
+    }
+
     SourceHand->RemoveCard(Card);
     TargetHand->AddCard(Card, InsertIndex);
+
+    SHGameMode->CompleteCurrentPhase(ETurnPhaseEndReason::CardDrawn);
 }
 
