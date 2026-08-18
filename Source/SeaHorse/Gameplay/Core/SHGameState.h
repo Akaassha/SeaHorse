@@ -8,7 +8,6 @@
 
 class ASHPlayerState;
 
-
 UENUM(BlueprintType)
 enum class ETurnPhase : uint8
 {
@@ -17,6 +16,8 @@ enum class ETurnPhase : uint8
 	DrawCard,
 	SecondPairing
 };
+
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnTurnStateChanged, ASHPlayerState*, CurrentPlayer, ETurnPhase, TurnPhase);
 
 /**
  * 
@@ -39,11 +40,14 @@ public:
 	UFUNCTION(BlueprintImplementableEvent)
 	void OnCurrentPlayerChanged();
 
-	UFUNCTION(BlueprintImplementableEvent)
-	void OnTurnStateChanged(ASHPlayerState* NewCurrentPlayer, ETurnPhase CurrentPhase, bool bIsMyTurn);
+	//UFUNCTION(BlueprintImplementableEvent)
+	//void OnTurnStateChanged(ASHPlayerState* NewCurrentPlayer, ETurnPhase CurrentPhase, bool bIsMyTurn);
 
 	UFUNCTION(BlueprintImplementableEvent)
 	void OnTurnPhaseChanged();
+
+	UPROPERTY(BlueprintAssignable, Category = "Turn")
+	FOnTurnStateChanged OnTurnStateChanged;
 
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
