@@ -69,6 +69,11 @@ public:
 
 	void EndTurn();
 
+	void EnterTurnPhase(ETurnPhase NewPhase);
+
+	bool IsPairingActionUsed() { return bPairingActionUsed; };
+	void SetPairingActionUsed(bool NewValue) { bPairingActionUsed = NewValue; };
+
 protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Cards")
 	TObjectPtr<UDataTable> DeckDefinition;
@@ -112,5 +117,5 @@ private:
 
 	int32 DeckSize = -1;
 
-	
+	bool bPairingActionUsed = false;
 };

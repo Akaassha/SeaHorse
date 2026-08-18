@@ -459,10 +459,20 @@ void ASHPlayerController::ServerCreatePair_Implementation(ASHCard* CardA, ASHCar
         return;
     }
 
-    SHGameMode->ActivatePair(SHPlayerState, CardA, CardB);
-    OnPairActivated(CardA, CardB);
+    if (SHGameMode->IsPairingActionUsed())
+    {
+        return;
+    }
 
-    SHGameMode->CompleteCurrentPhase(ETurnPhaseEndReason::PairCreated);
+   SHGameMode->ActivatePair(SHPlayerState, CardA, CardB);
+   OnPairActivated(CardA, CardB);
+
+    SHGameMode->SetPairingActionUsed(true);
+
+    if (Phase == ETurnPhase::FirstPairing)
+    {
+        SHGameMode->CompleteCurrentPhase(ETurnPhaseEndReason::PairCreated);
+    }
 }
 
 void ASHPlayerController::ServerTakeCard_Implementation(ASHCard* Card, int32 InsertIndex)
@@ -523,7 +533,7 @@ void ASHPlayerController::ServerTakeCard_Implementation(ASHCard* Card, int32 Ins
         return;
     }
 
-    if (SHGameState->GetTurnPhase() != ETurnPhase::DrawCard)
+    if ((SHGameState->GetTurnPhase() == ETurnPhase::SecondPairing) || SHGameState->GetTurnPhase() == ETurnPhase::None)
     {
         return;
     }

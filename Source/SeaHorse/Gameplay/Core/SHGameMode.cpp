@@ -251,6 +251,8 @@ void ASHGameMode::StartTurn()
     checkf(IsValid(SHGameState), TEXT("Invalid GameState"));
     checkf(IsValid(SHGameState->GetCurrentPlayer()), TEXT("No current player"));
 
+    bPairingActionUsed = false;
+
     SHGameState->SetTurnPhase(ETurnPhase::FirstPairing);
 }
 
@@ -275,7 +277,14 @@ ETurnPhase ASHGameMode::GetNextTurnPhase_Implementation(ETurnPhase CurrentPhase,
     switch (CurrentPhase)
     {
     case ETurnPhase::FirstPairing:
+    {
+        if (Reason == ETurnPhaseEndReason::CardDrawn)
+        {
+            return ETurnPhase::SecondPairing;
+        }
+
         return ETurnPhase::DrawCard;
+    }
 
     case ETurnPhase::DrawCard:
         return ETurnPhase::SecondPairing;
@@ -330,7 +339,8 @@ void ASHGameMode::CompleteCurrentPhase(ETurnPhaseEndReason Reason)
         return;
     }
 
-    SHGameState->SetTurnPhase(NextPhase);
+    EnterTurnPhase(NextPhase);
+    //SHGameState->SetTurnPhase(NextPhase);
 }
 void ASHGameMode::SkipCurrentPhase(ASHPlayerState* RequestingPlayer)
 {
@@ -370,6 +380,16 @@ void ASHGameMode::EndTurn()
     SHGameState->SetCurrentPlayer(NextPlayer);
 
     StartTurn();
+}
+void ASHGameMode::EnterTurnPhase(ETurnPhase NewPhase)
+{
+    if (NewPhase == ETurnPhase::FirstPairing ||
+        NewPhase == ETurnPhase::SecondPairing)
+    {
+        bPairingActionUsed = false;
+    }
+
+    GetGameState<ASHGameState>()->SetTurnPhase(NewPhase);
 }
 // ***** End Turns *****
 
