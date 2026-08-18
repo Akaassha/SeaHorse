@@ -2,6 +2,7 @@
 
 
 #include "SeaHorse/Gameplay/Core/SHPlayerController.h"
+#include "SeaHorse/Gameplay/Board/VictoryStack.h"
 #include "SeaHorse/Gameplay/Core/SHGameState.h"
 #include "SeaHorse/Gameplay/Core/SHPlayerState.h"
 #include "SeaHorse/Gameplay/SHHand.h"
@@ -10,6 +11,7 @@
 #include "SeaHorse/Gameplay/Board/SHTable.h"
 #include "Kismet/GameplayStatics.h"
 #include "SeaHorse/Gameplay/Core/SHGameMode.h"
+#include "SeaHorse/Gameplay/Cards/Fragments/CardEffectFragment.h"
 
 void ASHPlayerController::TrySetupTableView()
 {
@@ -204,14 +206,9 @@ void ASHPlayerController::SetupTableView()
         ASHHand* LayoutHand =
             FindLayoutHand(VisualSeatIndex);
 
-        checkf(
-            IsValid(LayoutHand),
-            TEXT("No LayoutHand for VisualSeatIndex %d"),
-            VisualSeatIndex
-        );
+        checkf(IsValid(LayoutHand), TEXT("No LayoutHand for VisualSeatIndex %d"), VisualSeatIndex);
 
-        const FTransform& LayoutTransform =
-            LayoutHand->GetLayoutTransform();
+        const FTransform& LayoutTransform = LayoutHand->GetLayoutTransform();
 
         UE_LOG(LogTemp, Warning,
             TEXT("[SH_INIT][LAYOUT] Player=%s Logical=%d -> Visual=%d | Hand=%s -> LayoutHand=%s"),
@@ -224,6 +221,12 @@ void ASHPlayerController::SetupTableView()
         Hand->SetActorLocationAndRotation(
             LayoutTransform.GetLocation(),
             LayoutTransform.GetRotation()
+        );
+
+        FTransform VictoryStackLayout = Hand->GetVictoryStack()->GetLayout();
+        Hand->GetVictoryStack()->SetActorLocationAndRotation(
+            VictoryStackLayout.GetLocation(),
+            VictoryStackLayout.GetRotation()
         );
 
         UE_LOG(LogTemp, Warning,
@@ -402,6 +405,10 @@ void ASHPlayerController::ServerActivateStoredPair_Implementation(ASHCard* Card)
         return;
     }
 
+    const UCardEffectFragment* EffectFragment = Cast<UCardEffectFragment>
+                                                (UCardDefinition::FindFragmentByClass(Pair->CardA->CardDefinition, UCardEffectFragment::StaticClass()));
+
+    SHGameMode->CardActivateEffect(SHPlayerState, Pair);
     Pair->bActivated = true;
     Hand->MulticastPairActivated(Pair->CardA, Pair->CardB);
 }

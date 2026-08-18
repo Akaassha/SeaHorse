@@ -7,6 +7,7 @@
 #include "SHHand.generated.h"
 
 class ASHCard;
+class AVictoryStack;
 
 USTRUCT(BlueprintType)
 struct FActivatedPair
@@ -56,6 +57,8 @@ public:
 	UFUNCTION(BlueprintImplementableEvent)
 	void OnPairActivated(ASHCard* CardA, ASHCard* CardB);
 
+	bool RemoveActivationPair(ASHCard* CardA, ASHCard* CardB);
+
 protected:
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
@@ -70,6 +73,9 @@ protected:
 
 	UFUNCTION(BlueprintCallable)
 	void AddActivationPair(ASHCard* CardA, ASHCard* CardB);
+
+	UPROPERTY(EditInstanceOnly, BlueprintReadOnly, Category = "Player Area")
+	TObjectPtr<AVictoryStack> VictoryStack;
 
 public:	
 	// Called every frame
@@ -119,6 +125,11 @@ public:
 	bool ContainsCard(ASHCard* CardB);
 
 	FActivatedPair* FindActivationPair(ASHCard* Card);
+
+	AVictoryStack* GetVictoryStack() const
+	{
+		return VictoryStack;
+	}
 
 private:
 	

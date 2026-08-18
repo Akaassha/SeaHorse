@@ -11,6 +11,9 @@
 #include "Algo/RandomShuffle.h"
 #include "SeaHorse/Gameplay/Core/SHGameState.h"
 #include "SeaHorse/Gameplay/Cards/Fragments/CardActivationRulesFragment.h"
+#include "SeaHorse/Gameplay/Board/VictoryStack.h"
+#include "SeaHorse/Gameplay/Cards/Fragments/CardEffectFragment.h"
+#include "SeaHorse/Gameplay/Cards/Tasks/CardEffectTask.h"
 #include "EngineUtils.h"
 
 // ***** Begin Player setup *****
@@ -448,6 +451,71 @@ bool ASHGameMode::CanActivatePair(ASHPlayerState* RequestingPlayer, FActivatedPa
     }
 
     return true;
+}
+void ASHGameMode::MovePairToVictoryStack(ASHPlayerState* PlayerState, ASHCard* CardA, ASHCard* CardB)
+{
+    checkf(IsValid(PlayerState), TEXT("Invalid PlayerState"));
+
+    ASHHand* Hand = PlayerState->GetHand();
+    checkf(IsValid(Hand), TEXT("Player has no Hand"));
+
+    AVictoryStack* VictoryStack = Hand->GetVictoryStack();
+    checkf(IsValid(VictoryStack), TEXT("Hand has no VictoryStack"));
+
+    const bool bRemoved = Hand->RemoveActivationPair(CardA, CardB);
+
+    if (!bRemoved)
+    {
+        return;
+    }
+    VictoryStack->AddPair(CardA, CardB);
+}
+void ASHGameMode::CardActivateEffect(ASHPlayerState* InActivatingPlayer, FActivatedPair* Pair)
+{
+    const UCardEffectFragment* NewEffectFragment =
+        Cast<UCardEffectFragment>(
+            UCardDefinition::FindFragmentByClass(
+                Pair->CardA->CardDefinition,
+                UCardEffectFragment::StaticClass()
+            )
+        );
+
+    checkf(IsValid(NewEffectFragment),
+        TEXT("Activated card has no CardEffectFragment"));
+
+    checkf(NewEffectFragment->EffectTaskClass,
+        TEXT("CardEffectFragment has no EffectTaskClass"));
+
+    UCardEffectTask* EffectTask = NewObject<UCardEffectTask>(
+        this,
+        NewEffectFragment->EffectTaskClass
+    );
+
+    ActiveEffectTasks.Add(EffectTask);
+
+    EffectTask->Initialize(
+        InActivatingPlayer,
+        Pair->CardA,
+        Pair->CardB
+    );
+
+    EffectTask->StartEffect();
+}
+void ASHGameMode::FinishEffectTask(UCardEffectTask* CardEffectTask)
+{
+    checkf(IsValid(CardEffectTask), TEXT("Invalid EffectTask"));
+
+    ASHPlayerState* ActivatingPlayer = CardEffectTask->GetActivatingPlayer();
+
+    ASHCard* CardA = CardEffectTask->GetCardA();
+    ASHCard* CardB = CardEffectTask->GetCardB();
+
+    checkf(IsValid(ActivatingPlayer), TEXT("Invalid activating player"));
+    checkf(IsValid(CardA) && IsValid(CardB), TEXT("Invalid effect cards"));
+
+    MovePairToVictoryStack(ActivatingPlayer, CardA, CardB);
+
+    ActiveEffectTasks.Remove(CardEffectTask);
 }
 // ***** End Turns *****
 

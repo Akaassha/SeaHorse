@@ -29,6 +29,35 @@ void ASHHand::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeP
     DOREPLIFETIME(ASHHand, ActivationPairs);
 }
 
+bool ASHHand::RemoveActivationPair(ASHCard* CardA, ASHCard* CardB)
+{
+    checkf(HasAuthority(), TEXT("RemoveActivationPair must be called on server"));
+
+    if (!IsValid(CardA) || !IsValid(CardB))
+    {
+        return false;
+    }
+
+    const int32 PairIndex = ActivationPairs.IndexOfByPredicate(
+        [CardA, CardB](const FActivatedPair& Pair)
+        {
+            return
+                (Pair.CardA == CardA && Pair.CardB == CardB) ||
+                (Pair.CardA == CardB && Pair.CardB == CardA);
+        });
+
+    if (PairIndex == INDEX_NONE)
+    {
+        return false;
+    }
+
+    ActivationPairs.RemoveAt(PairIndex);
+
+    //UpdateActivationCardsLayout();
+
+    return true;
+}
+
 // Called when the game starts or when spawned
 void ASHHand::BeginPlay()
 {

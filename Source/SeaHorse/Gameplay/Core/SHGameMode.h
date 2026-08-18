@@ -11,6 +11,8 @@ class ASHCard;
 class UCardDefinition;
 class ASHPlayerState;
 struct FActivatedPair;
+class UCardEffectFragment;
+class UCardEffectTask;
 
 USTRUCT(BlueprintType)
 struct FDeckEntry : public FTableRowBase
@@ -77,6 +79,12 @@ public:
 
 	bool CanActivatePair(ASHPlayerState* RequestingPlayer, FActivatedPair& ActivatedPair);
 
+	void MovePairToVictoryStack(ASHPlayerState* PlayerState, ASHCard* CardA, ASHCard* CardB);
+
+	void CardActivateEffect(ASHPlayerState* InActivatingPlayer, FActivatedPair* Pair);
+
+	void FinishEffectTask(UCardEffectTask* CardEffectTask);
+
 protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Cards")
 	TObjectPtr<UDataTable> DeckDefinition;
@@ -121,4 +129,7 @@ private:
 	int32 DeckSize = -1;
 
 	bool bPairingActionUsed = false;
+
+	UPROPERTY()
+	TArray<TObjectPtr<UCardEffectTask>> ActiveEffectTasks;
 };
