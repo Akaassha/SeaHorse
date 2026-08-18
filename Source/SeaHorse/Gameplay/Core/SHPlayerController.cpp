@@ -395,6 +395,13 @@ void ASHPlayerController::ServerActivateStoredPair_Implementation(ASHCard* Card)
         return;
     }
 
+    ASHGameMode* SHGameMode = GetWorld()->GetAuthGameMode<ASHGameMode>();
+
+    if (!Pair || !SHGameMode->CanActivatePair(SHPlayerState, *Pair))
+    {
+        return;
+    }
+
     Pair->bActivated = true;
     Hand->MulticastPairActivated(Pair->CardA, Pair->CardB);
 }

@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 #include "Slate/WidgetRenderer.h"
+#include "SeaHorse/Gameplay/Cards/Fragments/CardFragment.h"
 #include "SHCard.generated.h"
 
 class UCardDefinition;
@@ -62,12 +63,14 @@ public:
 	UFUNCTION(BlueprintCallable)
 	void RefreshCardFace();
 
+	UPROPERTY(ReplicatedUsing = OnRep_CardDefinition, BlueprintReadOnly, EditAnywhere, meta = (ExposeOnSpawn = "true"))
+	TSubclassOf<UCardDefinition> CardDefinition;
+
 protected:
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
 
-	UPROPERTY(ReplicatedUsing = OnRep_CardDefinition, BlueprintReadOnly, EditAnywhere, meta = (ExposeOnSpawn = "true"))
-	TSubclassOf<UCardDefinition> CardDefinition;
+
 
 	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_RevealedCardDefinition)
 	TSubclassOf<UCardDefinition> RevealedCardDefinition;
@@ -107,4 +110,7 @@ private:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UTextureRenderTarget2D> CardFaceRenderTarget;
+
+public:
+
 };

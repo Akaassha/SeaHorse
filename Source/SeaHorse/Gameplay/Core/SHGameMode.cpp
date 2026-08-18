@@ -10,6 +10,7 @@
 #include "SeaHorse/Gameplay/Cards/CardDefinition.h"
 #include "Algo/RandomShuffle.h"
 #include "SeaHorse/Gameplay/Core/SHGameState.h"
+#include "SeaHorse/Gameplay/Cards/Fragments/CardActivationRulesFragment.h"
 #include "EngineUtils.h"
 
 // ***** Begin Player setup *****
@@ -381,6 +382,7 @@ void ASHGameMode::EndTurn()
 
     StartTurn();
 }
+
 void ASHGameMode::EnterTurnPhase(ETurnPhase NewPhase)
 {
     if (NewPhase == ETurnPhase::FirstPairing ||
@@ -390,6 +392,62 @@ void ASHGameMode::EnterTurnPhase(ETurnPhase NewPhase)
     }
 
     GetGameState<ASHGameState>()->SetTurnPhase(NewPhase);
+}
+
+bool ASHGameMode::CanActivatePair(ASHPlayerState* RequestingPlayer, FActivatedPair& ActivatedPair)
+{
+    if (!IsValid(RequestingPlayer) ||
+        !IsValid(ActivatedPair.CardA) ||
+        !IsValid(ActivatedPair.CardB) ||
+        ActivatedPair.bActivated)
+    {
+        return false;
+    }
+
+    ASHGameState* SHGameState = GetGameState<ASHGameState>();
+    checkf(IsValid(SHGameState), TEXT("Invalid GameState"));
+
+    bool bIsOwnTurn = SHGameState->GetCurrentPlayer() == RequestingPlayer;
+    const UCardActivationRulesFragment* Rules = Cast<UCardActivationRulesFragment>
+                                                (UCardDefinition::FindFragmentByClass( ActivatedPair.CardA->CardDefinition, UCardActivationRulesFragment::StaticClass()));
+    
+    if (!IsValid(Rules))
+    {
+        return bIsOwnTurn;
+    }
+
+    if (!Rules->bCanBeActivated)
+    {
+        return false;
+    }
+
+    switch (Rules->TurnRestriction)
+    {
+    case ECardActivationRules::OwnTurn:
+        if (!bIsOwnTurn)
+        {
+            return false;
+        }
+        break;
+
+    case ECardActivationRules::OutsideOwnTurn:
+        if (bIsOwnTurn)
+        {
+            return false;
+        }
+        break;
+
+    case ECardActivationRules::AnyTurn:
+        break;
+    }
+
+    if (!Rules->AllowedPhases.IsEmpty() &&
+        !Rules->AllowedPhases.Contains(SHGameState->GetTurnPhase()))
+    {
+        return false;
+    }
+
+    return true;
 }
 // ***** End Turns *****
 

@@ -10,6 +10,7 @@ class ASHHand;
 class ASHCard;
 class UCardDefinition;
 class ASHPlayerState;
+struct FActivatedPair;
 
 USTRUCT(BlueprintType)
 struct FDeckEntry : public FTableRowBase
@@ -73,6 +74,8 @@ public:
 
 	bool IsPairingActionUsed() { return bPairingActionUsed; };
 	void SetPairingActionUsed(bool NewValue) { bPairingActionUsed = NewValue; };
+
+	bool CanActivatePair(ASHPlayerState* RequestingPlayer, FActivatedPair& ActivatedPair);
 
 protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Cards")
