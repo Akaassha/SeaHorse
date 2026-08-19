@@ -81,7 +81,7 @@ public:
 
 	void MovePairToVictoryStack(ASHPlayerState* PlayerState, ASHCard* CardA, ASHCard* CardB);
 
-	void CardActivateEffect(ASHPlayerState* InActivatingPlayer, FActivatedPair* Pair);
+	void CardActivateEffect(ASHPlayerState* InActivatingPlayer, ASHCard* CardA, ASHCard* CardB);
 
 	void FinishEffectTask(UCardEffectTask* CardEffectTask);
 

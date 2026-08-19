@@ -400,17 +400,24 @@ void ASHPlayerController::ServerActivateStoredPair_Implementation(ASHCard* Card)
 
     ASHGameMode* SHGameMode = GetWorld()->GetAuthGameMode<ASHGameMode>();
 
-    if (!Pair || !SHGameMode->CanActivatePair(SHPlayerState, *Pair))
+    if (!SHGameMode)
     {
         return;
     }
 
-    const UCardEffectFragment* EffectFragment = Cast<UCardEffectFragment>
-                                                (UCardDefinition::FindFragmentByClass(Pair->CardA->CardDefinition, UCardEffectFragment::StaticClass()));
+    ASHCard* CardA = Pair->CardA;
+    ASHCard* CardB = Pair->CardB;
 
-    SHGameMode->CardActivateEffect(SHPlayerState, Pair);
+    if (!IsValid(CardA) || !IsValid(CardB))
+    {
+        return;
+    }
+
     Pair->bActivated = true;
-    Hand->MulticastPairActivated(Pair->CardA, Pair->CardB);
+    Hand->MulticastPairActivated(CardA, CardB);
+
+    SHGameMode->CardActivateEffect(SHPlayerState, CardA, CardB);
+    
 }
 
 void ASHPlayerController::ServerCreatePair_Implementation(ASHCard* CardA, ASHCard* CardB)

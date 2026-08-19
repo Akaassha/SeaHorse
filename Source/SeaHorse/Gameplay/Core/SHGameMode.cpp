@@ -470,12 +470,13 @@ void ASHGameMode::MovePairToVictoryStack(ASHPlayerState* PlayerState, ASHCard* C
     }
     VictoryStack->AddPair(CardA, CardB);
 }
-void ASHGameMode::CardActivateEffect(ASHPlayerState* InActivatingPlayer, FActivatedPair* Pair)
+
+void ASHGameMode::CardActivateEffect(ASHPlayerState* InActivatingPlayer, ASHCard* CardA, ASHCard* CardB)
 {
     const UCardEffectFragment* NewEffectFragment =
         Cast<UCardEffectFragment>(
             UCardDefinition::FindFragmentByClass(
-                Pair->CardA->CardDefinition,
+                CardA->CardDefinition,
                 UCardEffectFragment::StaticClass()
             )
         );
@@ -495,8 +496,8 @@ void ASHGameMode::CardActivateEffect(ASHPlayerState* InActivatingPlayer, FActiva
 
     EffectTask->Initialize(
         InActivatingPlayer,
-        Pair->CardA,
-        Pair->CardB
+        CardA,
+        CardB
     );
 
     EffectTask->StartEffect();

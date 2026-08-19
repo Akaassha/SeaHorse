@@ -81,7 +81,11 @@ void ASHHand::SetShowCardFronts(bool bShow)
 
 void ASHHand::MulticastPairActivated_Implementation(ASHCard* CardA, ASHCard* CardB)
 {
-    OnPairActivated(CardA, CardB);
+    if (CardA != nullptr && CardB != nullptr)
+    {
+        OnPairActivated(CardA, CardB);
+    }
+   
 }
 
 void ASHHand::AddActivationPair(ASHCard* CardA, ASHCard* CardB)
