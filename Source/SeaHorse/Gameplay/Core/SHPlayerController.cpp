@@ -197,18 +197,32 @@ void ASHPlayerController::SetupTableView()
             *GetNameSafe(SHPlayerState)
         );
 
-        const int32 VisualSeatIndex =
-            GetVisualSeatIndex(
-                SHPlayerState->GetSeatIndex(),
-                PlayerCount
-            );
+        const int32 VisualSeatIndex =GetVisualSeatIndex(SHPlayerState->GetSeatIndex(), PlayerCount);
 
-        ASHHand* LayoutHand =
-            FindLayoutHand(VisualSeatIndex);
+        ASHHand* LayoutHand = FindLayoutHand(VisualSeatIndex);
 
         checkf(IsValid(LayoutHand), TEXT("No LayoutHand for VisualSeatIndex %d"), VisualSeatIndex);
 
         const FTransform& LayoutTransform = LayoutHand->GetLayoutTransform();
+
+        Hand->SetActorLocationAndRotation(
+            LayoutTransform.GetLocation(),
+            LayoutTransform.GetRotation()
+        );
+
+        AVictoryStack* VictoryStack = Hand->GetVictoryStack();
+        AVictoryStack* LayoutVictoryStack = LayoutHand->GetVictoryStack();
+
+        checkf(IsValid(VictoryStack), TEXT("Hand has no VictoryStack"));
+        checkf(IsValid(LayoutVictoryStack), TEXT("LayoutHand has no VictoryStack"));
+
+        const FTransform& VictoryStackLayout =
+            LayoutVictoryStack->GetLayout();
+
+        VictoryStack->SetActorLocationAndRotation(
+            VictoryStackLayout.GetLocation(),
+            VictoryStackLayout.GetRotation()
+        );
 
         UE_LOG(LogTemp, Warning,
             TEXT("[SH_INIT][LAYOUT] Player=%s Logical=%d -> Visual=%d | Hand=%s -> LayoutHand=%s"),
@@ -221,12 +235,6 @@ void ASHPlayerController::SetupTableView()
         Hand->SetActorLocationAndRotation(
             LayoutTransform.GetLocation(),
             LayoutTransform.GetRotation()
-        );
-
-        FTransform VictoryStackLayout = Hand->GetVictoryStack()->GetLayout();
-        Hand->GetVictoryStack()->SetActorLocationAndRotation(
-            VictoryStackLayout.GetLocation(),
-            VictoryStackLayout.GetRotation()
         );
 
         UE_LOG(LogTemp, Warning,
