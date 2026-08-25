@@ -66,6 +66,8 @@ public:
 	UPROPERTY(ReplicatedUsing = OnRep_CardDefinition, BlueprintReadOnly, EditAnywhere, meta = (ExposeOnSpawn = "true"))
 	TSubclassOf<UCardDefinition> CardDefinition;
 
+	void ApplyOwnerCardDefinition(TSubclassOf<UCardDefinition> InCardDefinition);
+
 protected:
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;

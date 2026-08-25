@@ -174,11 +174,49 @@ void ASHPlayerController::ServerSkipCurrentPhase_Implementation()
     SHGameMode->SkipCurrentPhase(SHPlayerState);
 }
 
+ASHHand* ASHPlayerController::FindVisualHandForLogicalHand(const ASHHand* LogicalHand) const
+{
+    if (!IsValid(LogicalHand))
+    {
+        return nullptr;
+    }
+
+    ASHGameState* GameState =
+        GetWorld()->GetGameState<ASHGameState>();
+
+    if (!IsValid(GameState))
+    {
+        return nullptr;
+    }
+
+    for (APlayerState* CurrentPlayerState : GameState->PlayerArray)
+    {
+        ASHPlayerState* SHPlayerState =
+            Cast<ASHPlayerState>(CurrentPlayerState);
+
+        if (!IsValid(SHPlayerState) ||
+            SHPlayerState->GetHand() != LogicalHand)
+        {
+            continue;
+        }
+
+        return FindVisualHandForPlayer(SHPlayerState);
+    }
+
+    return nullptr;
+}
+
 void ASHPlayerController::SetupTableView()
 {
-    ASHGameState* SHGameState = GetWorld()->GetGameState<ASHGameState>();
+    ASHGameState* SHGameState =
+        GetWorld()->GetGameState<ASHGameState>();
 
     checkf(IsValid(SHGameState), TEXT("Invalid SHGameState"));
+
+    ASHPlayerState* LocalPlayerState =
+        GetPlayerState<ASHPlayerState>();
+
+    checkf(IsValid(LocalPlayerState), TEXT("Invalid local PlayerState"));
 
     const int32 PlayerCount = SHGameState->PlayerArray.Num();
 
@@ -189,80 +227,51 @@ void ASHPlayerController::SetupTableView()
         ASHPlayerState* SHPlayerState =
             CastChecked<ASHPlayerState>(CurrentPlayerState);
 
-        ASHHand* Hand = SHPlayerState->GetHand();
+        const int32 VisualSeatIndex =
+            GetVisualSeatIndex(
+                SHPlayerState->GetSeatIndex(),
+                PlayerCount
+            );
+
+        ASHHand* VisualHand =
+            FindLayoutHand(VisualSeatIndex);
 
         checkf(
-            IsValid(Hand),
-            TEXT("Player %s has no Hand"),
-            *GetNameSafe(SHPlayerState)
+            IsValid(VisualHand),
+            TEXT("No Hand for VisualSeatIndex %d"),
+            VisualSeatIndex
         );
 
-        const int32 VisualSeatIndex =GetVisualSeatIndex(SHPlayerState->GetSeatIndex(), PlayerCount);
+        
+        VisualHand->SetRepresentedPlayerState(SHPlayerState);
 
-        ASHHand* LayoutHand = FindLayoutHand(VisualSeatIndex);
+        const bool bIsLocalPlayer =
+            SHPlayerState == LocalPlayerState;
 
-        checkf(IsValid(LayoutHand), TEXT("No LayoutHand for VisualSeatIndex %d"), VisualSeatIndex);
+        VisualHand->SetShowCardFronts(bIsLocalPlayer);
 
-        const FTransform& LayoutTransform = LayoutHand->GetLayoutTransform();
-
-        Hand->SetActorLocationAndRotation(
-            LayoutTransform.GetLocation(),
-            LayoutTransform.GetRotation()
-        );
-
-        AVictoryStack* VictoryStack = Hand->GetVictoryStack();
-        AVictoryStack* LayoutVictoryStack = LayoutHand->GetVictoryStack();
-
-        checkf(IsValid(VictoryStack), TEXT("Hand has no VictoryStack"));
-        checkf(IsValid(LayoutVictoryStack), TEXT("LayoutHand has no VictoryStack"));
-
-        const FTransform& VictoryStackLayout =
-            LayoutVictoryStack->GetLayout();
-
-        VictoryStack->SetActorLocationAndRotation(
-            VictoryStackLayout.GetLocation(),
-            VictoryStackLayout.GetRotation()
-        );
-
-        UE_LOG(LogTemp, Warning,
-            TEXT("[SH_INIT][LAYOUT] Player=%s Logical=%d -> Visual=%d | Hand=%s -> LayoutHand=%s"),
-            *GetNameSafe(SHPlayerState),
-            SHPlayerState->GetSeatIndex(),
+        UE_LOG(
+            LogTemp,
+            Warning,
+            TEXT("[HAND VIEW] VisualSeat=%d Hand=%s Player=%s%s"),
             VisualSeatIndex,
-            *GetNameSafe(Hand),
-            *GetNameSafe(LayoutHand));
-
-        Hand->SetActorLocationAndRotation(
-            LayoutTransform.GetLocation(),
-            LayoutTransform.GetRotation()
+            *GetNameSafe(VisualHand),
+            *GetNameSafe(SHPlayerState),
+            SHPlayerState == LocalPlayerState
+            ? TEXT(" [LOCAL]")
+            : TEXT("")
         );
 
-        UE_LOG(LogTemp, Warning,
-            TEXT("[SH_INIT][LAYOUT] Hand=%s SET | Loc=%s Rot=%s"),
-            *GetNameSafe(Hand),
-            *LayoutTransform.GetLocation().ToString(),
-            *LayoutTransform.GetRotation().ToString());
+        HandsToUpdate.Add(VisualHand);
 
-        HandsToUpdate.Add(Hand);
-     
-           
-        const bool bIsLocalHand = (SHPlayerState == GetPlayerState<ASHPlayerState>());
-
-        Hand->SetShowCardFronts(bIsLocalHand);
     }
-
 
     for (ASHHand* Hand : HandsToUpdate)
     {
         Hand->Initialize();
-
-        UE_LOG(LogTemp, Warning,
-            TEXT("[SH_INIT][LAYOUT] UpdateCardPositions | Hand=%s Cards=%d"),
-            *GetNameSafe(Hand),
-            Hand->GetCardCount());
-
         Hand->UpdateCardPositions();
     }
+
 }
 
 void ASHPlayerController::BeginPlay()
@@ -360,6 +369,45 @@ ASHHand* ASHPlayerController::FindLayoutHand(int32 LayoutSeatIndex) const
 
         if (IsValid(Hand) &&
             Hand->GetLayoutSeatIndex() == LayoutSeatIndex)
+        {
+            return Hand;
+        }
+    }
+
+    return nullptr;
+}
+
+void ASHPlayerController::ClientReceiveCardDefinition_Implementation(ASHCard* Card, TSubclassOf<UCardDefinition> CardDefinition)
+{
+    if (!IsValid(Card) || !CardDefinition)
+    {
+        return;
+    }
+
+    Card->ApplyOwnerCardDefinition(CardDefinition);
+}
+
+ASHHand* ASHPlayerController::FindVisualHandForPlayer(const ASHPlayerState* InPlayerState) const
+{
+    if (!IsValid(InPlayerState))
+    {
+        return nullptr;
+    }
+
+    TArray<AActor*> Hands;
+
+    UGameplayStatics::GetAllActorsOfClass(
+        GetWorld(),
+        ASHHand::StaticClass(),
+        Hands
+    );
+
+    for (AActor* Actor : Hands)
+    {
+        ASHHand* Hand = Cast<ASHHand>(Actor);
+
+        if (IsValid(Hand) &&
+            Hand->GetRepresentedPlayerState() == InPlayerState)
         {
             return Hand;
         }
@@ -579,6 +627,11 @@ void ASHPlayerController::ServerTakeCard_Implementation(ASHCard* Card, int32 Ins
 
     SourceHand->RemoveCard(Card);
     TargetHand->AddCard(Card, InsertIndex);
+
+    ClientReceiveCardDefinition(
+        Card,
+        Card->GetCardDefinition()
+    );
 
     SHGameMode->CompleteCurrentPhase(ETurnPhaseEndReason::CardDrawn);
 }

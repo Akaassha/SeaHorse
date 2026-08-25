@@ -21,7 +21,8 @@ void ASHPlayerState::SetHand(ASHHand* NewHand)
 
 ASHHand* ASHPlayerState::GetHand()
 {
-	return Hand;
+    return Hand;
+
 }
 
 void ASHPlayerState::SetSeatIndex(int32 NewSeatIndex)

@@ -8,6 +8,7 @@
 
 class ASHCard;
 class AVictoryStack;
+class ASHPlayerState;
 
 USTRUCT(BlueprintType)
 struct FActivatedPair
@@ -131,7 +132,20 @@ public:
 		return VictoryStack;
 	}
 
+	void SetRepresentedPlayerState(ASHPlayerState* InPlayerState)
+	{
+		RepresentedPlayerState = InPlayerState;
+	}
+
+	UFUNCTION(BlueprintCallable, BlueprintPure)
+	ASHPlayerState* GetRepresentedPlayerState() const;
+
+	UFUNCTION(BlueprintCallable, BlueprintPure)
+	ASHHand* GetRepresentedHand() const;
+
 private:
+	UPROPERTY(Transient)
+	TObjectPtr<ASHPlayerState> RepresentedPlayerState;
 	
 	bool ShouldShowCardFronts();
 	FTransform LayoutTransform;

@@ -100,6 +100,14 @@ void ASHCard::OnRep_RevealedCardDefinition()
 	SetFaceUp(true);
 }
 
+void ASHCard::ApplyOwnerCardDefinition(TSubclassOf<UCardDefinition> InCardDefinition)
+{
+	CardDefinition = InCardDefinition;
+
+	RefreshCardFace();
+	SetFaceUp(bFaceUp);
+}
+
 void ASHCard::BeginPlay()
 {
 	Super::BeginPlay();

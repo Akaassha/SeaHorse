@@ -69,14 +69,7 @@ void ASHHand::BeginPlay()
 void ASHHand::SetShowCardFronts(bool bShow)
 {
     bShowCardFronts = bShow;
-
-    for (ASHCard* Card : Cards)
-    {
-        if (IsValid(Card))
-        {
-            Card->SetFaceUp(bShowCardFronts);
-        }
-    }
+    RefreshCardsPresentation();
 }
 
 void ASHHand::MulticastPairActivated_Implementation(ASHCard* CardA, ASHCard* CardB)
@@ -122,6 +115,9 @@ void ASHHand::AddCard(ASHCard* Card, int32 Index)
     Card->SetOwner(this);
     Card->SetCardZone(ECardZone::Hand);
     Cards.Insert(Card, Index);
+
+    Card->ForceNetUpdate();
+    ForceNetUpdate();
 
     RefreshCardsPresentation();
     UpdateCardPositions();
@@ -179,18 +175,26 @@ void ASHHand::RemoveCard(ASHCard* Card)
 
 void ASHHand::OnRep_Cards()
 {
-    ASHPlayerController* PC = Cast<ASHPlayerController>( UGameplayStatics::GetPlayerController(this, 0));
+    ASHPlayerController* LocalPC =
+        Cast<ASHPlayerController>(
+            GetWorld()->GetFirstPlayerController()
+        );
 
-    if (IsValid(PC) && !PC->IsTableViewInitialized())
+    if (!IsValid(LocalPC))
     {
-        PC->TrySetupTableView();
         return;
     }
 
-    RefreshCardsPresentation();
-    UpdateCardPositions();
+    ASHHand* VisualHand =
+        LocalPC->FindVisualHandForLogicalHand(this);
 
-    PreviousCards = Cards;
+    if (!IsValid(VisualHand))
+    {
+        return;
+    }
+
+    VisualHand->RefreshCardsPresentation();
+    VisualHand->UpdateCardPositions();
 }
 
 void ASHHand::OnRep_ActivatonCards()
@@ -215,35 +219,33 @@ const FTransform& ASHHand::GetLayoutTransform() const
 
 void ASHHand::RefreshCardsPresentation()
 {
-    APlayerController* LocalPC = GetWorld()->GetFirstPlayerController();
-    ASHPlayerState* LocalPS = LocalPC
-        ? LocalPC->GetPlayerState<ASHPlayerState>()
-        : nullptr;
-
-    ASHHand* LocalHand = LocalPS
-        ? LocalPS->GetHand()
-        : nullptr;
-
-    const bool bIsListenServer = GetNetMode() == NM_ListenServer;
-    UE_LOG(LogTemp, Warning,
-        TEXT("[%s] Hand=%s LocalHand=%s ShowFronts=%s"),
-        bIsListenServer ? TEXT("LISTEN SERVER") : TEXT("CLIENT"),
-        *GetNameSafe(this),
-        *GetNameSafe(LocalHand),
-        bShowCardFronts ? TEXT("TRUE") : TEXT("FALSE"));
-
-    for (ASHCard* Card : Cards)
+    if (!IsValid(RepresentedPlayerState))
     {
-        if (IsValid(Card))
-        {
-            UE_LOG(LogTemp, Warning,
-                TEXT("FACE: Hand=%s Card=%s -> %s"),
-                *GetNameSafe(this),
-                *GetNameSafe(Card),
-                bShowCardFronts ? TEXT("FRONT") : TEXT("BACK"));
+        return;
+    }
 
-            Card->SetFaceUp(bShowCardFronts);
+    ASHHand* RepresentedHand = RepresentedPlayerState->GetHand();
+
+    if (!IsValid(RepresentedHand))
+    {
+        return;
+    }
+
+    for (ASHCard* Card : RepresentedHand->GetCards())
+    {
+        if (!IsValid(Card))
+        {
+            continue;
         }
+
+        UE_LOG(LogTemp, Warning,
+            TEXT("FACE: VisualHand=%s RepresentedHand=%s Card=%s -> %s"),
+            *GetNameSafe(this),
+            *GetNameSafe(RepresentedHand),
+            *GetNameSafe(Card),
+            bShowCardFronts ? TEXT("FRONT") : TEXT("BACK"));
+
+        Card->SetFaceUp(bShowCardFronts);
     }
 }
 
@@ -278,4 +280,19 @@ bool ASHHand::ShouldShowCardFronts()
     }
 
     return (LocalPS->GetHand() == this);
+}
+
+ASHHand* ASHHand::GetRepresentedHand() const
+{
+    if (!IsValid(RepresentedPlayerState))
+    {
+        return nullptr;
+    }
+
+    return RepresentedPlayerState->GetHand();
+}
+
+ASHPlayerState* ASHHand::GetRepresentedPlayerState() const
+{
+    return RepresentedPlayerState;
 }

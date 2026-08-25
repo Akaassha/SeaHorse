@@ -7,6 +7,7 @@
 #include "SHPlayerController.generated.h"
 
 class ASHHand;
+class ASHPlayerState;
 /**
  * 
  */
@@ -23,6 +24,8 @@ public:
 
 	UFUNCTION(BlueprintCallable, Server, Reliable)
 	void ServerSkipCurrentPhase();
+
+	ASHHand* FindVisualHandForLogicalHand(const ASHHand* LogicalHand) const;
 
 protected:
 	UFUNCTION()
@@ -55,6 +58,12 @@ protected:
 	UFUNCTION(BlueprintImplementableEvent)
 	void OnPairActivated(ASHCard* CardA, ASHCard* CardB);
 
+	UFUNCTION(Client, Reliable)
+	void ClientReceiveCardDefinition(ASHCard* Card, TSubclassOf<UCardDefinition> CardDefinition);
+
 protected:
 	bool bTableViewInitialized = false;
+
+private:
+	ASHHand* FindVisualHandForPlayer(const ASHPlayerState* PlayerState) const;
 };
