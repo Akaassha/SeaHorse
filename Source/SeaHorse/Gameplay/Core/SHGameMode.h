@@ -60,6 +60,7 @@ private:
 	void StartGame();
 	void AssignSeats();
 	void RefreshPlayerScore(ASHPlayerState* PlayerState);
+	bool PlayerHasAutomaticLossCard(ASHPlayerState* PlayerState) const;
 
 	ASHHand* FindAvailableHand() const;
 

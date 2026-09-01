@@ -9,6 +9,7 @@
 #include "SeaHorse/Gameplay/Core/SHGameState.h"
 #include "SeaHorse/Gameplay/Board/VictoryStack.h"
 #include "SeaHorse/Gameplay/Cards/Fragments/CardEffectFragment.h"
+#include "SeaHorse/Gameplay/Cards/Fragments/CardEndGameRulesFragment.h"
 #include "SeaHorse/Gameplay/Cards/Tasks/CardEffectTask.h"
 #include "SeaHorse/Gameplay/Components/DeckComponent.h"
 #include "SeaHorse/Gameplay/Components/TurnComponent.h"
@@ -347,11 +348,20 @@ bool ASHGameMode::TryFinishGame()
         FSHMatchResult& Result = Results.AddDefaulted_GetRef();
         Result.PlayerState = SHPlayerState;
         Result.Points = SHPlayerState->GetVictoryPoints();
-        HighestScore = FMath::Max(HighestScore, Result.Points);
+        Result.bAutomaticallyLost = PlayerHasAutomaticLossCard(SHPlayerState);
+        if (!Result.bAutomaticallyLost)
+        {
+            HighestScore = FMath::Max(HighestScore, Result.Points);
+        }
     }
 
     Results.Sort([](const FSHMatchResult& A, const FSHMatchResult& B)
     {
+        if (A.bAutomaticallyLost != B.bAutomaticallyLost)
+        {
+            return !A.bAutomaticallyLost;
+        }
+
         if (A.Points != B.Points)
         {
             return A.Points > B.Points;
@@ -362,9 +372,43 @@ bool ASHGameMode::TryFinishGame()
 
     for (FSHMatchResult& Result : Results)
     {
-        Result.bIsWinner = Result.Points == HighestScore;
+        Result.bIsWinner = !Result.bAutomaticallyLost && Result.Points == HighestScore;
     }
 
     SHGameState->FinishGame(Results);
     return true;
+}
+
+bool ASHGameMode::PlayerHasAutomaticLossCard(ASHPlayerState* PlayerState) const
+{
+    if (!IsValid(PlayerState))
+    {
+        return false;
+    }
+
+    ASHHand* Hand = PlayerState->GetHand();
+    if (!IsValid(Hand))
+    {
+        return false;
+    }
+
+    for (ASHCard* Card : Hand->GetCards())
+    {
+        if (!IsValid(Card))
+        {
+            continue;
+        }
+
+        const UCardEndGameRulesFragment* EndGameRules = Cast<UCardEndGameRulesFragment>(
+            UCardDefinition::FindFragmentByClass(
+                Card->GetCardDefinition(),
+                UCardEndGameRulesFragment::StaticClass()));
+
+        if (IsValid(EndGameRules) && EndGameRules->bOwnerAutomaticallyLoses)
+        {
+            return true;
+        }
+    }
+
+    return false;
 }

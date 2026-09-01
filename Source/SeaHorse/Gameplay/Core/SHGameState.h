@@ -21,6 +21,9 @@ struct FSHMatchResult
 
 	UPROPERTY(BlueprintReadOnly, Category = "Match")
 	bool bIsWinner = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Match")
+	bool bAutomaticallyLost = false;
 };
 
 USTRUCT()
