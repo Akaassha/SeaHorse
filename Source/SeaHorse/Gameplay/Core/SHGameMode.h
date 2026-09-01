@@ -8,33 +8,12 @@
 
 class ASHHand;
 class ASHCard;
-class UCardDefinition;
 class ASHPlayerState;
-struct FActivatedPair;
 class UCardEffectFragment;
 class UCardEffectTask;
 
-USTRUCT(BlueprintType)
-struct FDeckEntry : public FTableRowBase
-{
-	GENERATED_BODY()
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly)
-	TSubclassOf<UCardDefinition> CardDefinition;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta = (ClampMin = "1"))
-	int32 Count = 1;
-};
-
-UENUM(BlueprintType)
-enum class ETurnPhaseEndReason : uint8
-{
-	None,
-	AutoSkipped,
-	PlayerSkipped,
-	PairCreated,
-	CardDrawn
-};
+class UTurnComponent;
+class UDeckComponent;
 
 /**
  * 
@@ -49,35 +28,11 @@ public:
 	virtual void HandleStartingNewPlayer_Implementation(APlayerController* NewPlayer) override;
 	//End AGameMode Interface
 
-	void CreateDeck();
-
-	void SetInitialDealtCardCount(int32 InitialDeckSize) { DeckSize = InitialDeckSize; }
-	int32 GetInitialDealtCardCount() { return DeckSize; };
-
 	bool AreCardsPairCompatible(ASHCard* CardA, ASHCard* CardB);
 
 	void ActivatePair(ASHPlayerState* PlayerState, ASHCard* CardA, ASHCard* CardB);
 
-	UFUNCTION(BlueprintNativeEvent, Category = "Turn")
-	ETurnPhase GetNextTurnPhase(ETurnPhase CurrentPhase, ETurnPhaseEndReason Reason);
-	virtual ETurnPhase GetNextTurnPhase_Implementation(ETurnPhase CurrentPhase, ETurnPhaseEndReason Reason);
-
-	UFUNCTION(BlueprintNativeEvent, Category = "Turn")
-	ASHPlayerState* ChooseNextPlayer(ASHPlayerState* CurrentPlayer);
-	virtual ASHPlayerState* ChooseNextPlayer_Implementation(ASHPlayerState* CurrentPlayer);
-
-	void CompleteCurrentPhase(ETurnPhaseEndReason Reason);
-
-	void SkipCurrentPhase(ASHPlayerState* RequestingPlayer);
-
-	void EndTurn();
-
-	void EnterTurnPhase(ETurnPhase NewPhase);
-
-	bool IsPairingActionUsed() { return bPairingActionUsed; };
-	void SetPairingActionUsed(bool NewValue) { bPairingActionUsed = NewValue; };
-
-	bool CanActivatePair(ASHPlayerState* RequestingPlayer, FActivatedPair& ActivatedPair);
+	UTurnComponent* GetTurnComponent() const { return TurnComponent; }
 
 	void MovePairToVictoryStack(ASHPlayerState* PlayerState, ASHCard* CardA, ASHCard* CardB);
 
@@ -86,36 +41,17 @@ public:
 	void FinishEffectTask(UCardEffectTask* CardEffectTask);
 
 protected:
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Cards")
-	TObjectPtr<UDataTable> DeckDefinition;
+	UPROPERTY(EditDefaultsOnly, Category = "Systems")
+	TSubclassOf<UTurnComponent> TurnComponentClass;
 
-	UPROPERTY()
-	TArray<TObjectPtr<ASHCard>> Deck;
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Cards")
-	TSubclassOf<ASHCard> CardClass;
+	UPROPERTY(EditDefaultsOnly, Category = "Systems")
+	TSubclassOf<UDeckComponent> DeckComponentClass;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Cards")
 	TSubclassOf<ASHHand> HandClass;
 
-	UFUNCTION(BlueprintCallable)
-	void ShuffleDeck();
-
-	UFUNCTION(BlueprintCallable)
-	void DealCards();
-
 	UPROPERTY(EditDefaultsOnly)
 	int32 ExpectedPlayerCount = 3;
-
-	void StartTurn();
-
-	UFUNCTION(BlueprintNativeEvent, Category = "Game|Setup")
-	ASHPlayerState* ChooseStartingPlayer();
-	virtual ASHPlayerState* ChooseStartingPlayer_Implementation();
-
-	UFUNCTION(BlueprintNativeEvent, Category = "Game|Setup")
-	ASHPlayerState* ChooseFirstDealtPlayer();
-	virtual ASHPlayerState* ChooseFirstDealtPlayer_Implementation();
 
 private:
 	void TryStartGame();
@@ -126,9 +62,11 @@ private:
 
 	bool bGameStarted = false;
 
-	int32 DeckSize = -1;
+	UPROPERTY(Transient)
+	TObjectPtr<UDeckComponent> DeckComponent;
 
-	bool bPairingActionUsed = false;
+	UPROPERTY(Transient)
+	TObjectPtr<UTurnComponent> TurnComponent;
 
 	UPROPERTY()
 	TArray<TObjectPtr<UCardEffectTask>> ActiveEffectTasks;

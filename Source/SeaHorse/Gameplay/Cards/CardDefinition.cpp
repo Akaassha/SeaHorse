@@ -11,7 +11,7 @@ const UCardFragment* UCardDefinition::FindFragmentByClass(TSubclassOf<UCardDefin
 		UCardDefinition* CardCDO = CardDefinition.GetDefaultObject();
 		for (const TObjectPtr<UCardFragment>& Fragment : CardCDO->CardFragments)
 		{
-			if (Fragment->IsA(FragmentClass))
+			if (IsValid(Fragment) && Fragment->IsA(FragmentClass))
 			{
 				return Fragment;
 			}

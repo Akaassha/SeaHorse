@@ -53,10 +53,18 @@ public:
 	void SetShowCardFronts(bool bShow);
 
 	UFUNCTION(NetMulticast, Reliable)
-	void MulticastPairActivated(ASHCard* CardA, ASHCard* CardB);
+	void MulticastPairEffectActivated(ASHCard* CardA, ASHCard* CardB);
+
+	UFUNCTION(BlueprintImplementableEvent)
+	void OnPairEffectActivated(ASHCard* CardA, ASHCard* CardB);
 
 	UFUNCTION(BlueprintImplementableEvent)
 	void OnPairActivated(ASHCard* CardA, ASHCard* CardB);
+
+	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Cards|Activation")
+	void AddActivationPair(ASHCard* CardA, ASHCard* CardB);
+	void AddActivationPairToLogicalHand(ASHCard* CardA, ASHCard* CardB);
+	void RefreshActivationPairsPresentation();
 
 	bool RemoveActivationPair(ASHCard* CardA, ASHCard* CardB);
 
@@ -67,13 +75,10 @@ protected:
 	UPROPERTY(ReplicatedUsing = OnRep_Cards)
 	TArray<TObjectPtr<ASHCard>> Cards;
 
-	UPROPERTY(ReplicatedUsing = OnRep_ActivatonCards)
+	UPROPERTY(ReplicatedUsing = OnRep_ActivationPairs)
 	TArray<FActivatedPair> ActivationPairs;
 	
 	bool bShowCardFronts = false;
-
-	UFUNCTION(BlueprintCallable)
-	void AddActivationPair(ASHCard* CardA, ASHCard* CardB);
 
 	UPROPERTY(EditInstanceOnly, BlueprintReadOnly, Category = "Player Area")
 	TObjectPtr<AVictoryStack> VictoryStack;
@@ -101,7 +106,7 @@ public:
 	void OnRep_Cards();
 
 	UFUNCTION()
-	void OnRep_ActivatonCards();
+	void OnRep_ActivationPairs();
 
 	UFUNCTION(BlueprintPure)
 	int32 GetCardCount() const;
@@ -117,9 +122,6 @@ public:
 
 	UFUNCTION(BlueprintCallable, BlueprintPure)
 	const FTransform& GetLayoutTransform() const;
-
-	UPROPERTY(Transient)
-	TArray<TObjectPtr<ASHCard>> PreviousCards;
 
 	void RefreshCardsPresentation();
 
@@ -147,6 +149,5 @@ private:
 	UPROPERTY(Transient)
 	TObjectPtr<ASHPlayerState> RepresentedPlayerState;
 	
-	bool ShouldShowCardFronts();
 	FTransform LayoutTransform;
 };

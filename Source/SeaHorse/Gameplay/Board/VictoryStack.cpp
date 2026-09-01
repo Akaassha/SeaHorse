@@ -3,13 +3,17 @@
 
 #include "SeaHorse/Gameplay/Board/VictoryStack.h"
 #include "SeaHorse/Gameplay/Cards/SHCard.h"
+#include "SeaHorse/Gameplay/Core/SHGameState.h"
+#include "SeaHorse/Gameplay/Core/SHPlayerController.h"
+#include "SeaHorse/Gameplay/Core/SHPlayerState.h"
+#include "SeaHorse/Gameplay/SHHand.h"
 #include "Net/UnrealNetwork.h"
 
 void AVictoryStack::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
-	DOREPLIFETIME(AVictoryStack, Cards);
+	DOREPLIFETIME(AVictoryStack, ReplicatedCards);
 }
 
 // Sets default values
@@ -28,8 +32,8 @@ void AVictoryStack::AddPair(ASHCard* CardA, ASHCard* CardB)
     checkf(HasAuthority(), TEXT("AddPair can only be called on the server"));
     checkf(IsValid(CardA) && IsValid(CardB), TEXT("Invalid cards passed to VictoryStack"));
 
-    Cards.Add(CardA);
-    Cards.Add(CardB);
+    ReplicatedCards.Add(CardA);
+    ReplicatedCards.Add(CardB);
 
     CardA->SetOwner(this);
     CardB->SetOwner(this);
@@ -37,7 +41,8 @@ void AVictoryStack::AddPair(ASHCard* CardA, ASHCard* CardB)
     CardA->SetCardZone(ECardZone::Victory);
     CardB->SetCardZone(ECardZone::Victory);
 
-    RefreshCardsLayout();
+    ForceNetUpdate();
+    RefreshCardsPresentation();
 }
 
 // Called when the game starts or when spawned
@@ -55,7 +60,64 @@ void AVictoryStack::Tick(float DeltaTime)
 
 }
 
-void AVictoryStack::OnRep_Cards()
+void AVictoryStack::OnRep_ReplicatedCards()
 {
-	RefreshCardsLayout();
+	RefreshCardsPresentation();
+}
+
+void AVictoryStack::RefreshCardsPresentation()
+{
+    ASHPlayerController* LocalPC = Cast<ASHPlayerController>(GetWorld()->GetFirstPlayerController());
+    if (!IsValid(LocalPC) || !LocalPC->IsLocalController())
+    {
+        return;
+    }
+
+    ASHHand* LogicalHand = FindOwningLogicalHand();
+    if (!IsValid(LogicalHand))
+    {
+        return;
+    }
+
+    ASHHand* VisualHand = LocalPC->FindVisualHandForLogicalHand(LogicalHand);
+    if (!IsValid(VisualHand))
+    {
+        return;
+    }
+
+    AVictoryStack* VisualStack = VisualHand->GetVictoryStack();
+    if (!IsValid(VisualStack))
+    {
+        return;
+    }
+
+    VisualStack->SetPresentedCards(ReplicatedCards);
+}
+
+ASHHand* AVictoryStack::FindOwningLogicalHand() const
+{
+    const ASHGameState* GameState = GetWorld()->GetGameState<ASHGameState>();
+    if (!IsValid(GameState))
+    {
+        return nullptr;
+    }
+
+    for (APlayerState* PlayerState : GameState->PlayerArray)
+    {
+        ASHPlayerState* SHPlayerState = Cast<ASHPlayerState>(PlayerState);
+        ASHHand* Hand = IsValid(SHPlayerState) ? SHPlayerState->GetHand() : nullptr;
+
+        if (IsValid(Hand) && Hand->GetVictoryStack() == this)
+        {
+            return Hand;
+        }
+    }
+
+    return nullptr;
+}
+
+void AVictoryStack::SetPresentedCards(const TArray<TObjectPtr<ASHCard>>& NewCards)
+{
+    Cards = NewCards;
+    RefreshCardsLayout();
 }

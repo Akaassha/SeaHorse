@@ -4,6 +4,7 @@
 #include "SeaHorse/Gameplay/Cards/SHCard.h"
 #include "SeaHorse/Gameplay/SHHand.h"
 #include "SeaHorse/Gameplay/Cards/CardDefinition.h"
+#include "SeaHorse/Gameplay/Core/SHPlayerController.h"
 #include "Blueprint/UserWidget.h"
 #include "Net/UnrealNetwork.h"
 
@@ -17,12 +18,16 @@ ASHCard::ASHCard()
 
 void ASHCard::Initialize_Implementation()
 {
-	WidgetRenderer = MakeUnique<FWidgetRenderer>(
-		true,   // gamma correction
-		true    // clear target
-	);
+	if (!WidgetRenderer)
+	{
+		WidgetRenderer = MakeUnique<FWidgetRenderer>(true, true);
+	}
 
-	CardFaceWidget = CreateWidget<UUserWidget>(GetWorld(), CardFaceWidgetClass);
+    if (!IsValid(CardFaceWidget))
+    {
+        checkf(CardFaceWidgetClass, TEXT("CardFaceWidgetClass is not set"));
+        CardFaceWidget = CreateWidget<UUserWidget>(GetWorld(), CardFaceWidgetClass);
+    }
 
 	checkf(IsValid(CardFaceWidget), TEXT("Failed to create CardFaceWidget"));
 
@@ -108,12 +113,6 @@ void ASHCard::ApplyOwnerCardDefinition(TSubclassOf<UCardDefinition> InCardDefini
 	SetFaceUp(bFaceUp);
 }
 
-void ASHCard::BeginPlay()
-{
-	Super::BeginPlay();
-	
-}
-
 ECardZone ASHCard::GetCardZone() const
 {
 	return CardZone;
@@ -159,21 +158,25 @@ void ASHCard::OnRep_CardZone()
 void ASHCard::OnRep_CardDefinition()
 {
 	Initialize();
-
-	RefreshCardFace();
-
 	UpdateCardVisual(bFaceUp);
 }
 
 void ASHCard::OnRep_Owner()
 {
-	Super::OnRep_Owner();
+    Super::OnRep_Owner();
 
-	if (ASHHand* Hand = GetOwningHand())
-	{
-		Hand->RefreshCardsPresentation();
-		Hand->UpdateCardPositions();
-	}
+    ASHHand* LogicalHand = GetOwningHand();
+    ASHPlayerController* LocalPC = Cast<ASHPlayerController>(GetWorld()->GetFirstPlayerController());
+
+    if (IsValid(LogicalHand) && IsValid(LocalPC))
+    {
+        ASHHand* VisualHand = LocalPC->FindVisualHandForLogicalHand(LogicalHand);
+        if (IsValid(VisualHand))
+        {
+            VisualHand->RefreshCardsPresentation();
+            VisualHand->UpdateCardPositions();
+        }
+    }
 }
 
 void ASHCard::Tick(float DeltaTime)

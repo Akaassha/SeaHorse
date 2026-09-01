@@ -11,6 +11,7 @@
 #include "SeaHorse/Gameplay/Board/SHTable.h"
 #include "Kismet/GameplayStatics.h"
 #include "SeaHorse/Gameplay/Core/SHGameMode.h"
+#include "SeaHorse/Gameplay/Components/TurnComponent.h"
 #include "SeaHorse/Gameplay/Cards/Fragments/CardEffectFragment.h"
 
 void ASHPlayerController::TrySetupTableView()
@@ -171,7 +172,11 @@ void ASHPlayerController::ServerSkipCurrentPhase_Implementation()
         return;
     }
 
-    SHGameMode->SkipCurrentPhase(SHPlayerState);
+    UTurnComponent* TurnComponent = SHGameMode->GetTurnComponent();
+    if (IsValid(TurnComponent))
+    {
+        TurnComponent->SkipCurrentPhase(SHPlayerState);
+    }
 }
 
 ASHHand* ASHPlayerController::FindVisualHandForLogicalHand(const ASHHand* LogicalHand) const
@@ -270,76 +275,21 @@ void ASHPlayerController::SetupTableView()
     {
         Hand->Initialize();
         Hand->UpdateCardPositions();
-    }
-
-}
-
-void ASHPlayerController::BeginPlay()
-{
-    Super::BeginPlay();
-
-}
-
-void ASHPlayerController::DebugHands()
-{
-    ASHGameState* SHGameState = GetWorld()->GetGameState<ASHGameState>();
-
-    if (!IsValid(SHGameState))
-    {
-        return;
+        Hand->RefreshActivationPairsPresentation();
     }
 
     for (APlayerState* CurrentPlayerState : SHGameState->PlayerArray)
     {
         ASHPlayerState* SHPlayerState = Cast<ASHPlayerState>(CurrentPlayerState);
+        ASHHand* LogicalHand = IsValid(SHPlayerState) ? SHPlayerState->GetHand() : nullptr;
+        AVictoryStack* LogicalStack = IsValid(LogicalHand) ? LogicalHand->GetVictoryStack() : nullptr;
 
-        if (!IsValid(SHPlayerState))
+        if (IsValid(LogicalStack))
         {
-            continue;
-        }
-
-    }
-}
-
-void ASHPlayerController::DebugCardDefinitions()
-{
-    const ASHGameState* SHGameState = GetWorld()->GetGameState<ASHGameState>();
-    checkf(IsValid(SHGameState), TEXT("Invalid SHGameState"));
-
-    const ASHPlayerState* LocalPlayerState = GetPlayerState<ASHPlayerState>();
-    checkf(IsValid(LocalPlayerState), TEXT("Invalid local SHPlayerState"));
-
-    for (APlayerState* CurrentPlayerState : SHGameState->PlayerArray)
-    {
-        ASHPlayerState* SHPlayerState = Cast<ASHPlayerState>(CurrentPlayerState);
-
-        if (!IsValid(SHPlayerState))
-        {
-            continue;
-        }
-
-        ASHHand* Hand = SHPlayerState->GetHand();
-
-        if (!IsValid(Hand))
-        {
-            continue;
-        }
-
-        TArray<ASHCard*> Cards = Hand->GetCards();
-
-        for (int32 Index = 0; Index < Cards.Num(); ++Index)
-        {
-            ASHCard* Card = Cards[Index];
-
-            if (!IsValid(Card))
-            {
-                continue;
-            }
-
-            TSubclassOf<UCardDefinition> Definition = Card->GetCardDefinition();
-
+            LogicalStack->RefreshCardsPresentation();
         }
     }
+
 }
 
 int32 ASHPlayerController::GetVisualSeatIndex(int32 PlayerSeatIndex, int32 PlayerCount) const
@@ -385,6 +335,7 @@ void ASHPlayerController::ClientReceiveCardDefinition_Implementation(ASHCard* Ca
     }
 
     Card->ApplyOwnerCardDefinition(CardDefinition);
+    Card->SetFaceUp(true);
 }
 
 ASHHand* ASHPlayerController::FindVisualHandForPlayer(const ASHPlayerState* InPlayerState) const
@@ -461,6 +412,12 @@ void ASHPlayerController::ServerActivateStoredPair_Implementation(ASHCard* Card)
         return;
     }
 
+    UTurnComponent* TurnComponent = SHGameMode->GetTurnComponent();
+    if (!IsValid(TurnComponent) || !TurnComponent->CanActivatePair(SHPlayerState, *Pair))
+    {
+        return;
+    }
+
     ASHCard* CardA = Pair->CardA;
     ASHCard* CardB = Pair->CardB;
 
@@ -470,7 +427,8 @@ void ASHPlayerController::ServerActivateStoredPair_Implementation(ASHCard* Card)
     }
 
     Pair->bActivated = true;
-    Hand->MulticastPairActivated(CardA, CardB);
+    Hand->ForceNetUpdate();
+    Hand->MulticastPairEffectActivated(CardA, CardB);
 
     SHGameMode->CardActivateEffect(SHPlayerState, CardA, CardB);
     
@@ -536,19 +494,19 @@ void ASHPlayerController::ServerCreatePair_Implementation(ASHCard* CardA, ASHCar
         return;
     }
 
-    if (SHGameMode->IsPairingActionUsed())
+    UTurnComponent* TurnComponent = SHGameMode->GetTurnComponent();
+    if (!IsValid(TurnComponent) || TurnComponent->IsPairingActionUsed())
     {
         return;
     }
 
-   SHGameMode->ActivatePair(SHPlayerState, CardA, CardB);
-   OnPairActivated(CardA, CardB);
+    SHGameMode->ActivatePair(SHPlayerState, CardA, CardB);
 
-    SHGameMode->SetPairingActionUsed(true);
+    TurnComponent->MarkPairingActionUsed();
 
     if (Phase == ETurnPhase::FirstPairing)
     {
-        SHGameMode->CompleteCurrentPhase(ETurnPhaseEndReason::PairCreated);
+        TurnComponent->CompleteCurrentPhase(ETurnPhaseEndReason::PairCreated);
     }
 }
 
@@ -593,6 +551,11 @@ void ASHPlayerController::ServerTakeCard_Implementation(ASHCard* Card, int32 Ins
 
     ASHGameMode* SHGameMode = GetWorld()->GetAuthGameMode<ASHGameMode>();
 
+    if (!IsValid(SHGameMode))
+    {
+        return;
+    }
+
     UE_LOG(LogTemp, Warning,
         TEXT("BEFORE ADD: TargetHand=%s Card=%s"),
         *GetNameSafe(TargetHand),
@@ -633,6 +596,10 @@ void ASHPlayerController::ServerTakeCard_Implementation(ASHCard* Card, int32 Ins
         Card->GetCardDefinition()
     );
 
-    SHGameMode->CompleteCurrentPhase(ETurnPhaseEndReason::CardDrawn);
+    UTurnComponent* TurnComponent = SHGameMode->GetTurnComponent();
+    if (IsValid(TurnComponent))
+    {
+        TurnComponent->CompleteCurrentPhase(ETurnPhaseEndReason::CardDrawn);
+    }
 }
 

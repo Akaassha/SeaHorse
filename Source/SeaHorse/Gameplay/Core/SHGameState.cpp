@@ -161,8 +161,5 @@ void ASHGameState::NotifyTurnStateChanged()
         return;
     }
 
-    const bool bIsMyTurn = LocalPS == CurrentPlayer;
-
-    //OnTurnStateChanged(CurrentPlayer, CurrentTurnPhase, bIsMyTurn);
     OnTurnStateChanged.Broadcast(CurrentPlayer, CurrentTurnPhase);
 }

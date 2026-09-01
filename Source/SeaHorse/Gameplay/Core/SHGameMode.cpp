@@ -3,17 +3,15 @@
 
 #include "SeaHorse/Gameplay/Core/SHGameMode.h"
 #include "SeaHorse/Gameplay/SHHand.h"
-#include "GameFramework/GameState.h"
 #include "SeaHorse/Gameplay/Core/SHPlayerState.h"
 #include "SeaHorse/Gameplay/Cards/SHCard.h"
-#include "Kismet/GameplayStatics.h"
 #include "SeaHorse/Gameplay/Cards/CardDefinition.h"
-#include "Algo/RandomShuffle.h"
 #include "SeaHorse/Gameplay/Core/SHGameState.h"
-#include "SeaHorse/Gameplay/Cards/Fragments/CardActivationRulesFragment.h"
 #include "SeaHorse/Gameplay/Board/VictoryStack.h"
 #include "SeaHorse/Gameplay/Cards/Fragments/CardEffectFragment.h"
 #include "SeaHorse/Gameplay/Cards/Tasks/CardEffectTask.h"
+#include "SeaHorse/Gameplay/Components/DeckComponent.h"
+#include "SeaHorse/Gameplay/Components/TurnComponent.h"
 #include "EngineUtils.h"
 
 // ***** Begin Player setup *****
@@ -96,10 +94,16 @@ void ASHGameMode::TryStartGame()
     ASHGameState* SHGameState = GetGameState<ASHGameState>();
     checkf(IsValid(SHGameState), TEXT("Invalid SHGameState"));
 
-    if (SHGameState->PlayerArray.Num() != ExpectedPlayerCount)
+    if (SHGameState->PlayerArray.Num() < ExpectedPlayerCount)
     {
         return;
     }
+
+    checkf(
+        SHGameState->PlayerArray.Num() == ExpectedPlayerCount,
+        TEXT("Expected %d players, but found %d"),
+        ExpectedPlayerCount,
+        SHGameState->PlayerArray.Num());
 
     for (APlayerState* PlayerState : SHGameState->PlayerArray)
     {
@@ -127,331 +131,50 @@ void ASHGameMode::StartGame()
         TEXT("[SH_INIT][%.3f][SERVER] AssignSeats DONE"),
         GetWorld()->GetTimeSeconds());
 
-    CreateDeck();
-    ShuffleDeck();
+    checkf(DeckComponentClass, TEXT("DeckComponentClass is not set"));
+
+    DeckComponent = NewObject<UDeckComponent>(this, DeckComponentClass);
+    checkf(IsValid(DeckComponent), TEXT("Failed to create DeckComponent"));
+    DeckComponent->RegisterComponent();
+
+    DeckComponent->CreateDeck();
+    const int32 InitialDeckSize = DeckComponent->GetInitialDeckSize();
+    DeckComponent->ShuffleDeck();
 
     UE_LOG(LogTemp, Warning,
         TEXT("[SH_INIT][%.3f][SERVER] Deck ready | Cards: %d"),
         GetWorld()->GetTimeSeconds(),
-        Deck.Num());
+        InitialDeckSize);
 
-    DealCards();
+    ASHPlayerState* StartingPlayer = DeckComponent->DealCards();
+    checkf(IsValid(StartingPlayer), TEXT("DeckComponent returned no starting player"));
 
     ASHGameState* SHGameState = GetGameState<ASHGameState>();
     checkf(IsValid(SHGameState), TEXT("Invalid SHGameState"));
 
-    SHGameState->SetInitialDealtCardCount(DeckSize);
+    SHGameState->SetInitialDealtCardCount(InitialDeckSize);
 
     UE_LOG(LogTemp, Warning,
         TEXT("[SH_INIT][%.3f][SERVER] Setting MatchReady TRUE"),
         GetWorld()->GetTimeSeconds());
 
-    ASHPlayerState* StartingPlayer = ChooseStartingPlayer();
-    checkf(IsValid(StartingPlayer), TEXT("No valid starting player"));
+    UClass* TurnClass = TurnComponentClass.Get();
+    if (!TurnClass)
+    {
+        TurnClass = UTurnComponent::StaticClass();
+    }
 
-    SHGameState->SetCurrentPlayer(StartingPlayer);
-    StartTurn();
+    TurnComponent = NewObject<UTurnComponent>(this, TurnClass);
+    checkf(IsValid(TurnComponent), TEXT("Failed to create TurnComponent"));
+    TurnComponent->RegisterComponent();
+    TurnComponent->InitializeTurns(StartingPlayer);
 
     SHGameState->SetMatchReady(true);
 }
 // ***** End Match Startup *****
 
 
-
-// ***** Begin Handle Deck *****
-void ASHGameMode::CreateDeck()
-{
-    checkf(DeckDefinition, TEXT("DeckDefinition is not set"));
-    checkf(CardClass, TEXT("CardClass is not set"));
-    checkf(Deck.IsEmpty(), TEXT("CreateDeck called while Deck is not empty"));
-
-    TArray<FDeckEntry*> DeckEntries;
-    DeckDefinition->GetAllRows<FDeckEntry>(
-        TEXT("ASHGameMode::CreateDeck"),
-        DeckEntries
-    );
-
-    for (const FDeckEntry* Entry : DeckEntries)
-    {
-        checkf(Entry, TEXT("Invalid DeckEntry"));
-        checkf(Entry->CardDefinition, TEXT("DeckEntry has no CardDefinition"));
-        checkf(Entry->Count > 0, TEXT("DeckEntry has invalid Count: %d"), Entry->Count);
-
-        for (int32 i = 0; i < Entry->Count; ++i)
-        {
-            const FTransform SpawnTransform = FTransform::Identity;
-
-            ASHCard* Card = GetWorld()->SpawnActorDeferred<ASHCard>(CardClass, SpawnTransform);
-
-            checkf(IsValid(Card), TEXT("Failed to spawn card"));
-
-            Card->SetCardDefinition(Entry->CardDefinition);
-
-            UGameplayStatics::FinishSpawningActor(Card, SpawnTransform);
-
-            Card->Initialize();
-            Deck.Add(Card);
-        }
-    }
-
-    DeckSize = Deck.Num();
-}
-
-void ASHGameMode::ShuffleDeck()
-{
-    Algo::RandomShuffle(Deck);
-}
-
-void ASHGameMode::DealCards()
-{
-    ASHGameState* SHGameState = GetGameState<ASHGameState>();
-    checkf(IsValid(SHGameState), TEXT("Invalid SHGameState"));
-
-    ASHPlayerState* FirstPlayer = ChooseFirstDealtPlayer();
-    checkf(IsValid(FirstPlayer), TEXT("ChooseDealingStartPlayer returned invalid player"));
-
-    int32 PlayerIndex = SHGameState->PlayerArray.IndexOfByKey(FirstPlayer);
-    checkf(PlayerIndex != INDEX_NONE, TEXT("Chosen dealing start player is not in PlayerArray"));
-
-    while (!Deck.IsEmpty())
-    {
-        ASHPlayerState* PlayerState = Cast<ASHPlayerState>(SHGameState->PlayerArray[PlayerIndex]);
-        ASHHand* Hand = PlayerState->GetHand();
-        ASHCard* Card = Deck.Pop();
-
-        checkf(IsValid(Card), TEXT("Deck contains invalid Card"));
-
-        Hand->AddCard(Card, Hand->GetCardCount());
-
-        PlayerIndex = (PlayerIndex + 1) % SHGameState->PlayerArray.Num();
-
-    }
-}
-
-ASHPlayerState* ASHGameMode::ChooseFirstDealtPlayer_Implementation()
-{
-    ASHGameState* SHGameState = GetGameState<ASHGameState>();
-    checkf(IsValid(SHGameState), TEXT("Invalid GameState"));
-    checkf(SHGameState->PlayerArray.Num() > 0, TEXT("No players"));
-
-    const int32 RandomIndex =
-        FMath::RandRange(0, SHGameState->PlayerArray.Num() - 1);
-
-    ASHPlayerState* Player =
-        Cast<ASHPlayerState>(SHGameState->PlayerArray[RandomIndex]);
-
-    checkf(IsValid(Player), TEXT("Invalid starting player"));
-
-    return Player;
-}
-// ***** End Handle Deck *****
-
-
-
-// ***** Begin Turns *****
-void ASHGameMode::StartTurn()
-{
-    ASHGameState* SHGameState = GetGameState<ASHGameState>();
-    checkf(IsValid(SHGameState), TEXT("Invalid GameState"));
-    checkf(IsValid(SHGameState->GetCurrentPlayer()), TEXT("No current player"));
-
-    bPairingActionUsed = false;
-
-    SHGameState->SetTurnPhase(ETurnPhase::FirstPairing);
-}
-
-ASHPlayerState* ASHGameMode::ChooseStartingPlayer_Implementation()
-{
-    ASHGameState* SHGameState = GetGameState<ASHGameState>();
-    checkf(IsValid(SHGameState), TEXT("Invalid GameState"));
-    checkf(SHGameState->PlayerArray.Num() > 0, TEXT("No players"));
-
-    const int32 RandomIndex = FMath::RandRange(0, SHGameState->PlayerArray.Num() - 1);
-
-    ASHPlayerState* Player = Cast<ASHPlayerState>(SHGameState->PlayerArray[RandomIndex]);
-
-    checkf(IsValid(Player), TEXT("Invalid starting player"));
-
-    return Player;
-}
-
-
-ETurnPhase ASHGameMode::GetNextTurnPhase_Implementation(ETurnPhase CurrentPhase, ETurnPhaseEndReason Reason)
-{
-    switch (CurrentPhase)
-    {
-    case ETurnPhase::FirstPairing:
-    {
-        if (Reason == ETurnPhaseEndReason::CardDrawn)
-        {
-            return ETurnPhase::SecondPairing;
-        }
-
-        return ETurnPhase::DrawCard;
-    }
-
-    case ETurnPhase::DrawCard:
-        return ETurnPhase::SecondPairing;
-
-    case ETurnPhase::SecondPairing:
-        return ETurnPhase::None;
-
-    default:
-        return ETurnPhase::None;
-    }
-}
-
-ASHPlayerState* ASHGameMode::ChooseNextPlayer_Implementation(ASHPlayerState* CurrentPlayer)
-{
-    checkf(IsValid(CurrentPlayer), TEXT("Invalid current player"));
-
-    ASHGameState* SHGameState = GetGameState<ASHGameState>();
-    checkf(IsValid(SHGameState), TEXT("Invalid GameState"));
-
-    const int32 PlayerCount = SHGameState->PlayerArray.Num();
-    checkf(PlayerCount > 0, TEXT("Cannot choose next player without players"));
-
-    const int32 NextSeatIndex =
-        (CurrentPlayer->GetSeatIndex() + 1) % PlayerCount;
-
-    for (APlayerState* PlayerState : SHGameState->PlayerArray)
-    {
-        ASHPlayerState* SHPlayerState =
-            Cast<ASHPlayerState>(PlayerState);
-
-        if (IsValid(SHPlayerState) &&
-            SHPlayerState->GetSeatIndex() == NextSeatIndex)
-        {
-            return SHPlayerState;
-        }
-    }
-
-    return nullptr;
-}
-
-void ASHGameMode::CompleteCurrentPhase(ETurnPhaseEndReason Reason)
-{
-    ASHGameState* SHGameState = GetGameState<ASHGameState>();
-    checkf(IsValid(SHGameState), TEXT("Invalid GameState"));
-
-    const ETurnPhase CurrentPhase = SHGameState->GetTurnPhase();
-    const ETurnPhase NextPhase = GetNextTurnPhase(CurrentPhase, Reason);
-
-    if (NextPhase == ETurnPhase::None)
-    {
-        EndTurn();
-        return;
-    }
-
-    EnterTurnPhase(NextPhase);
-    //SHGameState->SetTurnPhase(NextPhase);
-}
-void ASHGameMode::SkipCurrentPhase(ASHPlayerState* RequestingPlayer)
-{
-    ASHGameState* SHGameState = GetGameState<ASHGameState>();
-    checkf(IsValid(SHGameState), TEXT("Invalid GameState"));
-
-    if (SHGameState->GetCurrentPlayer() != RequestingPlayer)
-    {
-        return;
-    }
-
-    const ETurnPhase Phase = SHGameState->GetTurnPhase();
-
-    if (Phase != ETurnPhase::FirstPairing &&
-        Phase != ETurnPhase::SecondPairing)
-    {
-        return;
-    }
-
-    CompleteCurrentPhase(ETurnPhaseEndReason::PlayerSkipped);
-}
-void ASHGameMode::EndTurn()
-{
-    ASHGameState* SHGameState = GetGameState<ASHGameState>();
-    checkf(IsValid(SHGameState), TEXT("Invalid GameState"));
-
-    ASHPlayerState* CurrentPlayer = SHGameState->GetCurrentPlayer();
-    checkf(IsValid(CurrentPlayer), TEXT("Cannot end turn without current player"));
-
-    ASHPlayerState* NextPlayer = ChooseNextPlayer(CurrentPlayer);
-
-    checkf(
-        IsValid(NextPlayer),
-        TEXT("ChooseNextPlayer returned invalid player")
-    );
-
-    SHGameState->SetCurrentPlayer(NextPlayer);
-
-    StartTurn();
-}
-
-void ASHGameMode::EnterTurnPhase(ETurnPhase NewPhase)
-{
-    if (NewPhase == ETurnPhase::FirstPairing ||
-        NewPhase == ETurnPhase::SecondPairing)
-    {
-        bPairingActionUsed = false;
-    }
-
-    GetGameState<ASHGameState>()->SetTurnPhase(NewPhase);
-}
-
-bool ASHGameMode::CanActivatePair(ASHPlayerState* RequestingPlayer, FActivatedPair& ActivatedPair)
-{
-    if (!IsValid(RequestingPlayer) ||
-        !IsValid(ActivatedPair.CardA) ||
-        !IsValid(ActivatedPair.CardB) ||
-        ActivatedPair.bActivated)
-    {
-        return false;
-    }
-
-    ASHGameState* SHGameState = GetGameState<ASHGameState>();
-    checkf(IsValid(SHGameState), TEXT("Invalid GameState"));
-
-    bool bIsOwnTurn = SHGameState->GetCurrentPlayer() == RequestingPlayer;
-    const UCardActivationRulesFragment* Rules = Cast<UCardActivationRulesFragment>
-                                                (UCardDefinition::FindFragmentByClass( ActivatedPair.CardA->CardDefinition, UCardActivationRulesFragment::StaticClass()));
-    
-    if (!IsValid(Rules))
-    {
-        return bIsOwnTurn;
-    }
-
-    if (!Rules->bCanBeActivated)
-    {
-        return false;
-    }
-
-    switch (Rules->TurnRestriction)
-    {
-    case ECardActivationRules::OwnTurn:
-        if (!bIsOwnTurn)
-        {
-            return false;
-        }
-        break;
-
-    case ECardActivationRules::OutsideOwnTurn:
-        if (bIsOwnTurn)
-        {
-            return false;
-        }
-        break;
-
-    case ECardActivationRules::AnyTurn:
-        break;
-    }
-
-    if (!Rules->AllowedPhases.IsEmpty() &&
-        !Rules->AllowedPhases.Contains(SHGameState->GetTurnPhase()))
-    {
-        return false;
-    }
-
-    return true;
-}
+// ***** Begin Card Effects *****
 void ASHGameMode::MovePairToVictoryStack(ASHPlayerState* PlayerState, ASHCard* CardA, ASHCard* CardB)
 {
     checkf(IsValid(PlayerState), TEXT("Invalid PlayerState"));
@@ -518,7 +241,7 @@ void ASHGameMode::FinishEffectTask(UCardEffectTask* CardEffectTask)
 
     ActiveEffectTasks.Remove(CardEffectTask);
 }
-// ***** End Turns *****
+// ***** End Card Effects *****
 
 
 
@@ -533,6 +256,8 @@ void ASHGameMode::ActivatePair(ASHPlayerState* PlayerState, ASHCard* CardA, ASHC
 
     Hand->RemoveCard(CardA);
     Hand->RemoveCard(CardB);
+
+    Hand->AddActivationPairToLogicalHand(CardA, CardB);
 
     CardA->Reveal();
     CardB->Reveal();

@@ -22,16 +22,16 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Display")
 	FText SkillName;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Display")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Display", meta = (DisplayName = "Skill Description"))
 	FText SkillDesc;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Display")
 	FText AdditionalText;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Display")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Display", meta = (DisplayName = "Card Texture"))
 	TObjectPtr<UTexture2D> CardTextrue;
 	
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Instanced, Category = "Fragments Array")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Instanced, Category = "Fragments")
 	TArray<TObjectPtr<UCardFragment>> CardFragments;
 
 	UFUNCTION(BlueprintPure, meta = (DeterminesOutputType = "FragmentClass"))

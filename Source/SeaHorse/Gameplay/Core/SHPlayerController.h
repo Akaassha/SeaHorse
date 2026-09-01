@@ -31,15 +31,6 @@ protected:
 	UFUNCTION()
 	void SetupTableView();
 
-	// Called when the game starts or when spawned
-	virtual void BeginPlay() override;
-
-	UFUNCTION(BlueprintCallable)
-	void DebugHands();
-
-	UFUNCTION(BlueprintCallable)
-	void DebugCardDefinitions();
-
 	UFUNCTION(BlueprintCallable)
 	int32 GetVisualSeatIndex(int32 PlayerSeatIndex, int32 PlayerCount) const;
 

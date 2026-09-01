@@ -7,6 +7,7 @@
 #include "VictoryStack.generated.h"
 
 class ASHCard;
+class ASHHand;
 
 UCLASS()
 class SEAHORSE_API AVictoryStack : public AActor
@@ -20,16 +21,21 @@ public:
 	AVictoryStack();
 
 	void AddPair(ASHCard* CardA, ASHCard* CardB);
+	void RefreshCardsPresentation();
 
 protected:
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
 
-	UPROPERTY(ReplicatedUsing = OnRep_Cards, BlueprintReadOnly)
-	TArray<ASHCard*> Cards;
+	// Local presentation data consumed by BP_VictoryStack.
+	UPROPERTY(BlueprintReadOnly)
+	TArray<TObjectPtr<ASHCard>> Cards;
+
+	UPROPERTY(ReplicatedUsing = OnRep_ReplicatedCards)
+	TArray<TObjectPtr<ASHCard>> ReplicatedCards;
 
 	UFUNCTION()
-	void OnRep_Cards();
+	void OnRep_ReplicatedCards();
 
 	UFUNCTION(BlueprintImplementableEvent)
 	void RefreshCardsLayout();
@@ -41,6 +47,8 @@ public:
 	FTransform GetLayout() { return LayoutTransform; };
 
 private:
-	TArray<ASHCard*> VictoryStack;
+	ASHHand* FindOwningLogicalHand() const;
+	void SetPresentedCards(const TArray<TObjectPtr<ASHCard>>& NewCards);
+
 	FTransform LayoutTransform;
 };

@@ -72,17 +72,46 @@ void ASHHand::SetShowCardFronts(bool bShow)
     RefreshCardsPresentation();
 }
 
-void ASHHand::MulticastPairActivated_Implementation(ASHCard* CardA, ASHCard* CardB)
+void ASHHand::MulticastPairEffectActivated_Implementation(ASHCard* CardA, ASHCard* CardB)
 {
-    if (CardA != nullptr && CardB != nullptr)
+    if (IsValid(CardA) && IsValid(CardB))
     {
-        OnPairActivated(CardA, CardB);
+        OnPairEffectActivated(CardA, CardB);
     }
    
 }
 
 void ASHHand::AddActivationPair(ASHCard* CardA, ASHCard* CardB)
 {
+    if (!HasAuthority())
+    {
+        return;
+    }
+
+    ASHHand* RepresentedHand = GetRepresentedHand();
+    ASHHand* LogicalHand = IsValid(RepresentedHand) ? RepresentedHand : this;
+    LogicalHand->AddActivationPairToLogicalHand(CardA, CardB);
+}
+
+void ASHHand::AddActivationPairToLogicalHand(ASHCard* CardA, ASHCard* CardB)
+{
+    checkf(HasAuthority(), TEXT("Activation pairs can only be added on the server"));
+
+    checkf(IsValid(CardA) && IsValid(CardB) && CardA != CardB, TEXT("Invalid activation pair"));
+
+    const bool bPairAlreadyExists = ActivationPairs.ContainsByPredicate(
+        [CardA, CardB](const FActivatedPair& ExistingPair)
+        {
+            return
+                (ExistingPair.CardA == CardA && ExistingPair.CardB == CardB) ||
+                (ExistingPair.CardA == CardB && ExistingPair.CardB == CardA);
+        });
+
+    if (bPairAlreadyExists)
+    {
+        return;
+    }
+
     FActivatedPair Pair;
 
     CardA->SetCardZone(ECardZone::Activation);
@@ -91,6 +120,45 @@ void ASHHand::AddActivationPair(ASHCard* CardA, ASHCard* CardB)
     Pair.CardA = CardA;
     Pair.CardB = CardB;
     ActivationPairs.Add(Pair);
+
+    UE_LOG(
+        LogTemp,
+        Warning,
+        TEXT("[SH_ACTIVATION][SERVER_ADD] LogicalHand=%s LayoutSeat=%d CardA=%s CardB=%s PairCount=%d"),
+        *GetNameSafe(this),
+        LayoutSeatIndex,
+        *GetNameSafe(CardA),
+        *GetNameSafe(CardB),
+        ActivationPairs.Num());
+
+    ForceNetUpdate();
+    OnRep_ActivationPairs();
+}
+
+void ASHHand::RefreshActivationPairsPresentation()
+{
+    const ASHHand* RepresentedHand = GetRepresentedHand();
+    const TArray<FActivatedPair>& PairsToPresent = IsValid(RepresentedHand)
+        ? RepresentedHand->ActivationPairs
+        : ActivationPairs;
+
+    UE_LOG(
+        LogTemp,
+        Warning,
+        TEXT("[SH_ACTIVATION][PRESENT] VisualHand=%s VisualLayoutSeat=%d RepresentedHand=%s RepresentedLayoutSeat=%d PairCount=%d"),
+        *GetNameSafe(this),
+        LayoutSeatIndex,
+        *GetNameSafe(RepresentedHand),
+        IsValid(RepresentedHand) ? RepresentedHand->GetLayoutSeatIndex() : INDEX_NONE,
+        PairsToPresent.Num());
+
+    for (const FActivatedPair& Pair : PairsToPresent)
+    {
+        if (IsValid(Pair.CardA) && IsValid(Pair.CardB))
+        {
+            OnPairActivated(Pair.CardA, Pair.CardB);
+        }
+    }
 }
 
 // Called every frame
@@ -130,15 +198,23 @@ TArray<ASHCard*> ASHHand::GetCards()
 
 TArray<FActivatedPair> ASHHand::GetActivationPairs()
 {
-    return ActivationPairs;
+    const ASHHand* RepresentedHand = GetRepresentedHand();
+    return IsValid(RepresentedHand)
+        ? RepresentedHand->ActivationPairs
+        : ActivationPairs;
 }
 
 TArray<ASHCard*> ASHHand::GetActivationCards()
 {
-    TArray<ASHCard*> ReturnCards;
-    ReturnCards.Reserve(ActivationPairs.Num() * 2);
+    const ASHHand* RepresentedHand = GetRepresentedHand();
+    const TArray<FActivatedPair>& PairsToRead = IsValid(RepresentedHand)
+        ? RepresentedHand->ActivationPairs
+        : ActivationPairs;
 
-    for (const FActivatedPair& Pair : ActivationPairs)
+    TArray<ASHCard*> ReturnCards;
+    ReturnCards.Reserve(PairsToRead.Num() * 2);
+
+    for (const FActivatedPair& Pair : PairsToRead)
     {
         if (IsValid(Pair.CardA))
         {
@@ -197,9 +273,30 @@ void ASHHand::OnRep_Cards()
     VisualHand->UpdateCardPositions();
 }
 
-void ASHHand::OnRep_ActivatonCards()
+void ASHHand::OnRep_ActivationPairs()
 {
+    ASHPlayerController* LocalPC = Cast<ASHPlayerController>(GetWorld()->GetFirstPlayerController());
+    if (!IsValid(LocalPC))
+    {
+        return;
+    }
 
+    ASHHand* VisualHand = LocalPC->FindVisualHandForLogicalHand(this);
+
+    UE_LOG(
+        LogTemp,
+        Warning,
+        TEXT("[SH_ACTIVATION][ROUTE] LogicalHand=%s LogicalLayoutSeat=%d VisualHand=%s VisualLayoutSeat=%d PairCount=%d"),
+        *GetNameSafe(this),
+        LayoutSeatIndex,
+        *GetNameSafe(VisualHand),
+        IsValid(VisualHand) ? VisualHand->GetLayoutSeatIndex() : INDEX_NONE,
+        ActivationPairs.Num());
+
+    if (IsValid(VisualHand))
+    {
+        VisualHand->RefreshActivationPairsPresentation();
+    }
 }
 
 int32 ASHHand::GetCardCount() const
@@ -261,25 +358,6 @@ FActivatedPair* ASHHand::FindActivationPair(ASHCard* Card)
         {
             return Pair.CardA == Card || Pair.CardB == Card;
         });
-}
-
-bool ASHHand::ShouldShowCardFronts()
-{
-    const APlayerController* LocalPC = GetWorld()->GetFirstPlayerController();
-
-    if (!IsValid(LocalPC))
-    {
-        return false;
-    }
-
-    ASHPlayerState* LocalPS = LocalPC->GetPlayerState<ASHPlayerState>();
-
-    if (!IsValid(LocalPS))
-    {
-        return false;
-    }
-
-    return (LocalPS->GetHand() == this);
 }
 
 ASHHand* ASHHand::GetRepresentedHand() const

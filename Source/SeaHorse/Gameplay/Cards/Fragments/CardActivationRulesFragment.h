@@ -4,8 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "SeaHorse/Gameplay/Cards/Fragments/CardFragment.h"
-//TO DO: remove this game mode header and move ETurnPhase to another file
-#include "SeaHorse/Gameplay/Core/SHGameMode.h"
+#include "SeaHorse/Gameplay/Core/SHGameState.h"
 #include "CardActivationRulesFragment.generated.h"
 
 UENUM(BlueprintType)
