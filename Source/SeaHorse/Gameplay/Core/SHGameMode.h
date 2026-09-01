@@ -40,6 +40,8 @@ public:
 
 	void FinishEffectTask(UCardEffectTask* CardEffectTask);
 
+	bool TryFinishGame();
+
 protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Systems")
 	TSubclassOf<UTurnComponent> TurnComponentClass;
@@ -57,6 +59,7 @@ private:
 	void TryStartGame();
 	void StartGame();
 	void AssignSeats();
+	void RefreshPlayerScore(ASHPlayerState* PlayerState);
 
 	ASHHand* FindAvailableHand() const;
 

@@ -7,6 +7,8 @@
 #include "SHPlayerState.generated.h"
 
 class ASHHand;
+
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnVictoryPointsChanged, int32, NewVictoryPoints);
 /**
  * 
  */
@@ -32,8 +34,22 @@ public:
 
 	UFUNCTION()
 	void OnRep_SeatIndex();
+
+	UFUNCTION(BlueprintPure, Category = "Score")
+	int32 GetVictoryPoints() const { return VictoryPoints; }
+
+	UPROPERTY(BlueprintAssignable, Category = "Score")
+	FOnVictoryPointsChanged OnVictoryPointsChanged;
+
+	void SetVictoryPoints(int32 NewVictoryPoints);
 	
 protected:
 	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Hand")
 	TObjectPtr<ASHHand> Hand;
+
+	UPROPERTY(ReplicatedUsing = OnRep_VictoryPoints, BlueprintReadOnly, Category = "Score")
+	int32 VictoryPoints = 0;
+
+	UFUNCTION()
+	void OnRep_VictoryPoints();
 };

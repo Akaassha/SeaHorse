@@ -4,6 +4,7 @@
 #include "SeaHorse/Gameplay/Cards/Fragments/CardActivationRulesFragment.h"
 #include "SeaHorse/Gameplay/Cards/SHCard.h"
 #include "SeaHorse/Gameplay/Core/SHPlayerState.h"
+#include "SeaHorse/Gameplay/Core/SHGameMode.h"
 #include "SeaHorse/Gameplay/SHHand.h"
 
 UTurnComponent::UTurnComponent()
@@ -67,6 +68,11 @@ bool UTurnComponent::CanActivatePair(ASHPlayerState* RequestingPlayer, const FAc
 	}
 
 	const ASHGameState* GameState = GetSHGameState();
+	if (GameState->IsGameEnded())
+	{
+		return false;
+	}
+
 	const bool bIsOwnTurn = GameState->CurrentPlayer == RequestingPlayer;
 	const UCardActivationRulesFragment* Rules = Cast<UCardActivationRulesFragment>(
 		UCardDefinition::FindFragmentByClass(
@@ -150,6 +156,12 @@ ASHPlayerState* UTurnComponent::ChooseNextPlayer_Implementation(ASHPlayerState* 
 
 void UTurnComponent::EndTurn()
 {
+	ASHGameMode* GameMode = GetWorld()->GetAuthGameMode<ASHGameMode>();
+	if (IsValid(GameMode) && GameMode->TryFinishGame())
+	{
+		return;
+	}
+
 	ASHGameState* GameState = GetSHGameState();
 	ASHPlayerState* CurrentPlayer = GameState->GetCurrentPlayer();
 	checkf(IsValid(CurrentPlayer), TEXT("Cannot end a turn without a current player"));

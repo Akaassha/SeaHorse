@@ -15,6 +15,34 @@ void ASHGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLife
     DOREPLIFETIME(ASHGameState, bMatchReady);
     DOREPLIFETIME(ASHGameState, CurrentPlayer);
     DOREPLIFETIME(ASHGameState, CurrentTurnPhase);
+    DOREPLIFETIME(ASHGameState, FinishedMatch);
+}
+
+void ASHGameState::FinishGame(const TArray<FSHMatchResult>& Results)
+{
+    checkf(HasAuthority(), TEXT("FinishGame can only be called on the server"));
+
+    if (FinishedMatch.bFinished)
+    {
+        return;
+    }
+
+    FinishedMatch.Results = Results;
+    FinishedMatch.bFinished = true;
+    CurrentTurnPhase = ETurnPhase::None;
+
+    OnRep_FinishedMatch();
+    NotifyTurnStateChanged();
+    OnTurnPhaseChanged();
+    ForceNetUpdate();
+}
+
+void ASHGameState::OnRep_FinishedMatch()
+{
+    if (FinishedMatch.bFinished)
+    {
+        OnGameEnded.Broadcast();
+    }
 }
 
 void ASHGameState::AddPlayerState(APlayerState* PlayerState)

@@ -12,6 +12,26 @@ void ASHPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLi
 
 	DOREPLIFETIME(ASHPlayerState, Hand);
 	DOREPLIFETIME(ASHPlayerState, SeatIndex);
+	DOREPLIFETIME(ASHPlayerState, VictoryPoints);
+}
+
+void ASHPlayerState::SetVictoryPoints(int32 NewVictoryPoints)
+{
+	checkf(HasAuthority(), TEXT("Victory points can only be changed on the server"));
+
+	if (VictoryPoints == NewVictoryPoints)
+	{
+		return;
+	}
+
+	VictoryPoints = NewVictoryPoints;
+	OnRep_VictoryPoints();
+	ForceNetUpdate();
+}
+
+void ASHPlayerState::OnRep_VictoryPoints()
+{
+	OnVictoryPointsChanged.Broadcast(VictoryPoints);
 }
 
 void ASHPlayerState::SetHand(ASHHand* NewHand)

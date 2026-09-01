@@ -192,6 +192,7 @@ void ASHGameMode::MovePairToVictoryStack(ASHPlayerState* PlayerState, ASHCard* C
         return;
     }
     VictoryStack->AddPair(CardA, CardB);
+    RefreshPlayerScore(PlayerState);
 }
 
 void ASHGameMode::CardActivateEffect(ASHPlayerState* InActivatingPlayer, ASHCard* CardA, ASHCard* CardB)
@@ -290,3 +291,80 @@ bool ASHGameMode::AreCardsPairCompatible(ASHCard* CardA, ASHCard* CardB)
 
 }
 // ***** End Card Rules *****
+
+void ASHGameMode::RefreshPlayerScore(ASHPlayerState* PlayerState)
+{
+    if (!IsValid(PlayerState))
+    {
+        return;
+    }
+
+    ASHHand* Hand = PlayerState->GetHand();
+    AVictoryStack* VictoryStack = IsValid(Hand) ? Hand->GetVictoryStack() : nullptr;
+    if (IsValid(VictoryStack))
+    {
+        PlayerState->SetVictoryPoints(VictoryStack->GetPairCount());
+    }
+}
+
+bool ASHGameMode::TryFinishGame()
+{
+    checkf(HasAuthority(), TEXT("TryFinishGame can only be called on the server"));
+
+    ASHGameState* SHGameState = GetGameState<ASHGameState>();
+    if (!IsValid(SHGameState) || SHGameState->IsGameEnded() || !ActiveEffectTasks.IsEmpty())
+    {
+        return IsValid(SHGameState) && SHGameState->IsGameEnded();
+    }
+
+    int32 CardsRemainingInHands = 0;
+    for (APlayerState* PlayerState : SHGameState->PlayerArray)
+    {
+        ASHPlayerState* SHPlayerState = Cast<ASHPlayerState>(PlayerState);
+        ASHHand* Hand = IsValid(SHPlayerState) ? SHPlayerState->GetHand() : nullptr;
+        if (!IsValid(Hand))
+        {
+            return false;
+        }
+
+        CardsRemainingInHands += Hand->GetCardCount();
+    }
+
+    if (CardsRemainingInHands >= SHGameState->PlayerArray.Num())
+    {
+        return false;
+    }
+
+    TArray<FSHMatchResult> Results;
+    Results.Reserve(SHGameState->PlayerArray.Num());
+
+    int32 HighestScore = 0;
+    for (APlayerState* PlayerState : SHGameState->PlayerArray)
+    {
+        ASHPlayerState* SHPlayerState = CastChecked<ASHPlayerState>(PlayerState);
+        RefreshPlayerScore(SHPlayerState);
+
+        FSHMatchResult& Result = Results.AddDefaulted_GetRef();
+        Result.PlayerState = SHPlayerState;
+        Result.Points = SHPlayerState->GetVictoryPoints();
+        HighestScore = FMath::Max(HighestScore, Result.Points);
+    }
+
+    Results.Sort([](const FSHMatchResult& A, const FSHMatchResult& B)
+    {
+        if (A.Points != B.Points)
+        {
+            return A.Points > B.Points;
+        }
+
+        return A.PlayerState->GetSeatIndex() < B.PlayerState->GetSeatIndex();
+    });
+
+    for (FSHMatchResult& Result : Results)
+    {
+        Result.bIsWinner = Result.Points == HighestScore;
+    }
+
+    SHGameState->FinishGame(Results);
+    return true;
+}

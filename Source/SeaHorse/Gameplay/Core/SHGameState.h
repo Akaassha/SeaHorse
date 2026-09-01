@@ -8,6 +8,33 @@
 
 class ASHPlayerState;
 
+USTRUCT(BlueprintType)
+struct FSHMatchResult
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Match")
+	TObjectPtr<ASHPlayerState> PlayerState;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Match")
+	int32 Points = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Match")
+	bool bIsWinner = false;
+};
+
+USTRUCT()
+struct FSHFinishedMatch
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	bool bFinished = false;
+
+	UPROPERTY()
+	TArray<FSHMatchResult> Results;
+};
+
 UENUM(BlueprintType)
 enum class ETurnPhase : uint8
 {
@@ -18,6 +45,7 @@ enum class ETurnPhase : uint8
 };
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnTurnStateChanged, ASHPlayerState*, CurrentPlayer, ETurnPhase, TurnPhase);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnGameEnded);
 
 /**
  * 
@@ -48,6 +76,17 @@ public:
 
 	UPROPERTY(BlueprintAssignable, Category = "Turn")
 	FOnTurnStateChanged OnTurnStateChanged;
+
+	UPROPERTY(BlueprintAssignable, Category = "Match")
+	FOnGameEnded OnGameEnded;
+
+	UFUNCTION(BlueprintPure, Category = "Match")
+	bool IsGameEnded() const { return FinishedMatch.bFinished; }
+
+	UFUNCTION(BlueprintPure, Category = "Match")
+	const TArray<FSHMatchResult>& GetMatchResults() const { return FinishedMatch.Results; }
+
+	void FinishGame(const TArray<FSHMatchResult>& Results);
 
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
@@ -92,6 +131,12 @@ public:
 protected:
 	UPROPERTY(ReplicatedUsing = OnRep_MatchReady, BlueprintReadOnly)
 	bool bMatchReady;
+
+	UPROPERTY(ReplicatedUsing = OnRep_FinishedMatch)
+	FSHFinishedMatch FinishedMatch;
+
+	UFUNCTION()
+	void OnRep_FinishedMatch();
 
 private:
 	void HandleMatchReady();
