@@ -12,4 +12,10 @@ class SEAHORSE_API UCardEndGameRulesFragment : public UCardFragment
 public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "End Game")
 	bool bOwnerAutomaticallyLoses = false;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "End Game", meta = (ClampMin = "0"))
+	int32 BonusVictoryPointsPerPairInActivationZone = 0;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "End Game")
+	bool bWinsScoreTies = false;
 };

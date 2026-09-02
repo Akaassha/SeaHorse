@@ -187,8 +187,7 @@ void ASHHand::AddCard(ASHCard* Card, int32 Index)
     Card->ForceNetUpdate();
     ForceNetUpdate();
 
-    RefreshCardsPresentation();
-    UpdateCardPositions();
+    RefreshLocalCardsPresentation();
 }
 
 TArray<ASHCard*> ASHHand::GetCards()
@@ -245,18 +244,22 @@ void ASHHand::RemoveCard(ASHCard* Card)
         bShowCardFronts ? TEXT("TRUE") : TEXT("FALSE"),
         *GetNameSafe(Card));
 
-    RefreshCardsPresentation();
-    UpdateCardPositions();
+    RefreshLocalCardsPresentation();
 }
 
 void ASHHand::OnRep_Cards()
+{
+    RefreshLocalCardsPresentation();
+}
+
+void ASHHand::RefreshLocalCardsPresentation()
 {
     ASHPlayerController* LocalPC =
         Cast<ASHPlayerController>(
             GetWorld()->GetFirstPlayerController()
         );
 
-    if (!IsValid(LocalPC))
+    if (!IsValid(LocalPC) || !LocalPC->IsLocalController())
     {
         return;
     }

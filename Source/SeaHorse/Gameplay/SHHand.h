@@ -96,6 +96,8 @@ public:
 	UFUNCTION(BlueprintCallable, BlueprintPure)
 	TArray<FActivatedPair> GetActivationPairs();
 
+	const TArray<FActivatedPair>& GetLogicalActivationPairs() const { return ActivationPairs; }
+
 	UFUNCTION(BlueprintCallable, BlueprintPure)
 	TArray<ASHCard*> GetActivationCards();
 
@@ -146,6 +148,8 @@ public:
 	ASHHand* GetRepresentedHand() const;
 
 private:
+	void RefreshLocalCardsPresentation();
+
 	UPROPERTY(Transient)
 	TObjectPtr<ASHPlayerState> RepresentedPlayerState;
 	

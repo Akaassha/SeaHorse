@@ -55,6 +55,7 @@ public:
 	void HandleCardDrawn(ASHPlayerState* DrawingPlayer, ASHPlayerState* SourcePlayer);
 	void ScheduleAdditionalDraw(UCardEffectTask* EffectTask, ASHPlayerState* PlayerState, EAdditionalDrawSourceRule SourceRule);
 	void SetForcedDrawSource(ASHPlayerState* DrawingPlayer, ASHPlayerState* SourcePlayer);
+	void ScheduleSkippedTurn(ASHPlayerState* PlayerState);
 
 protected:
 	UFUNCTION(BlueprintNativeEvent, Category = "Turn")
@@ -91,4 +92,7 @@ private:
 
 	UPROPERTY(Transient)
 	TMap<TObjectPtr<ASHPlayerState>, FForcedDrawSourceQueue> ForcedDrawSources;
+
+	UPROPERTY(Transient)
+	TMap<TObjectPtr<ASHPlayerState>, int32> PendingSkippedTurns;
 };

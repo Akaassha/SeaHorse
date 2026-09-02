@@ -40,3 +40,16 @@ void UCardEffectTask::HandlePlayerSelected(ASHPlayerState* SelectedPlayer)
 {
     checkNoEntry();
 }
+
+bool UCardEffectTask::RequestActivationPairSelection(const TArray<ASHCard*>& CandidateCards)
+{
+    ASHGameMode* GameMode = GetTypedOuter<ASHGameMode>();
+    checkf(IsValid(GameMode), TEXT("CardEffectTask has no valid GameMode"));
+    return GameMode->RequestActivationPairSelection(this, ActivatingPlayer, CandidateCards);
+}
+
+void UCardEffectTask::HandleActivationPairSelected(
+    ASHPlayerState* PairOwner, ASHCard* SelectedCardA, ASHCard* SelectedCardB)
+{
+    checkNoEntry();
+}

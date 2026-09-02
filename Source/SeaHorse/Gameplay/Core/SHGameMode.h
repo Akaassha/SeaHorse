@@ -43,7 +43,17 @@ public:
 	void RequestPlayerSelection(UCardEffectTask* Task, ASHPlayerState* SelectingPlayer,
 		const TArray<ASHPlayerState*>& Candidates, EPlayerSelectionPurpose Purpose);
 	void SubmitPlayerSelection(ASHPlayerState* SelectingPlayer, ASHPlayerState* SelectedPlayer);
-	bool IsWaitingForPlayerSelection() const { return !PendingPlayerSelections.IsEmpty(); }
+	bool RequestActivationPairSelection(UCardEffectTask* Task, ASHPlayerState* SelectingPlayer,
+		const TArray<ASHCard*>& CandidateCards);
+	bool SubmitActivationPairSelection(ASHPlayerState* SelectingPlayer, ASHCard* SelectedCard);
+	bool IsWaitingForPlayerSelection() const
+	{
+		return !PendingPlayerSelections.IsEmpty() || !PendingPairSelections.IsEmpty();
+	}
+	void PassHandsToLeft();
+	void MoveAllActivationPairsToVictoryStacks();
+	bool TransferCardToPlayer(ASHPlayerState* FromPlayer, ASHPlayerState* ToPlayer,
+		TSubclassOf<class UCardDefinition> CardDefinition);
 
 	bool TryFinishGame();
 
@@ -87,4 +97,12 @@ private:
 	};
 
 	TMap<TObjectPtr<ASHPlayerState>, FPendingPlayerSelection> PendingPlayerSelections;
+
+	struct FPendingPairSelection
+	{
+		TObjectPtr<UCardEffectTask> Task;
+		TArray<TObjectPtr<ASHCard>> CandidateCards;
+	};
+
+	TMap<TObjectPtr<ASHPlayerState>, FPendingPairSelection> PendingPairSelections;
 };

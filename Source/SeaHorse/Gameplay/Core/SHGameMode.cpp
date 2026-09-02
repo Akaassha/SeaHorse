@@ -245,6 +245,109 @@ void ASHGameMode::FinishEffectTask(UCardEffectTask* CardEffectTask)
     ActiveEffectTasks.Remove(CardEffectTask);
 }
 
+void ASHGameMode::PassHandsToLeft()
+{
+	checkf(HasAuthority(), TEXT("Hands can only be passed on the server"));
+
+	ASHGameState* SHGameState = GetGameState<ASHGameState>();
+	checkf(IsValid(SHGameState), TEXT("Invalid SHGameState"));
+
+	TMap<TObjectPtr<ASHPlayerState>, TArray<ASHCard*>> CardsByPlayer;
+	for (APlayerState* PlayerState : SHGameState->PlayerArray)
+	{
+		ASHPlayerState* SHPlayerState = CastChecked<ASHPlayerState>(PlayerState);
+		ASHHand* Hand = SHPlayerState->GetHand();
+		checkf(IsValid(Hand), TEXT("Player has no hand"));
+		CardsByPlayer.Add(SHPlayerState, Hand->GetCards());
+	}
+
+	for (const TPair<TObjectPtr<ASHPlayerState>, TArray<ASHCard*>>& Entry : CardsByPlayer)
+	{
+		ASHHand* SourceHand = Entry.Key->GetHand();
+		for (ASHCard* Card : Entry.Value)
+		{
+			SourceHand->RemoveCard(Card);
+		}
+	}
+
+	const int32 PlayerCount = SHGameState->PlayerArray.Num();
+	for (const TPair<TObjectPtr<ASHPlayerState>, TArray<ASHCard*>>& Entry : CardsByPlayer)
+	{
+		const int32 LeftSeat = (Entry.Key->GetSeatIndex() + 1) % PlayerCount;
+		ASHPlayerState* LeftPlayer = nullptr;
+		for (APlayerState* CandidateState : SHGameState->PlayerArray)
+		{
+			ASHPlayerState* Candidate = Cast<ASHPlayerState>(CandidateState);
+			if (IsValid(Candidate) && Candidate->GetSeatIndex() == LeftSeat)
+			{
+				LeftPlayer = Candidate;
+				break;
+			}
+		}
+
+		checkf(IsValid(LeftPlayer) && IsValid(LeftPlayer->GetHand()), TEXT("No player to the left"));
+		ASHHand* TargetHand = LeftPlayer->GetHand();
+		for (ASHCard* Card : Entry.Value)
+		{
+			TargetHand->AddCard(Card, TargetHand->GetCardCount());
+		}
+	}
+}
+
+void ASHGameMode::MoveAllActivationPairsToVictoryStacks()
+{
+	checkf(HasAuthority(), TEXT("Pairs can only be moved on the server"));
+
+	ASHGameState* SHGameState = GetGameState<ASHGameState>();
+	checkf(IsValid(SHGameState), TEXT("Invalid SHGameState"));
+
+	for (APlayerState* PlayerState : SHGameState->PlayerArray)
+	{
+		ASHPlayerState* SHPlayerState = CastChecked<ASHPlayerState>(PlayerState);
+		ASHHand* Hand = SHPlayerState->GetHand();
+		if (!IsValid(Hand))
+		{
+			continue;
+		}
+
+		const TArray<FActivatedPair> Pairs = Hand->GetLogicalActivationPairs();
+		for (const FActivatedPair& Pair : Pairs)
+		{
+			if (IsValid(Pair.CardA) && IsValid(Pair.CardB))
+			{
+				MovePairToVictoryStack(SHPlayerState, Pair.CardA, Pair.CardB);
+			}
+		}
+	}
+}
+
+bool ASHGameMode::TransferCardToPlayer(
+	ASHPlayerState* FromPlayer,
+	ASHPlayerState* ToPlayer,
+	TSubclassOf<UCardDefinition> CardDefinition)
+{
+	checkf(HasAuthority(), TEXT("Cards can only be transferred on the server"));
+
+	ASHHand* SourceHand = IsValid(FromPlayer) ? FromPlayer->GetHand() : nullptr;
+	ASHHand* TargetHand = IsValid(ToPlayer) ? ToPlayer->GetHand() : nullptr;
+	if (!IsValid(SourceHand) || !IsValid(TargetHand) || SourceHand == TargetHand || !CardDefinition)
+	{
+		return false;
+	}
+
+	for (ASHCard* Card : SourceHand->GetCards())
+	{
+		if (IsValid(Card) && Card->GetCardDefinition() == CardDefinition)
+		{
+			SourceHand->RemoveCard(Card);
+			TargetHand->AddCard(Card, TargetHand->GetCardCount());
+			return true;
+		}
+	}
+
+	return false;
+}
+
 void ASHGameMode::RequestPlayerSelection(
     UCardEffectTask* Task,
     ASHPlayerState* SelectingPlayer,
@@ -320,6 +423,94 @@ void ASHGameMode::SubmitPlayerSelection(ASHPlayerState* SelectingPlayer, ASHPlay
         Task->HandlePlayerSelected(SelectedPlayer);
     }
 }
+
+bool ASHGameMode::RequestActivationPairSelection(
+    UCardEffectTask* Task,
+    ASHPlayerState* SelectingPlayer,
+    const TArray<ASHCard*>& CandidateCards)
+{
+    checkf(IsValid(Task) && ActiveEffectTasks.Contains(Task), TEXT("Pair selection requested by an inactive task"));
+    checkf(IsValid(SelectingPlayer), TEXT("Invalid selecting player"));
+    checkf(!PendingPairSelections.Contains(SelectingPlayer), TEXT("Player already has a pending pair selection"));
+
+    FPendingPairSelection& Pending = PendingPairSelections.Add(SelectingPlayer);
+    Pending.Task = Task;
+    for (ASHCard* Card : CandidateCards)
+    {
+        if (IsValid(Card) && Card->GetCardZone() == ECardZone::Activation)
+        {
+            Pending.CandidateCards.AddUnique(Card);
+        }
+    }
+
+    if (Pending.CandidateCards.IsEmpty())
+    {
+        PendingPairSelections.Remove(SelectingPlayer);
+        return false;
+    }
+
+    ASHPlayerController* Controller = Cast<ASHPlayerController>(SelectingPlayer->GetOwner());
+    checkf(IsValid(Controller), TEXT("Selecting player has no controller"));
+
+    TArray<ASHCard*> ClientCandidates;
+    ClientCandidates.Reserve(Pending.CandidateCards.Num());
+    for (ASHCard* Card : Pending.CandidateCards)
+    {
+        ClientCandidates.Add(Card);
+    }
+    Controller->ClientRequestActivationPairSelection(ClientCandidates);
+    return true;
+}
+
+bool ASHGameMode::SubmitActivationPairSelection(ASHPlayerState* SelectingPlayer, ASHCard* SelectedCard)
+{
+    FPendingPairSelection* Pending = PendingPairSelections.Find(SelectingPlayer);
+    if (!Pending)
+    {
+        return false;
+    }
+
+    // A pending request consumes card clicks, but invalid/stale choices do not finish it.
+    if (!IsValid(SelectedCard) || !Pending->CandidateCards.Contains(SelectedCard))
+    {
+        return true;
+    }
+
+    ASHGameState* SHGameState = GetGameState<ASHGameState>();
+    ASHPlayerState* PairOwner = nullptr;
+    ASHCard* CardA = nullptr;
+    ASHCard* CardB = nullptr;
+    if (IsValid(SHGameState))
+    {
+        for (APlayerState* PlayerState : SHGameState->PlayerArray)
+        {
+            ASHPlayerState* CandidateOwner = Cast<ASHPlayerState>(PlayerState);
+            ASHHand* Hand = IsValid(CandidateOwner) ? CandidateOwner->GetHand() : nullptr;
+            FActivatedPair* Pair = IsValid(Hand) ? Hand->FindActivationPair(SelectedCard) : nullptr;
+            if (Pair && IsValid(Pair->CardA) && IsValid(Pair->CardB) &&
+                Pending->CandidateCards.Contains(Pair->CardA) && Pending->CandidateCards.Contains(Pair->CardB))
+            {
+                PairOwner = CandidateOwner;
+                CardA = Pair->CardA;
+                CardB = Pair->CardB;
+                break;
+            }
+        }
+    }
+
+    if (!IsValid(PairOwner))
+    {
+        return true;
+    }
+
+    UCardEffectTask* Task = Pending->Task;
+    PendingPairSelections.Remove(SelectingPlayer);
+    if (IsValid(Task) && ActiveEffectTasks.Contains(Task))
+    {
+        Task->HandleActivationPairSelected(PairOwner, CardA, CardB);
+    }
+    return true;
+}
 // ***** End Card Effects *****
 
 
@@ -381,7 +572,26 @@ void ASHGameMode::RefreshPlayerScore(ASHPlayerState* PlayerState)
     AVictoryStack* VictoryStack = IsValid(Hand) ? Hand->GetVictoryStack() : nullptr;
     if (IsValid(VictoryStack))
     {
-        PlayerState->SetVictoryPoints(VictoryStack->GetPairCount());
+		int32 Score = VictoryStack->GetPairCount();
+		for (const FActivatedPair& Pair : Hand->GetLogicalActivationPairs())
+		{
+			if (!IsValid(Pair.CardA))
+			{
+				continue;
+			}
+
+			const UCardEndGameRulesFragment* Rules = Cast<UCardEndGameRulesFragment>(
+				UCardDefinition::FindFragmentByClass(
+					Pair.CardA->GetCardDefinition(),
+					UCardEndGameRulesFragment::StaticClass()));
+
+			if (IsValid(Rules))
+			{
+				Score += Rules->BonusVictoryPointsPerPairInActivationZone;
+			}
+		}
+
+		PlayerState->SetVictoryPoints(Score);
     }
 }
 
@@ -415,6 +625,7 @@ bool ASHGameMode::TryFinishGame()
 
     TArray<FSHMatchResult> Results;
     Results.Reserve(SHGameState->PlayerArray.Num());
+    TSet<TObjectPtr<ASHPlayerState>> ScoreTieBreakers;
 
     int32 HighestScore = 0;
     for (APlayerState* PlayerState : SHGameState->PlayerArray)
@@ -426,13 +637,36 @@ bool ASHGameMode::TryFinishGame()
         Result.PlayerState = SHPlayerState;
         Result.Points = SHPlayerState->GetVictoryPoints();
         Result.bAutomaticallyLost = PlayerHasAutomaticLossCard(SHPlayerState);
+
+		ASHHand* ResultHand = SHPlayerState->GetHand();
+		if (IsValid(ResultHand))
+		{
+			for (const FActivatedPair& Pair : ResultHand->GetLogicalActivationPairs())
+			{
+				if (!IsValid(Pair.CardA))
+				{
+					continue;
+				}
+
+				const UCardEndGameRulesFragment* Rules = Cast<UCardEndGameRulesFragment>(
+					UCardDefinition::FindFragmentByClass(
+						Pair.CardA->GetCardDefinition(),
+						UCardEndGameRulesFragment::StaticClass()));
+				if (IsValid(Rules) && Rules->bWinsScoreTies)
+				{
+					ScoreTieBreakers.Add(SHPlayerState);
+					break;
+				}
+			}
+		}
+
         if (!Result.bAutomaticallyLost)
         {
             HighestScore = FMath::Max(HighestScore, Result.Points);
         }
     }
 
-    Results.Sort([](const FSHMatchResult& A, const FSHMatchResult& B)
+    Results.Sort([&ScoreTieBreakers](const FSHMatchResult& A, const FSHMatchResult& B)
     {
         if (A.bAutomaticallyLost != B.bAutomaticallyLost)
         {
@@ -444,12 +678,31 @@ bool ASHGameMode::TryFinishGame()
             return A.Points > B.Points;
         }
 
+		const bool bATieBreaker = ScoreTieBreakers.Contains(A.PlayerState);
+		const bool bBTieBreaker = ScoreTieBreakers.Contains(B.PlayerState);
+		if (bATieBreaker != bBTieBreaker)
+		{
+			return bATieBreaker;
+		}
+
         return A.PlayerState->GetSeatIndex() < B.PlayerState->GetSeatIndex();
     });
 
+	bool bHighestScoreHasTieBreaker = false;
+	for (const FSHMatchResult& Result : Results)
+	{
+		if (!Result.bAutomaticallyLost && Result.Points == HighestScore &&
+			ScoreTieBreakers.Contains(Result.PlayerState))
+		{
+			bHighestScoreHasTieBreaker = true;
+			break;
+		}
+	}
+
     for (FSHMatchResult& Result : Results)
     {
-        Result.bIsWinner = !Result.bAutomaticallyLost && Result.Points == HighestScore;
+        Result.bIsWinner = !Result.bAutomaticallyLost && Result.Points == HighestScore &&
+			(!bHighestScoreHasTieBreaker || ScoreTieBreakers.Contains(Result.PlayerState));
     }
 
     SHGameState->FinishGame(Results);

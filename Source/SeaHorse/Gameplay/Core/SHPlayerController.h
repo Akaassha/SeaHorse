@@ -51,6 +51,12 @@ public:
 	void OnPlayerSelectionRequested(const TArray<ASHPlayerState*>& Candidates, EPlayerSelectionPurpose Purpose);
 
 	UFUNCTION(Client, Reliable)
+	void ClientRequestActivationPairSelection(const TArray<ASHCard*>& CandidateCards);
+
+	UFUNCTION(BlueprintImplementableEvent, Category = "Card Effects")
+	void OnActivationPairSelectionRequested(const TArray<ASHCard*>& CandidateCards);
+
+	UFUNCTION(Client, Reliable)
 	void ClientRequestAdditionalCardDraw(const TArray<ASHPlayerState*>& ValidSources);
 
 	UFUNCTION(BlueprintImplementableEvent, Category = "Card Effects")

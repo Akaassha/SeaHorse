@@ -276,6 +276,14 @@ void UTurnComponent::SetForcedDrawSource(ASHPlayerState* DrawingPlayer, ASHPlaye
 	UpdateForcedDrawGuidance(DrawingPlayer);
 }
 
+void UTurnComponent::ScheduleSkippedTurn(ASHPlayerState* PlayerState)
+{
+	CheckServerAuthority();
+	checkf(IsValid(PlayerState), TEXT("Cannot skip a turn for an invalid player"));
+
+	++PendingSkippedTurns.FindOrAdd(PlayerState);
+}
+
 ETurnPhase UTurnComponent::GetNextTurnPhase_Implementation(
 	ETurnPhase CurrentPhase,
 	ETurnPhaseEndReason Reason) const
@@ -333,6 +341,23 @@ void UTurnComponent::EndTurn()
 
 	ASHPlayerState* NextPlayer = ChooseNextPlayer(CurrentPlayer);
 	checkf(IsValid(NextPlayer), TEXT("ChooseNextPlayer returned an invalid player"));
+
+	while (int32* SkipCount = PendingSkippedTurns.Find(NextPlayer))
+	{
+		UE_LOG(LogTemp, Log,
+			TEXT("[SH_SKIP_TURN] Skipping turn for %s; pending skips before consume: %d"),
+			*GetNameSafe(NextPlayer),
+			*SkipCount);
+
+		--(*SkipCount);
+		if (*SkipCount <= 0)
+		{
+			PendingSkippedTurns.Remove(NextPlayer);
+		}
+
+		NextPlayer = ChooseNextPlayer(NextPlayer);
+		checkf(IsValid(NextPlayer), TEXT("ChooseNextPlayer returned an invalid player while skipping turns"));
+	}
 
 	GameState->SetCurrentPlayer(NextPlayer);
 	bPairingActionUsed = false;

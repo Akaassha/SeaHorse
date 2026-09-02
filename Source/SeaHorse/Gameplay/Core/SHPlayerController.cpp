@@ -238,6 +238,12 @@ void ASHPlayerController::ServerSubmitPlayerSelection_Implementation(ASHPlayerSt
     }
 }
 
+void ASHPlayerController::ClientRequestActivationPairSelection_Implementation(
+    const TArray<ASHCard*>& CandidateCards)
+{
+    OnActivationPairSelectionRequested(CandidateCards);
+}
+
 ASHPlayerState* ASHPlayerController::FindPlayerStateForCard(const ASHCard* Card) const
 {
     if (!IsValid(Card))
@@ -462,12 +468,19 @@ void ASHPlayerController::ServerActivateStoredPair_Implementation(ASHCard* Card)
         return;
     }
 
+    ASHPlayerState* SHPlayerState = GetPlayerState<ASHPlayerState>();
+    ASHGameMode* SHGameMode = GetWorld()->GetAuthGameMode<ASHGameMode>();
+    if (IsValid(SHPlayerState) && IsValid(SHGameMode) &&
+        SHGameMode->SubmitActivationPairSelection(SHPlayerState, Card))
+    {
+        return;
+    }
+
     if (Card->GetCardZone() != ECardZone::Activation)
     {
         return;
     }
 
-    ASHPlayerState* SHPlayerState = GetPlayerState<ASHPlayerState>();
     if (!IsValid(SHPlayerState))
     {
         return;
@@ -490,8 +503,6 @@ void ASHPlayerController::ServerActivateStoredPair_Implementation(ASHCard* Card)
     {
         return;
     }
-
-    ASHGameMode* SHGameMode = GetWorld()->GetAuthGameMode<ASHGameMode>();
 
     if (!SHGameMode || SHGameMode->IsWaitingForPlayerSelection())
     {

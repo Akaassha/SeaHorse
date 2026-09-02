@@ -19,3 +19,13 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly)
 	TSubclassOf<UCardEffectTask> EffectTaskClass;
 };
+
+UCLASS(BlueprintType, EditInlineNew)
+class SEAHORSE_API UTransferCardEffectFragment : public UCardEffectFragment
+{
+	GENERATED_BODY()
+
+public:
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Card Transfer")
+	TSubclassOf<class UCardDefinition> CardDefinitionToTransfer;
+};
