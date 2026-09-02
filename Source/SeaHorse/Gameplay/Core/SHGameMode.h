@@ -11,6 +11,7 @@ class ASHCard;
 class ASHPlayerState;
 class UCardEffectFragment;
 class UCardEffectTask;
+enum class EPlayerSelectionPurpose : uint8;
 
 class UTurnComponent;
 class UDeckComponent;
@@ -39,6 +40,10 @@ public:
 	void CardActivateEffect(ASHPlayerState* InActivatingPlayer, ASHCard* CardA, ASHCard* CardB);
 
 	void FinishEffectTask(UCardEffectTask* CardEffectTask);
+	void RequestPlayerSelection(UCardEffectTask* Task, ASHPlayerState* SelectingPlayer,
+		const TArray<ASHPlayerState*>& Candidates, EPlayerSelectionPurpose Purpose);
+	void SubmitPlayerSelection(ASHPlayerState* SelectingPlayer, ASHPlayerState* SelectedPlayer);
+	bool IsWaitingForPlayerSelection() const { return !PendingPlayerSelections.IsEmpty(); }
 
 	bool TryFinishGame();
 
@@ -74,4 +79,12 @@ private:
 
 	UPROPERTY()
 	TArray<TObjectPtr<UCardEffectTask>> ActiveEffectTasks;
+
+	struct FPendingPlayerSelection
+	{
+		TObjectPtr<UCardEffectTask> Task;
+		TArray<TObjectPtr<ASHPlayerState>> Candidates;
+	};
+
+	TMap<TObjectPtr<ASHPlayerState>, FPendingPlayerSelection> PendingPlayerSelections;
 };

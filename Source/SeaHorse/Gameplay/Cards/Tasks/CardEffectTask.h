@@ -8,6 +8,13 @@
 
 class ASHPlayerState;
 class ASHCard;
+
+UENUM(BlueprintType)
+enum class EPlayerSelectionPurpose : uint8
+{
+    PlayerWhoWillDraw,
+    PlayerToDrawFrom
+};
 /**
  * 
  */
@@ -24,6 +31,9 @@ public:
 
     UFUNCTION(BlueprintCallable)
     void FinishEffect();
+
+    void RequestPlayerSelection(const TArray<ASHPlayerState*>& Candidates, EPlayerSelectionPurpose Purpose);
+    virtual void HandlePlayerSelected(ASHPlayerState* SelectedPlayer);
 
     ASHPlayerState* GetActivatingPlayer() const { return ActivatingPlayer; }
     ASHCard* GetCardA() const { return CardA; }

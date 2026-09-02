@@ -53,7 +53,7 @@ void ASHCard::SetCardDefinition(TSubclassOf<UCardDefinition> NewCardDefinition)
 	CardDefinition = NewCardDefinition;
 }
 
-ASHHand* ASHCard::GetOwningHand()
+ASHHand* ASHCard::GetOwningHand() const
 {
 	return Cast<ASHHand>(GetOwner());
 }

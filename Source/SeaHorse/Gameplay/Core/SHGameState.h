@@ -63,7 +63,7 @@ public:
 	bool IsCurrentPlayer(const ASHPlayerState* PlayerState) const;
 
 	UFUNCTION(BlueprintPure, Category = "Turn")
-	ASHPlayerState* GetCurrentPlayer();
+	ASHPlayerState* GetCurrentPlayer() const;
 
 	UFUNCTION(BlueprintPure, Category = "Turn")
 	ETurnPhase GetTurnPhase() const;

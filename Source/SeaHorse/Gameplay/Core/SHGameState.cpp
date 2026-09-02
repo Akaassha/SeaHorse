@@ -129,7 +129,7 @@ bool ASHGameState::IsCurrentPlayer(const ASHPlayerState* PlayerState) const
     
 }
 
-ASHPlayerState* ASHGameState::GetCurrentPlayer()
+ASHPlayerState* ASHGameState::GetCurrentPlayer() const
 {
     return CurrentPlayer;
 }

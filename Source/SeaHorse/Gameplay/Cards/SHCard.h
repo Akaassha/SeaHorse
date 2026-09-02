@@ -42,7 +42,7 @@ public:
 	void SetCardDefinition(TSubclassOf<UCardDefinition> CardDefinition);
 
 	UFUNCTION(BlueprintCallable, BlueprintPure)
-	ASHHand* GetOwningHand();
+	ASHHand* GetOwningHand() const;
 
 	UFUNCTION(BlueprintCallable)
 	void SetFaceUp(bool bNewFaceUp);

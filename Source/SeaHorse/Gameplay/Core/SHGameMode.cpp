@@ -4,6 +4,7 @@
 #include "SeaHorse/Gameplay/Core/SHGameMode.h"
 #include "SeaHorse/Gameplay/SHHand.h"
 #include "SeaHorse/Gameplay/Core/SHPlayerState.h"
+#include "SeaHorse/Gameplay/Core/SHPlayerController.h"
 #include "SeaHorse/Gameplay/Cards/SHCard.h"
 #include "SeaHorse/Gameplay/Cards/CardDefinition.h"
 #include "SeaHorse/Gameplay/Core/SHGameState.h"
@@ -242,6 +243,82 @@ void ASHGameMode::FinishEffectTask(UCardEffectTask* CardEffectTask)
     MovePairToVictoryStack(ActivatingPlayer, CardA, CardB);
 
     ActiveEffectTasks.Remove(CardEffectTask);
+}
+
+void ASHGameMode::RequestPlayerSelection(
+    UCardEffectTask* Task,
+    ASHPlayerState* SelectingPlayer,
+    const TArray<ASHPlayerState*>& Candidates,
+    EPlayerSelectionPurpose Purpose)
+{
+    checkf(IsValid(Task) && ActiveEffectTasks.Contains(Task), TEXT("Selection requested by an inactive effect task"));
+    checkf(IsValid(SelectingPlayer), TEXT("Invalid selecting player"));
+    checkf(!Candidates.IsEmpty(), TEXT("Player selection requires at least one candidate"));
+    checkf(!PendingPlayerSelections.Contains(SelectingPlayer), TEXT("Player already has a pending selection"));
+
+    FPendingPlayerSelection& PendingSelection = PendingPlayerSelections.Add(SelectingPlayer);
+    PendingSelection.Task = Task;
+    for (ASHPlayerState* Candidate : Candidates)
+    {
+        if (IsValid(Candidate))
+        {
+            PendingSelection.Candidates.AddUnique(Candidate);
+        }
+    }
+
+    checkf(!PendingSelection.Candidates.IsEmpty(), TEXT("Player selection has no valid candidates"));
+
+    ASHPlayerController* SelectingController = Cast<ASHPlayerController>(SelectingPlayer->GetOwner());
+    checkf(IsValid(SelectingController), TEXT("Selecting player has no controller"));
+
+    TArray<ASHPlayerState*> ClientCandidates;
+    ClientCandidates.Reserve(PendingSelection.Candidates.Num());
+    for (ASHPlayerState* Candidate : PendingSelection.Candidates)
+    {
+        ClientCandidates.Add(Candidate);
+    }
+    SelectingController->ClientRequestPlayerSelection(ClientCandidates, Purpose);
+}
+
+void ASHGameMode::SubmitPlayerSelection(ASHPlayerState* SelectingPlayer, ASHPlayerState* SelectedPlayer)
+{
+    FPendingPlayerSelection* PendingSelection = PendingPlayerSelections.Find(SelectingPlayer);
+    if (!PendingSelection || !IsValid(SelectedPlayer) || !PendingSelection->Candidates.Contains(SelectedPlayer))
+    {
+        FString CandidateNames;
+        if (PendingSelection)
+        {
+            for (const ASHPlayerState* Candidate : PendingSelection->Candidates)
+            {
+                if (!CandidateNames.IsEmpty())
+                {
+                    CandidateNames += TEXT(", ");
+                }
+                CandidateNames += GetNameSafe(Candidate);
+            }
+        }
+
+        UE_LOG(LogTemp, Warning,
+            TEXT("[SH_SELECTION][REJECTED] SelectingPlayer=%s SelectedPlayer=%s HasPending=%d Candidates=[%s]"),
+            *GetNameSafe(SelectingPlayer),
+            *GetNameSafe(SelectedPlayer),
+            PendingSelection != nullptr,
+            *CandidateNames);
+        return;
+    }
+
+    UE_LOG(LogTemp, Warning,
+        TEXT("[SH_SELECTION][ACCEPTED] SelectingPlayer=%s SelectedPlayer=%s"),
+        *GetNameSafe(SelectingPlayer),
+        *GetNameSafe(SelectedPlayer));
+
+    UCardEffectTask* Task = PendingSelection->Task;
+    PendingPlayerSelections.Remove(SelectingPlayer);
+
+    if (IsValid(Task) && ActiveEffectTasks.Contains(Task))
+    {
+        Task->HandlePlayerSelected(SelectedPlayer);
+    }
 }
 // ***** End Card Effects *****
 

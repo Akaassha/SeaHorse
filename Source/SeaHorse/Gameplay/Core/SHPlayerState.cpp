@@ -39,7 +39,7 @@ void ASHPlayerState::SetHand(ASHHand* NewHand)
 	Hand = NewHand;
 }
 
-ASHHand* ASHPlayerState::GetHand()
+ASHHand* ASHPlayerState::GetHand() const
 {
     return Hand;
 

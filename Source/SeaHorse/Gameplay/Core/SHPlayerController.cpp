@@ -167,7 +167,7 @@ void ASHPlayerController::ServerSkipCurrentPhase_Implementation()
     ASHGameMode* SHGameMode =
         GetWorld()->GetAuthGameMode<ASHGameMode>();
 
-    if (!IsValid(SHGameMode))
+    if (!IsValid(SHGameMode) || SHGameMode->IsWaitingForPlayerSelection())
     {
         return;
     }
@@ -177,6 +177,92 @@ void ASHPlayerController::ServerSkipCurrentPhase_Implementation()
     {
         TurnComponent->SkipCurrentPhase(SHPlayerState);
     }
+}
+
+void ASHPlayerController::ClientRequestPlayerSelection_Implementation(
+    const TArray<ASHPlayerState*>& Candidates,
+    EPlayerSelectionPurpose Purpose)
+{
+    UE_LOG(LogTemp, Warning,
+        TEXT("[SH_SELECTION][CLIENT_REQUEST] Controller=%s Purpose=%s CandidateCount=%d"),
+        *GetNameSafe(this),
+        *UEnum::GetValueAsString(Purpose),
+        Candidates.Num());
+
+    for (const ASHPlayerState* Candidate : Candidates)
+    {
+        ASHHand* CandidateHand = IsValid(Candidate) ? Candidate->GetHand() : nullptr;
+
+        UE_LOG(LogTemp, Warning,
+            TEXT("[SH_SELECTION][CLIENT_CANDIDATE] Player=%s Hand=%s Cards=%d"),
+            *GetNameSafe(Candidate),
+            *GetNameSafe(CandidateHand),
+            IsValid(CandidateHand) ? CandidateHand->GetCardCount() : INDEX_NONE);
+    }
+
+    OnPlayerSelectionRequested(Candidates, Purpose);
+}
+
+void ASHPlayerController::ClientRequestAdditionalCardDraw_Implementation(const TArray<ASHPlayerState*>& ValidSources)
+{
+    OnAdditionalCardDrawRequested(ValidSources);
+}
+
+void ASHPlayerController::ClientUpdateCardDrawGuidance_Implementation(
+    const TArray<ASHPlayerState*>& ValidSources,
+    ECardDrawGuidanceType GuidanceType)
+{
+    UE_LOG(LogTemp, Warning,
+        TEXT("[SH_DRAW_GUIDANCE][CLIENT] Controller=%s Type=%s SourceCount=%d"),
+        *GetNameSafe(this),
+        *UEnum::GetValueAsString(GuidanceType),
+        ValidSources.Num());
+
+    OnCardDrawGuidanceUpdated(ValidSources, GuidanceType);
+}
+
+void ASHPlayerController::ServerSubmitPlayerSelection_Implementation(ASHPlayerState* SelectedPlayer)
+{
+    ASHGameMode* GameMode = GetWorld()->GetAuthGameMode<ASHGameMode>();
+    ASHPlayerState* SelectingPlayer = GetPlayerState<ASHPlayerState>();
+
+    UE_LOG(LogTemp, Warning,
+        TEXT("[SH_SELECTION][SERVER_SUBMIT] Controller=%s SelectingPlayer=%s SelectedPlayer=%s"),
+        *GetNameSafe(this),
+        *GetNameSafe(SelectingPlayer),
+        *GetNameSafe(SelectedPlayer));
+
+    if (IsValid(GameMode) && IsValid(SelectingPlayer))
+    {
+        GameMode->SubmitPlayerSelection(SelectingPlayer, SelectedPlayer);
+    }
+}
+
+ASHPlayerState* ASHPlayerController::FindPlayerStateForCard(const ASHCard* Card) const
+{
+    if (!IsValid(Card))
+    {
+        return nullptr;
+    }
+
+    ASHHand* CardHand = Card->GetOwningHand();
+    const ASHGameState* GameState = GetWorld()->GetGameState<ASHGameState>();
+
+    if (!IsValid(CardHand) || !IsValid(GameState))
+    {
+        return nullptr;
+    }
+
+    for (APlayerState* CandidatePlayerState : GameState->PlayerArray)
+    {
+        ASHPlayerState* SHPlayerState = Cast<ASHPlayerState>(CandidatePlayerState);
+        if (IsValid(SHPlayerState) && SHPlayerState->GetHand() == CardHand)
+        {
+            return SHPlayerState;
+        }
+    }
+
+    return nullptr;
 }
 
 ASHHand* ASHPlayerController::FindVisualHandForLogicalHand(const ASHHand* LogicalHand) const
@@ -407,7 +493,7 @@ void ASHPlayerController::ServerActivateStoredPair_Implementation(ASHCard* Card)
 
     ASHGameMode* SHGameMode = GetWorld()->GetAuthGameMode<ASHGameMode>();
 
-    if (!SHGameMode)
+    if (!SHGameMode || SHGameMode->IsWaitingForPlayerSelection())
     {
         return;
     }
@@ -465,7 +551,7 @@ void ASHPlayerController::ServerCreatePair_Implementation(ASHCard* CardA, ASHCar
 
     ASHGameMode* SHGameMode = GetWorld()->GetAuthGameMode<ASHGameMode>();
 
-    if (!IsValid(SHGameMode))
+    if (!IsValid(SHGameMode) || SHGameMode->IsWaitingForPlayerSelection())
     {
         return;
     }
@@ -551,7 +637,7 @@ void ASHPlayerController::ServerTakeCard_Implementation(ASHCard* Card, int32 Ins
 
     ASHGameMode* SHGameMode = GetWorld()->GetAuthGameMode<ASHGameMode>();
 
-    if (!IsValid(SHGameMode))
+    if (!IsValid(SHGameMode) || SHGameMode->IsWaitingForPlayerSelection())
     {
         return;
     }
@@ -568,22 +654,29 @@ void ASHPlayerController::ServerTakeCard_Implementation(ASHCard* Card, int32 Ins
         return;
     }
 
-    if (SHGameState->GetCurrentPlayer() != SHPlayerState)
-    {
-        return;
-    }
-
-    if ((SHGameState->GetTurnPhase() == ETurnPhase::SecondPairing) || SHGameState->GetTurnPhase() == ETurnPhase::None)
-    {
-        return;
-    }
-
     if (Card->GetCardZone() != ECardZone::Hand)
     {
         return;
     }
 
     if (!SourceHand->ContainsCard(Card))
+    {
+        return;
+    }
+
+    ASHPlayerState* SourcePlayerState = nullptr;
+    for (APlayerState* CandidatePlayerState : SHGameState->PlayerArray)
+    {
+        ASHPlayerState* Candidate = Cast<ASHPlayerState>(CandidatePlayerState);
+        if (IsValid(Candidate) && Candidate->GetHand() == SourceHand)
+        {
+            SourcePlayerState = Candidate;
+            break;
+        }
+    }
+
+    UTurnComponent* TurnComponent = SHGameMode->GetTurnComponent();
+    if (!IsValid(TurnComponent) || !TurnComponent->CanDrawCard(SHPlayerState, SourcePlayerState))
     {
         return;
     }
@@ -596,10 +689,6 @@ void ASHPlayerController::ServerTakeCard_Implementation(ASHCard* Card, int32 Ins
         Card->GetCardDefinition()
     );
 
-    UTurnComponent* TurnComponent = SHGameMode->GetTurnComponent();
-    if (IsValid(TurnComponent))
-    {
-        TurnComponent->CompleteCurrentPhase(ETurnPhaseEndReason::CardDrawn);
-    }
+    TurnComponent->HandleCardDrawn(SHPlayerState, SourcePlayerState);
 }
 

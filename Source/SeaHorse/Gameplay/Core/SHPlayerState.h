@@ -21,7 +21,7 @@ public:
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 	void SetHand(ASHHand* NewHand);
-	ASHHand* GetHand();
+	ASHHand* GetHand() const;
 
 	UPROPERTY(ReplicatedUsing = OnRep_SeatIndex, BlueprintReadOnly)
 	int32 SeatIndex = INDEX_NONE;

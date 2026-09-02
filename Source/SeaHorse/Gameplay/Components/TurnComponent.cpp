@@ -3,6 +3,8 @@
 #include "SeaHorse/Gameplay/Cards/CardDefinition.h"
 #include "SeaHorse/Gameplay/Cards/Fragments/CardActivationRulesFragment.h"
 #include "SeaHorse/Gameplay/Cards/SHCard.h"
+#include "SeaHorse/Gameplay/Cards/Tasks/CardEffectTask.h"
+#include "SeaHorse/Gameplay/Core/SHPlayerController.h"
 #include "SeaHorse/Gameplay/Core/SHPlayerState.h"
 #include "SeaHorse/Gameplay/Core/SHGameMode.h"
 #include "SeaHorse/Gameplay/SHHand.h"
@@ -112,6 +114,168 @@ bool UTurnComponent::CanActivatePair(ASHPlayerState* RequestingPlayer, const FAc
 	return Rules->AllowedPhases.IsEmpty() || Rules->AllowedPhases.Contains(GameState->GetTurnPhase());
 }
 
+bool UTurnComponent::CanDrawCard(ASHPlayerState* DrawingPlayer, ASHPlayerState* SourcePlayer) const
+{
+	if (!IsValid(DrawingPlayer) || !IsValid(SourcePlayer) || DrawingPlayer == SourcePlayer)
+	{
+		return false;
+	}
+
+	const ASHGameState* GameState = GetSHGameState();
+	if (GameState->IsGameEnded() || GameState->GetCurrentPlayer() != DrawingPlayer)
+	{
+		return false;
+	}
+
+	const ETurnPhase Phase = GameState->GetTurnPhase();
+	if (Phase != ETurnPhase::FirstPairing && Phase != ETurnPhase::DrawCard)
+	{
+		return false;
+	}
+
+	ASHHand* SourceHand = SourcePlayer->GetHand();
+	if (!IsValid(SourceHand) || SourceHand->GetCardCount() <= 0)
+	{
+		return false;
+	}
+
+	if (bWaitingForAdditionalDraw)
+	{
+		if (DrawingPlayer != AdditionalDrawPlayer || !IsValid(FirstDrawSource))
+		{
+			return false;
+		}
+
+		return AdditionalDrawSourceRule == EAdditionalDrawSourceRule::SamePlayer
+			? SourcePlayer == FirstDrawSource
+			: SourcePlayer != FirstDrawSource;
+	}
+
+	if (ASHPlayerState* ForcedSource = GetFirstForcedDrawSource(DrawingPlayer))
+	{
+		if (SourcePlayer != ForcedSource)
+		{
+			return false;
+		}
+	}
+
+	if (DrawingPlayer == AdditionalDrawPlayer)
+	{
+		// The first draw remains legal even when no second source will be
+		// available afterwards. In that case the effect is completed after
+		// the first card has actually been drawn.
+		return true;
+	}
+
+	return true;
+}
+
+void UTurnComponent::HandleCardDrawn(ASHPlayerState* DrawingPlayer, ASHPlayerState* SourcePlayer)
+{
+	CheckServerAuthority();
+	checkf(IsValid(DrawingPlayer) && IsValid(SourcePlayer), TEXT("Invalid card draw notification"));
+
+	if (bWaitingForAdditionalDraw)
+	{
+		ClearDrawGuidance(DrawingPlayer);
+		FinishAdditionalDraw();
+		return;
+	}
+
+	if (FForcedDrawSourceQueue* ForcedQueue = ForcedDrawSources.Find(DrawingPlayer))
+	{
+		if (!ForcedQueue->Sources.IsEmpty())
+		{
+			ForcedQueue->Sources.RemoveAt(0);
+		}
+
+		if (ForcedQueue->Sources.IsEmpty())
+		{
+			ForcedDrawSources.Remove(DrawingPlayer);
+		}
+	}
+
+	if (DrawingPlayer == AdditionalDrawPlayer)
+	{
+		FirstDrawSource = SourcePlayer;
+		bWaitingForAdditionalDraw = true;
+
+		TArray<ASHPlayerState*> ValidSources;
+		for (APlayerState* PlayerState : GetSHGameState()->PlayerArray)
+		{
+			ASHPlayerState* Candidate = Cast<ASHPlayerState>(PlayerState);
+			if (CanDrawCard(DrawingPlayer, Candidate))
+			{
+				ValidSources.Add(Candidate);
+			}
+		}
+
+		if (ValidSources.IsEmpty())
+		{
+			UE_LOG(LogTemp, Log,
+				TEXT("[SH_ADDITIONAL_DRAW] No valid source for the second draw; completing the effect after the first draw"));
+			FinishAdditionalDraw();
+			return;
+		}
+
+		ASHPlayerController* Controller = Cast<ASHPlayerController>(DrawingPlayer->GetOwner());
+		if (IsValid(Controller))
+		{
+			const ECardDrawGuidanceType GuidanceType =
+				AdditionalDrawSourceRule == EAdditionalDrawSourceRule::SamePlayer
+				? ECardDrawGuidanceType::AdditionalFromSamePlayer
+				: ECardDrawGuidanceType::AdditionalFromDifferentPlayer;
+
+			Controller->ClientUpdateCardDrawGuidance(ValidSources, GuidanceType);
+		}
+		return;
+	}
+
+	ClearDrawGuidance(DrawingPlayer);
+	CompleteCurrentPhase(ETurnPhaseEndReason::CardDrawn);
+}
+
+void UTurnComponent::FinishAdditionalDraw()
+{
+	UCardEffectTask* CompletedEffectTask = AdditionalDrawEffectTask;
+	AdditionalDrawPlayer = nullptr;
+	FirstDrawSource = nullptr;
+	AdditionalDrawEffectTask = nullptr;
+	bWaitingForAdditionalDraw = false;
+	EnterTurnPhase(ETurnPhase::SecondPairing);
+
+	if (IsValid(CompletedEffectTask))
+	{
+		CompletedEffectTask->FinishEffect();
+	}
+}
+
+void UTurnComponent::ScheduleAdditionalDraw(
+	UCardEffectTask* EffectTask,
+	ASHPlayerState* PlayerState,
+	EAdditionalDrawSourceRule SourceRule)
+{
+	CheckServerAuthority();
+	checkf(IsValid(EffectTask), TEXT("Cannot schedule an additional draw without its effect task"));
+	checkf(IsValid(PlayerState), TEXT("Cannot schedule a draw for an invalid player"));
+	checkf(GetSHGameState()->GetCurrentPlayer() == PlayerState, TEXT("Additional draw must target the current player"));
+	checkf(!IsValid(AdditionalDrawPlayer), TEXT("An additional draw is already scheduled"));
+
+	AdditionalDrawPlayer = PlayerState;
+	AdditionalDrawEffectTask = EffectTask;
+	AdditionalDrawSourceRule = SourceRule;
+}
+
+void UTurnComponent::SetForcedDrawSource(ASHPlayerState* DrawingPlayer, ASHPlayerState* SourcePlayer)
+{
+	CheckServerAuthority();
+	checkf(IsValid(DrawingPlayer) && IsValid(SourcePlayer) && DrawingPlayer != SourcePlayer,
+		TEXT("Invalid forced draw participants"));
+
+	ForcedDrawSources.FindOrAdd(DrawingPlayer).Sources.Add(SourcePlayer);
+	UpdateForcedDrawGuidance(DrawingPlayer);
+}
+
 ETurnPhase UTurnComponent::GetNextTurnPhase_Implementation(
 	ETurnPhase CurrentPhase,
 	ETurnPhaseEndReason Reason) const
@@ -156,6 +320,7 @@ ASHPlayerState* UTurnComponent::ChooseNextPlayer_Implementation(ASHPlayerState* 
 
 void UTurnComponent::EndTurn()
 {
+	checkf(!bWaitingForAdditionalDraw, TEXT("Cannot end turn while an additional draw is pending"));
 	ASHGameMode* GameMode = GetWorld()->GetAuthGameMode<ASHGameMode>();
 	if (IsValid(GameMode) && GameMode->TryFinishGame())
 	{
@@ -182,6 +347,80 @@ void UTurnComponent::EnterTurnPhase(ETurnPhase NewPhase)
 	}
 
 	GetSHGameState()->SetTurnPhase(NewPhase);
+
+	if (NewPhase == ETurnPhase::FirstPairing || NewPhase == ETurnPhase::DrawCard)
+	{
+		UpdateForcedDrawGuidance(GetSHGameState()->GetCurrentPlayer());
+	}
+}
+
+void UTurnComponent::UpdateForcedDrawGuidance(ASHPlayerState* DrawingPlayer)
+{
+	const ASHGameState* GameState = GetSHGameState();
+	const ETurnPhase Phase = GameState->GetTurnPhase();
+	if (!IsValid(DrawingPlayer) || GameState->GetCurrentPlayer() != DrawingPlayer ||
+		(Phase != ETurnPhase::FirstPairing && Phase != ETurnPhase::DrawCard))
+	{
+		return;
+	}
+
+	FForcedDrawSourceQueue* ForcedQueue = ForcedDrawSources.Find(DrawingPlayer);
+	while (ForcedQueue && !ForcedQueue->Sources.IsEmpty())
+	{
+		ASHPlayerState* Candidate = ForcedQueue->Sources[0];
+		ASHHand* CandidateHand = IsValid(Candidate) ? Candidate->GetHand() : nullptr;
+		if (IsValid(CandidateHand) && CandidateHand->GetCardCount() > 0)
+		{
+			break;
+		}
+
+		ForcedQueue->Sources.RemoveAt(0);
+	}
+
+	if (ForcedQueue && ForcedQueue->Sources.IsEmpty())
+	{
+		ForcedDrawSources.Remove(DrawingPlayer);
+		ForcedQueue = nullptr;
+	}
+
+	ASHPlayerState* ForcedSource = ForcedQueue ? ForcedQueue->Sources[0].Get() : nullptr;
+	ASHHand* ForcedHand = IsValid(ForcedSource) ? ForcedSource->GetHand() : nullptr;
+
+	if (!IsValid(ForcedHand) || ForcedHand->GetCardCount() <= 0)
+	{
+		ClearDrawGuidance(DrawingPlayer);
+		return;
+	}
+
+	ASHPlayerController* Controller = Cast<ASHPlayerController>(DrawingPlayer->GetOwner());
+	if (IsValid(Controller))
+	{
+		TArray<ASHPlayerState*> ValidSources;
+		ValidSources.Add(ForcedSource);
+		Controller->ClientUpdateCardDrawGuidance(
+			ValidSources,
+			ECardDrawGuidanceType::ForcedSelectedPlayer);
+	}
+}
+
+ASHPlayerState* UTurnComponent::GetFirstForcedDrawSource(const ASHPlayerState* DrawingPlayer) const
+{
+	const FForcedDrawSourceQueue* ForcedQueue = ForcedDrawSources.Find(DrawingPlayer);
+	return ForcedQueue && !ForcedQueue->Sources.IsEmpty()
+		? ForcedQueue->Sources[0].Get()
+		: nullptr;
+}
+
+void UTurnComponent::ClearDrawGuidance(ASHPlayerState* DrawingPlayer)
+{
+	ASHPlayerController* Controller = IsValid(DrawingPlayer)
+		? Cast<ASHPlayerController>(DrawingPlayer->GetOwner())
+		: nullptr;
+
+	if (IsValid(Controller))
+	{
+		Controller->ClientUpdateCardDrawGuidance({}, ECardDrawGuidanceType::None);
+	}
 }
 
 ASHGameState* UTurnComponent::GetSHGameState() const

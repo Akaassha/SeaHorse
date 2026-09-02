@@ -26,3 +26,17 @@ void UCardEffectTask::FinishEffect()
 
     GameMode->FinishEffectTask(this);
 }
+
+void UCardEffectTask::RequestPlayerSelection(
+    const TArray<ASHPlayerState*>& Candidates,
+    EPlayerSelectionPurpose Purpose)
+{
+    ASHGameMode* GameMode = GetTypedOuter<ASHGameMode>();
+    checkf(IsValid(GameMode), TEXT("CardEffectTask has no valid GameMode"));
+    GameMode->RequestPlayerSelection(this, ActivatingPlayer, Candidates, Purpose);
+}
+
+void UCardEffectTask::HandlePlayerSelected(ASHPlayerState* SelectedPlayer)
+{
+    checkNoEntry();
+}
