@@ -791,12 +791,87 @@ void ASHPlayerController::ServerCreatePair_Implementation(ASHCard* CardA, ASHCar
     }
 }
 
+void ASHPlayerController::BeginLocalCardDrag(ASHCard* Card)
+{
+    if (!IsLocalController() || !IsValid(Card))
+    {
+        return;
+    }
+    LocallyDraggedCard = Card;
+    LastPreviewCard = nullptr;
+    LastPreviewInsertIndex = INDEX_NONE;
+	bLastPreviewIsOwnHandReorder = false;
+}
+
+void ASHPlayerController::EndLocalCardDrag(ASHCard* Card)
+{
+    if (!IsLocalController() || (IsValid(Card) && LocallyDraggedCard != Card))
+    {
+        return;
+    }
+    if (bLastPreviewIsOwnHandReorder && LastPreviewCard == Card && LastPreviewInsertIndex != INDEX_NONE)
+    {
+        ServerReorderOwnCard(Card, LastPreviewInsertIndex);
+    }
+    LocallyDraggedCard = nullptr;
+    LastPreviewCard = nullptr;
+    LastPreviewInsertIndex = INDEX_NONE;
+	bLastPreviewIsOwnHandReorder = false;
+}
+
+void ASHPlayerController::UpdateLocalCardDropPreview(ASHCard* Card, int32 InsertIndex, bool bOwnHandReorder)
+{
+    if (!IsLocalController() || !IsValid(Card) || InsertIndex < 0 ||
+        (LastPreviewCard == Card && LastPreviewInsertIndex == InsertIndex &&
+            bLastPreviewIsOwnHandReorder == bOwnHandReorder))
+    {
+        return;
+    }
+    LastPreviewCard = Card;
+    LastPreviewInsertIndex = InsertIndex;
+    bLastPreviewIsOwnHandReorder = bOwnHandReorder;
+    if (!bOwnHandReorder)
+    {
+        ServerSetCardDropPreview(Card, InsertIndex);
+    }
+}
+
+void ASHPlayerController::ServerSetCardDropPreview_Implementation(ASHCard* Card, int32 InsertIndex)
+{
+    ASHPlayerState* PS = GetPlayerState<ASHPlayerState>();
+    ASHHand* TargetHand = IsValid(PS) ? PS->GetHand() : nullptr;
+    if (!IsValid(Card) || !IsValid(TargetHand) || Card->GetOwningHand() == TargetHand ||
+        InsertIndex < 0 || InsertIndex > TargetHand->GetCardCount())
+    {
+        return;
+    }
+    PendingDropCard = Card;
+    PendingDropInsertIndex = InsertIndex;
+}
+
+void ASHPlayerController::ServerReorderOwnCard_Implementation(ASHCard* Card, int32 InsertIndex)
+{
+    ASHPlayerState* PS = GetPlayerState<ASHPlayerState>();
+    ASHHand* Hand = IsValid(PS) ? PS->GetHand() : nullptr;
+    if (IsValid(Hand))
+    {
+        Hand->ReorderCard(Card, InsertIndex);
+    }
+}
+
 void ASHPlayerController::ServerTakeCard_Implementation(ASHCard* Card, int32 InsertIndex)
 {
     if (!IsValid(Card))
     {
         return;
     }
+
+    if (PendingDropCard == Card && PendingDropInsertIndex != INDEX_NONE)
+    {
+        InsertIndex = PendingDropInsertIndex;
+    }
+    PendingDropCard = nullptr;
+    PendingDropInsertIndex = INDEX_NONE;
 
     ASHPlayerState* SHPlayerState = GetPlayerState<ASHPlayerState>();
 

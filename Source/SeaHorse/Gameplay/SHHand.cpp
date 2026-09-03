@@ -244,6 +244,50 @@ ASHCard* ASHHand::GetTopCard() const
 	return bIsNPC && !Cards.IsEmpty() ? Cards.Last() : nullptr;
 }
 
+bool ASHHand::HasSeaHorseCard() const
+{
+	for (const ASHCard* Card : Cards)
+	{
+		if (!IsValid(Card))
+		{
+			continue;
+		}
+		const UCardEndGameRulesFragment* Rules = Cast<UCardEndGameRulesFragment>(
+			UCardDefinition::FindFragmentByClass(Card->CardDefinition, UCardEndGameRulesFragment::StaticClass()));
+		if (IsValid(Rules) && Rules->bOwnerAutomaticallyLoses)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+bool ASHHand::ReorderCard(ASHCard* Card, int32 InsertIndex)
+{
+	checkf(HasAuthority(), TEXT("Cards can only be reordered on the server"));
+	if (bIsNPC || !IsValid(Card) || Card->GetOwningHand() != this || !HasSeaHorseCard())
+	{
+		return false;
+	}
+
+	const int32 CurrentIndex = Cards.IndexOfByKey(Card);
+	if (CurrentIndex == INDEX_NONE)
+	{
+		return false;
+	}
+	Cards.RemoveAt(CurrentIndex);
+	if (InsertIndex < 0 || InsertIndex > Cards.Num())
+	{
+		Cards.Insert(Card, CurrentIndex);
+		return false;
+	}
+	Cards.Insert(Card, InsertIndex);
+	ForceNetUpdate();
+	RefreshLocalCardsPresentation();
+	OnHandCardsChanged.Broadcast(GetCardCount());
+	return true;
+}
+
 ASHCard* ASHHand::TakeTopCard()
 {
 	checkf(HasAuthority(), TEXT("Cards can only be taken on the server"));

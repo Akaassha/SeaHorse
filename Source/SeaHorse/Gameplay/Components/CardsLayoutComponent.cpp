@@ -4,6 +4,8 @@
 #include "Components/SplineComponent.h"
 #include "Kismet/KismetMathLibrary.h"
 #include "SeaHorse/Gameplay/Cards/SHCard.h"
+#include "SeaHorse/Gameplay/Core/SHPlayerController.h"
+#include "SeaHorse/Gameplay/Core/SHPlayerState.h"
 #include "UObject/UnrealType.h"
 
 USHCardsLayoutComponent::USHCardsLayoutComponent()
@@ -78,13 +80,25 @@ void USHHandCardsLayoutComponent::UpdateCardsPositions(const TArray<ASHCard*>& C
 		return;
 	}
 
+	ASHCard* PreviewCard = nullptr;
+	int32 PreviewInsertIndex = INDEX_NONE;
+	const bool bShowDropPreview = GetExternalCardDropPreview(PreviewCard, PreviewInsertIndex);
+	const bool bOwnCardReorder = bShowDropPreview && IsValid(PreviewCard) &&
+		PreviewCard->GetOwningHand() == OwningHand->GetRepresentedHand();
+
 	CardsTransforms.Reset();
 	CardsTransforms_WithNoOffsets.Reset();
+	int32 CompactIndex = 0;
 	for (int32 Index = 0; Index < Cards.Num(); ++Index)
 	{
 		if (IsValid(Cards[Index]) && Cards[Index] != DraggedCard)
 		{
-			UpdateSingleCardPosition(Cards[Index], Index, Cards.Num());
+			const int32 SourceIndex = bOwnCardReorder ? CompactIndex : Index;
+			const int32 LayoutIndex = bShowDropPreview && SourceIndex >= PreviewInsertIndex
+				? SourceIndex + 1 : SourceIndex;
+			const int32 LayoutCount = Cards.Num() + (bShowDropPreview && !bOwnCardReorder ? 1 : 0);
+			UpdateSingleCardPosition(Cards[Index], LayoutIndex, LayoutCount);
+			++CompactIndex;
 		}
 	}
 }
@@ -159,7 +173,79 @@ void USHHandCardsLayoutComponent::RemoveCardFromLayout(ASHCard* Card)
 
 void USHHandCardsLayoutComponent::SetDreggedCard(ASHCard* Card)
 {
+	ASHCard* PreviousCard = DraggedCard;
 	DraggedCard = Card;
+	if (ASHPlayerController* PC = GetWorld() ? Cast<ASHPlayerController>(GetWorld()->GetFirstPlayerController()) : nullptr;
+		IsValid(PC) && PC->IsLocalController())
+	{
+		if (IsValid(Card))
+		{
+			PC->BeginLocalCardDrag(Card);
+		}
+		else
+		{
+			PC->EndLocalCardDrag(PreviousCard);
+		}
+	}
+}
+
+bool USHHandCardsLayoutComponent::GetExternalCardDropPreview(ASHCard*& OutDraggedCard, int32& OutInsertIndex) const
+{
+	OutDraggedCard = nullptr;
+	OutInsertIndex = INDEX_NONE;
+	if (!IsValid(OwningHand) || OwningHand->IsNPC() || !IsValid(OwnerSpline))
+	{
+		return false;
+	}
+
+	ASHPlayerController* PC = GetWorld() ? Cast<ASHPlayerController>(GetWorld()->GetFirstPlayerController()) : nullptr;
+	ASHPlayerState* LocalPS = IsValid(PC) ? PC->GetPlayerState<ASHPlayerState>() : nullptr;
+	if (!IsValid(PC) || !PC->IsLocalController() || OwningHand->GetRepresentedPlayerState() != LocalPS)
+	{
+		return false;
+	}
+
+	ASHCard* Card = PC->GetLocallyDraggedCard();
+	ASHHand* TargetLogicalHand = OwningHand->GetRepresentedHand();
+	if (!IsValid(Card) || !IsValid(TargetLogicalHand) || Card->GetCardZone() != ECardZone::Hand)
+	{
+		return false;
+	}
+	const bool bOwnCardReorder = Card->GetOwningHand() == TargetLogicalHand;
+	if (bOwnCardReorder && !TargetLogicalHand->HasSeaHorseCard())
+	{
+		return false;
+	}
+
+	OutDraggedCard = Card;
+	OutInsertIndex = CalculateDropInsertIndex(Card,
+		TargetLogicalHand->GetCardCount() - (bOwnCardReorder ? 1 : 0));
+	PC->UpdateLocalCardDropPreview(Card, OutInsertIndex, bOwnCardReorder);
+	return OutInsertIndex != INDEX_NONE;
+}
+
+int32 USHHandCardsLayoutComponent::CalculateDropInsertIndex(const ASHCard* PreviewCard, int32 CurrentCardCount) const
+{
+	if (!IsValid(PreviewCard) || !IsValid(OwnerSpline))
+	{
+		return INDEX_NONE;
+	}
+
+	const double InputKey = OwnerSpline->FindInputKeyClosestToWorldLocation(PreviewCard->GetActorLocation());
+	const double DragDistance = OwnerSpline->GetDistanceAlongSplineAtSplineInputKey(InputKey);
+	int32 BestIndex = 0;
+	double BestDistance = TNumericLimits<double>::Max();
+	for (int32 CandidateIndex = 0; CandidateIndex <= CurrentCardCount; ++CandidateIndex)
+	{
+		const double CandidateDistance = CalculateCardDistanceAtSpline(CurrentCardCount + 1, CandidateIndex);
+		const double Difference = FMath::Abs(CandidateDistance - DragDistance);
+		if (Difference < BestDistance)
+		{
+			BestDistance = Difference;
+			BestIndex = CandidateIndex;
+		}
+	}
+	return BestIndex;
 }
 
 void USHHandCardsLayoutComponent::UpdateNPCCardsPositons(const TArray<ASHCard*>& Cards)

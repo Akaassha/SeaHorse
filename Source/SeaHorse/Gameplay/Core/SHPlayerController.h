@@ -39,8 +39,20 @@ public:
 
 	bool IsTableViewInitialized() { return bTableViewInitialized; }
 
+	/** Local drag preview used by hand layout components. Gameplay remains server authoritative. */
+	void BeginLocalCardDrag(ASHCard* Card);
+	void EndLocalCardDrag(ASHCard* Card);
+	ASHCard* GetLocallyDraggedCard() const { return LocallyDraggedCard; }
+	void UpdateLocalCardDropPreview(ASHCard* Card, int32 InsertIndex, bool bOwnHandReorder = false);
+
 	UFUNCTION(BlueprintCallable, Server, Reliable)
 	void ServerSkipCurrentPhase();
+
+	UFUNCTION(Server, Reliable)
+	void ServerSetCardDropPreview(ASHCard* Card, int32 InsertIndex);
+
+	UFUNCTION(Server, Reliable)
+	void ServerReorderOwnCard(ASHCard* Card, int32 InsertIndex);
 
 	UFUNCTION(BlueprintCallable, Server, Reliable, Category = "Card Effects")
 	void ServerSubmitPlayerSelection(ASHPlayerState* SelectedPlayer);
@@ -132,4 +144,13 @@ private:
 	TArray<TObjectPtr<ASHHand>> LocalParticipantSelectionCandidates;
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<ASHHand>> LocalGuidedDrawHands;
+	UPROPERTY(Transient)
+	TObjectPtr<ASHCard> LocallyDraggedCard;
+	UPROPERTY(Transient)
+	TObjectPtr<ASHCard> LastPreviewCard;
+	int32 LastPreviewInsertIndex = INDEX_NONE;
+	bool bLastPreviewIsOwnHandReorder = false;
+	UPROPERTY(Transient)
+	TObjectPtr<ASHCard> PendingDropCard;
+	int32 PendingDropInsertIndex = INDEX_NONE;
 };

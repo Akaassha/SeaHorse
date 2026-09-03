@@ -100,6 +100,13 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Cards|NPC")
 	ASHCard* GetTopCard() const;
+
+	/** True when this logical hand contains the automatic-loss Sea Horse card. */
+	UFUNCTION(BlueprintPure, Category = "Cards")
+	bool HasSeaHorseCard() const;
+
+	/** Server-only reordering used by the Sea Horse hand-management rule. */
+	bool ReorderCard(ASHCard* Card, int32 InsertIndex);
 	ASHCard* TakeTopCard();
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Cards|NPC")
 	void ShuffleStack();

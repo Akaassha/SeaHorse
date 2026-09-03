@@ -92,6 +92,9 @@ public:
 	void UpdateNPCCardsPositons(const TArray<ASHCard*>& Cards);
 
 protected:
+	bool GetExternalCardDropPreview(ASHCard*& OutDraggedCard, int32& OutInsertIndex) const;
+	int32 CalculateDropInsertIndex(const ASHCard* PreviewCard, int32 CurrentCardCount) const;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Cards Layout")
 	float ForwardFocusedOffser = 2.0f;
 
