@@ -7,6 +7,7 @@
 #include "SHGameState.generated.h"
 
 class ASHPlayerState;
+class ASHHand;
 
 USTRUCT(BlueprintType)
 struct FSHMatchResult
@@ -36,6 +37,9 @@ struct FSHFinishedMatch
 
 	UPROPERTY()
 	TArray<FSHMatchResult> Results;
+
+	UPROPERTY()
+	TArray<TObjectPtr<ASHHand>> AutomaticallyLosingNPCs;
 };
 
 UENUM(BlueprintType)
@@ -59,6 +63,16 @@ class SEAHORSE_API ASHGameState : public AGameState
 	GENERATED_BODY()
 	
 public:
+	UFUNCTION(BlueprintPure, Category = "Participants")
+	TArray<ASHHand*> GetNPCHands() const;
+	UFUNCTION(BlueprintPure, Category = "Participants")
+	TArray<ASHHand*> GetParticipantHands() const { return ParticipantHands; }
+
+	UFUNCTION(BlueprintPure, Category = "Participants")
+	int32 GetParticipantCount() const;
+
+	ASHHand* FindParticipantHandBySeat(int32 SeatIndex) const;
+	void SetParticipantHands(const TArray<ASHHand*>& NewHands);
 	UFUNCTION(BlueprintPure, Category = "Turn")
 	bool IsCurrentPlayer(const ASHPlayerState* PlayerState) const;
 
@@ -89,7 +103,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Match")
 	const TArray<FSHMatchResult>& GetMatchResults() const { return FinishedMatch.Results; }
 
-	void FinishGame(const TArray<FSHMatchResult>& Results);
+	UFUNCTION(BlueprintPure, Category = "Match")
+	TArray<ASHHand*> GetAutomaticallyLosingNPCs() const { return FinishedMatch.AutomaticallyLosingNPCs; }
+
+	void FinishGame(const TArray<FSHMatchResult>& Results, const TArray<ASHHand*>& AutomaticallyLosingNPCs = {});
 
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
@@ -132,6 +149,11 @@ public:
 	void SetTurnPhase(ETurnPhase NewTurnPhase);
 
 protected:
+	UPROPERTY(ReplicatedUsing = OnRep_ParticipantHands, BlueprintReadOnly, Category = "Participants")
+	TArray<TObjectPtr<ASHHand>> ParticipantHands;
+
+	UFUNCTION()
+	void OnRep_ParticipantHands();
 	UPROPERTY(ReplicatedUsing = OnRep_MatchReady, BlueprintReadOnly)
 	bool bMatchReady;
 

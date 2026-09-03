@@ -74,32 +74,51 @@ ASHPlayerState* UDeckComponent::DealCards()
     ASHPlayerState* FirstPlayer = ChooseFirstDealtPlayer();
     checkf(IsValid(FirstPlayer), TEXT("ChooseDealingStartPlayer returned invalid player"));
 
-    int32 PlayerIndex = SHGameState->PlayerArray.IndexOfByKey(FirstPlayer);
-    checkf(PlayerIndex != INDEX_NONE, TEXT("Chosen dealing start player is not in PlayerArray"));
+    int32 ParticipantSeat = FirstPlayer->GetSeatIndex();
+    checkf(ParticipantSeat != INDEX_NONE, TEXT("Chosen dealing start player has no seat"));
+    const int32 ParticipantCount = SHGameState->GetParticipantCount();
+    checkf(ParticipantCount >= 2, TEXT("Cannot deal cards without at least two participants"));
 
-    ASHPlayerState* LastDealtPlayer = nullptr;
+    int32 LastDealtSeat = INDEX_NONE;
 
     while (!Deck.IsEmpty())
     {
-        ASHPlayerState* PlayerState = Cast<ASHPlayerState>(SHGameState->PlayerArray[PlayerIndex]);
-        checkf(IsValid(PlayerState), TEXT("PlayerArray contains invalid SHPlayerState"));
-
-        ASHHand* Hand = PlayerState->GetHand();
-        checkf(IsValid(Hand), TEXT("Player has no Hand"));
+        ASHHand* Hand = SHGameState->FindParticipantHandBySeat(ParticipantSeat);
+        checkf(IsValid(Hand), TEXT("Participant in seat %d has no card container"), ParticipantSeat);
 
         ASHCard* Card = Deck.Pop();
 
         checkf(IsValid(Card), TEXT("Deck contains invalid Card"));
 
         Hand->AddCard(Card, Hand->GetCardCount());
-        LastDealtPlayer = PlayerState;
+        LastDealtSeat = ParticipantSeat;
 
-        PlayerIndex = (PlayerIndex + 1) % SHGameState->PlayerArray.Num();
+		UE_LOG(LogTemp, Verbose, TEXT("[SH_DEAL] Card=%s Seat=%d Container=%s IsNPC=%d Count=%d"),
+			*GetNameSafe(Card), ParticipantSeat, *GetNameSafe(Hand), Hand->IsLogicalNPC(), Hand->GetCardCount());
+
+        ParticipantSeat = (ParticipantSeat + 1) % ParticipantCount;
 
     }
 
-    checkf(IsValid(LastDealtPlayer), TEXT("No cards were dealt"));
-    return LastDealtPlayer;
+    checkf(LastDealtSeat != INDEX_NONE, TEXT("No cards were dealt"));
+
+    // BN turns are skipped. Start with the last dealt human, or the next human
+    // clockwise when the final card went to a BN.
+    for (int32 Offset = 0; Offset < ParticipantCount; ++Offset)
+    {
+        const int32 CandidateSeat = (LastDealtSeat + Offset) % ParticipantCount;
+        for (APlayerState* State : SHGameState->PlayerArray)
+        {
+            ASHPlayerState* Candidate = Cast<ASHPlayerState>(State);
+            if (IsValid(Candidate) && Candidate->GetSeatIndex() == CandidateSeat)
+            {
+                return Candidate;
+            }
+        }
+    }
+
+    checkNoEntry();
+    return nullptr;
 }
 
 ASHPlayerState* UDeckComponent::ChooseFirstDealtPlayer_Implementation()

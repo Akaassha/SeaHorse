@@ -116,7 +116,16 @@ bool UTurnComponent::CanActivatePair(ASHPlayerState* RequestingPlayer, const FAc
 
 bool UTurnComponent::CanDrawCard(ASHPlayerState* DrawingPlayer, ASHPlayerState* SourcePlayer) const
 {
-	if (!IsValid(DrawingPlayer) || !IsValid(SourcePlayer) || DrawingPlayer == SourcePlayer)
+	if (!IsValid(SourcePlayer))
+	{
+		return false;
+	}
+	return CanDrawCardFromHand(DrawingPlayer, SourcePlayer->GetHand());
+}
+
+bool UTurnComponent::CanDrawCardFromHand(ASHPlayerState* DrawingPlayer, ASHHand* SourceHand) const
+{
+	if (!IsValid(DrawingPlayer) || !IsValid(SourceHand) || DrawingPlayer->GetHand() == SourceHand)
 	{
 		return false;
 	}
@@ -133,27 +142,26 @@ bool UTurnComponent::CanDrawCard(ASHPlayerState* DrawingPlayer, ASHPlayerState* 
 		return false;
 	}
 
-	ASHHand* SourceHand = SourcePlayer->GetHand();
-	if (!IsValid(SourceHand) || SourceHand->GetCardCount() <= 0)
+	if (SourceHand->GetCardCount() <= 0)
 	{
 		return false;
 	}
 
 	if (bWaitingForAdditionalDraw)
 	{
-		if (DrawingPlayer != AdditionalDrawPlayer || !IsValid(FirstDrawSource))
+		if (DrawingPlayer != AdditionalDrawPlayer || !IsValid(FirstDrawSourceHand))
 		{
 			return false;
 		}
 
 		return AdditionalDrawSourceRule == EAdditionalDrawSourceRule::SamePlayer
-			? SourcePlayer == FirstDrawSource
-			: SourcePlayer != FirstDrawSource;
+			? SourceHand == FirstDrawSourceHand
+			: SourceHand != FirstDrawSourceHand;
 	}
 
 	if (ASHPlayerState* ForcedSource = GetFirstForcedDrawSource(DrawingPlayer))
 	{
-		if (SourcePlayer != ForcedSource)
+		if (SourceHand != ForcedSource->GetHand())
 		{
 			return false;
 		}
@@ -172,8 +180,14 @@ bool UTurnComponent::CanDrawCard(ASHPlayerState* DrawingPlayer, ASHPlayerState* 
 
 void UTurnComponent::HandleCardDrawn(ASHPlayerState* DrawingPlayer, ASHPlayerState* SourcePlayer)
 {
+	checkf(IsValid(SourcePlayer), TEXT("Invalid card draw source"));
+	HandleCardDrawnFromHand(DrawingPlayer, SourcePlayer->GetHand());
+}
+
+void UTurnComponent::HandleCardDrawnFromHand(ASHPlayerState* DrawingPlayer, ASHHand* SourceHand)
+{
 	CheckServerAuthority();
-	checkf(IsValid(DrawingPlayer) && IsValid(SourcePlayer), TEXT("Invalid card draw notification"));
+	checkf(IsValid(DrawingPlayer) && IsValid(SourceHand), TEXT("Invalid card draw notification"));
 
 	if (bWaitingForAdditionalDraw)
 	{
@@ -197,20 +211,29 @@ void UTurnComponent::HandleCardDrawn(ASHPlayerState* DrawingPlayer, ASHPlayerSta
 
 	if (DrawingPlayer == AdditionalDrawPlayer)
 	{
-		FirstDrawSource = SourcePlayer;
+		FirstDrawSourceHand = SourceHand;
 		bWaitingForAdditionalDraw = true;
 
 		TArray<ASHPlayerState*> ValidSources;
+		bool bHasValidSource = false;
 		for (APlayerState* PlayerState : GetSHGameState()->PlayerArray)
 		{
 			ASHPlayerState* Candidate = Cast<ASHPlayerState>(PlayerState);
 			if (CanDrawCard(DrawingPlayer, Candidate))
 			{
 				ValidSources.Add(Candidate);
+				bHasValidSource = true;
+			}
+		}
+		for (ASHHand* NPCHand : GetSHGameState()->GetNPCHands())
+		{
+			if (CanDrawCardFromHand(DrawingPlayer, NPCHand))
+			{
+				bHasValidSource = true;
 			}
 		}
 
-		if (ValidSources.IsEmpty())
+		if (!bHasValidSource)
 		{
 			UE_LOG(LogTemp, Log,
 				TEXT("[SH_ADDITIONAL_DRAW] No valid source for the second draw; completing the effect after the first draw"));
@@ -239,7 +262,7 @@ void UTurnComponent::FinishAdditionalDraw()
 {
 	UCardEffectTask* CompletedEffectTask = AdditionalDrawEffectTask;
 	AdditionalDrawPlayer = nullptr;
-	FirstDrawSource = nullptr;
+	FirstDrawSourceHand = nullptr;
 	AdditionalDrawEffectTask = nullptr;
 	bWaitingForAdditionalDraw = false;
 	EnterTurnPhase(ETurnPhase::SecondPairing);
@@ -310,16 +333,22 @@ ASHPlayerState* UTurnComponent::ChooseNextPlayer_Implementation(ASHPlayerState* 
 	checkf(IsValid(CurrentPlayer), TEXT("Invalid current player"));
 
 	ASHGameState* GameState = GetSHGameState();
-	const int32 PlayerCount = GameState->PlayerArray.Num();
-	checkf(PlayerCount > 0, TEXT("Cannot choose the next player without players"));
+	const int32 ParticipantCount = GameState->GetParticipantCount();
+	checkf(ParticipantCount > 0, TEXT("Cannot choose the next player without participants"));
 
-	const int32 NextSeatIndex = (CurrentPlayer->GetSeatIndex() + 1) % PlayerCount;
-	for (APlayerState* PlayerState : GameState->PlayerArray)
+	// Seats can contain NPCs and human seat indices are therefore not
+	// necessarily contiguous. Walk clockwise through every table seat and
+	// return the next human; NPC turns are skipped entirely.
+	for (int32 Offset = 1; Offset <= ParticipantCount; ++Offset)
 	{
-		ASHPlayerState* SHPlayerState = Cast<ASHPlayerState>(PlayerState);
-		if (IsValid(SHPlayerState) && SHPlayerState->GetSeatIndex() == NextSeatIndex)
+		const int32 CandidateSeat = (CurrentPlayer->GetSeatIndex() + Offset) % ParticipantCount;
+		for (APlayerState* PlayerState : GameState->PlayerArray)
 		{
-			return SHPlayerState;
+			ASHPlayerState* SHPlayerState = Cast<ASHPlayerState>(PlayerState);
+			if (IsValid(SHPlayerState) && SHPlayerState->GetSeatIndex() == CandidateSeat)
+			{
+				return SHPlayerState;
+			}
 		}
 	}
 

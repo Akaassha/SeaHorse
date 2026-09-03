@@ -30,7 +30,7 @@ public:
 	void SetSeatIndex(int32 NewSeatIndex);
 
 	UFUNCTION()
-	int32 GetSeatIndex();
+	int32 GetSeatIndex() const;
 
 	UFUNCTION()
 	void OnRep_SeatIndex();
@@ -44,8 +44,11 @@ public:
 	void SetVictoryPoints(int32 NewVictoryPoints);
 	
 protected:
-	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Hand")
+	UPROPERTY(ReplicatedUsing = OnRep_Hand, BlueprintReadOnly, Category = "Hand")
 	TObjectPtr<ASHHand> Hand;
+
+	UFUNCTION()
+	void OnRep_Hand();
 
 	UPROPERTY(ReplicatedUsing = OnRep_VictoryPoints, BlueprintReadOnly, Category = "Score")
 	int32 VictoryPoints = 0;

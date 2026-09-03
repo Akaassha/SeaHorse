@@ -9,6 +9,8 @@
 class ASHCard;
 class AVictoryStack;
 class ASHPlayerState;
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnNPCStackShuffled);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnHandCardsChanged, int32, CardCount);
 
 USTRUCT(BlueprintType)
 struct FActivatedPair
@@ -62,7 +64,7 @@ public:
 	void OnPairActivated(ASHCard* CardA, ASHCard* CardB);
 
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Cards|Activation")
-	void AddActivationPair(ASHCard* CardA, ASHCard* CardB);
+	virtual void AddActivationPair(ASHCard* CardA, ASHCard* CardB);
 	void AddActivationPairToLogicalHand(ASHCard* CardA, ASHCard* CardB);
 	void RefreshActivationPairsPresentation();
 
@@ -88,7 +90,21 @@ public:
 	virtual void Tick(float DeltaTime) override;
 
 	UFUNCTION(BlueprintCallable)
-	void AddCard(ASHCard* Card, int32 Index);
+	virtual void AddCard(ASHCard* Card, int32 Index);
+
+	UFUNCTION(BlueprintPure, Category = "Hand")
+	bool IsNPC() const;
+	/** Authoritative mode of this logical card container, independent of local view mapping. */
+	bool IsLogicalNPC() const { return bIsNPC; }
+	void SetIsNPC(bool bNewIsNPC);
+
+	UFUNCTION(BlueprintPure, Category = "Cards|NPC")
+	ASHCard* GetTopCard() const;
+	ASHCard* TakeTopCard();
+	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Cards|NPC")
+	void ShuffleStack();
+	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Cards|NPC")
+	void RevealStack();
 
 	UFUNCTION(BlueprintCallable, BlueprintPure)
 	TArray<ASHCard*> GetCards();
@@ -105,7 +121,7 @@ public:
 	void RemoveCard(ASHCard* Card);
 
 	UFUNCTION()
-	void OnRep_Cards();
+	virtual void OnRep_Cards();
 
 	UFUNCTION()
 	void OnRep_ActivationPairs();
@@ -116,16 +132,23 @@ public:
 	UFUNCTION(BlueprintCallable, BlueprintImplementableEvent)
 	void UpdateCardPositions();
 
-	UPROPERTY(EditInstanceOnly, BlueprintReadOnly)
+	UPROPERTY(EditInstanceOnly, BlueprintReadOnly, ReplicatedUsing = OnRep_LayoutSeatIndex)
 	int32 LayoutSeatIndex = INDEX_NONE;
+
+	UFUNCTION()
+	void OnRep_LayoutSeatIndex();
 
 	UFUNCTION(BlueprintCallable, BlueprintPure)
 	int32 GetLayoutSeatIndex() const;
+	void SetLayoutSeatIndex(int32 NewLayoutSeatIndex);
 
 	UFUNCTION(BlueprintCallable, BlueprintPure)
 	const FTransform& GetLayoutTransform() const;
 
 	void RefreshCardsPresentation();
+
+	/** Default native presentation for an uncontrolled hand's face-down stack. */
+	void LayoutNPCStack(ASHHand* LogicalNPCStack);
 
 	bool ContainsCard(ASHCard* CardB);
 
@@ -139,6 +162,13 @@ public:
 	void SetRepresentedPlayerState(ASHPlayerState* InPlayerState)
 	{
 		RepresentedPlayerState = InPlayerState;
+		RepresentedLogicalHand = nullptr;
+	}
+
+	void SetRepresentedHand(ASHHand* InHand)
+	{
+		RepresentedPlayerState = nullptr;
+		RepresentedLogicalHand = InHand;
 	}
 
 	UFUNCTION(BlueprintCallable, BlueprintPure)
@@ -147,11 +177,28 @@ public:
 	UFUNCTION(BlueprintCallable, BlueprintPure)
 	ASHHand* GetRepresentedHand() const;
 
+	UPROPERTY(BlueprintAssignable, Category = "Cards|NPC")
+	FOnNPCStackShuffled OnNPCStackShuffled;
+	UPROPERTY(BlueprintAssignable, Category = "Cards")
+	FOnHandCardsChanged OnHandCardsChanged;
+
 private:
 	void RefreshLocalCardsPresentation();
 
 	UPROPERTY(Transient)
 	TObjectPtr<ASHPlayerState> RepresentedPlayerState;
+
+	UPROPERTY(Transient)
+	TObjectPtr<ASHHand> RepresentedLogicalHand;
 	
 	FTransform LayoutTransform;
+
+	UPROPERTY(ReplicatedUsing = OnRep_IsNPC)
+	bool bIsNPC = false;
+	UFUNCTION()
+	void OnRep_IsNPC();
+	bool ShouldShuffleForCard(const ASHCard* Card) const;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Cards|NPC", meta = (Units = "cm"))
+	FVector NPCStackCardOffset = FVector(0.0, 0.0, 0.2);
 };

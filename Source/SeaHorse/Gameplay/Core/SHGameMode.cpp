@@ -15,6 +15,7 @@
 #include "SeaHorse/Gameplay/Components/DeckComponent.h"
 #include "SeaHorse/Gameplay/Components/TurnComponent.h"
 #include "EngineUtils.h"
+#include "Kismet/GameplayStatics.h"
 
 // ***** Begin Player setup *****
 void ASHGameMode::HandleStartingNewPlayer_Implementation(APlayerController* NewPlayer)
@@ -74,12 +75,59 @@ void ASHGameMode::AssignSeats()
 
     checkf(IsValid(SHGameState), TEXT("Invalid SHGameState"));
 
-    for (int32 SeatIndex = 0; SeatIndex < SHGameState->PlayerArray.Num(); ++SeatIndex)
+    TSet<int32> AssignedSeats;
+    for (APlayerState* State : SHGameState->PlayerArray)
     {
-        ASHPlayerState* PlayerState = Cast<ASHPlayerState>(SHGameState->PlayerArray[SeatIndex]);
-        PlayerState->SetSeatIndex(SeatIndex);
+        ASHPlayerState* PlayerState = CastChecked<ASHPlayerState>(State);
+        ASHHand* Hand = PlayerState->GetHand();
+        checkf(IsValid(Hand), TEXT("Player has no assigned hand"));
+
+		const int32 SeatIndex = Hand->GetLayoutSeatIndex();
+		checkf(SeatIndex >= 0 && SeatIndex < TotalSeatCount,
+			TEXT("Player hand %s has invalid LayoutSeatIndex %d"), *GetNameSafe(Hand), SeatIndex);
+		checkf(!AssignedSeats.Contains(SeatIndex), TEXT("Seat %d is assigned more than once"), SeatIndex);
+
+		PlayerState->SetSeatIndex(SeatIndex);
+		AssignedSeats.Add(SeatIndex);
     }
 
+}
+
+void ASHGameMode::InitializeParticipantHands()
+{
+    checkf(HasAuthority(), TEXT("Participant hands can only be initialized on the server"));
+
+    ASHGameState* SHGameState = GetGameState<ASHGameState>();
+    checkf(IsValid(SHGameState), TEXT("Invalid SHGameState"));
+
+    const int32 HumanCount = SHGameState->PlayerArray.Num();
+    checkf(HumanCount >= 2 && HumanCount <= TotalSeatCount,
+        TEXT("SeaHorse requires 2-%d human players; found %d"), TotalSeatCount, HumanCount);
+
+    TArray<ASHHand*> Hands;
+	Hands.SetNum(TotalSeatCount);
+	for (TActorIterator<ASHHand> It(GetWorld()); It; ++It)
+	{
+		ASHHand* Hand = *It;
+		const int32 Seat = IsValid(Hand) ? Hand->GetLayoutSeatIndex() : INDEX_NONE;
+		if (Seat < 0 || Seat >= TotalSeatCount) continue;
+		checkf(!IsValid(Hands[Seat]), TEXT("More than one hand uses seat %d"), Seat);
+		Hands[Seat] = Hand;
+	}
+
+	for (int32 Seat = 0; Seat < TotalSeatCount; ++Seat)
+	{
+		checkf(IsValid(Hands[Seat]), TEXT("Map must contain one BP_Hand for seat %d"), Seat);
+		const bool bHasHuman = SHGameState->PlayerArray.ContainsByPredicate(
+			[Seat](const APlayerState* State)
+			{
+				const ASHPlayerState* Player = Cast<ASHPlayerState>(State);
+				return IsValid(Player) && Player->GetSeatIndex() == Seat;
+			});
+		Hands[Seat]->SetIsNPC(!bHasHuman);
+	}
+
+	SHGameState->SetParticipantHands(Hands);
 }
 // ***** End Player setup *****
 
@@ -128,6 +176,7 @@ void ASHGameMode::StartGame()
         GetWorld()->GetTimeSeconds());
 
     AssignSeats();
+    InitializeParticipantHands();
 
     UE_LOG(LogTemp, Warning,
         TEXT("[SH_INIT][%.3f][SERVER] AssignSeats DONE"),
@@ -179,13 +228,23 @@ void ASHGameMode::StartGame()
 // ***** Begin Card Effects *****
 void ASHGameMode::MovePairToVictoryStack(ASHPlayerState* PlayerState, ASHCard* CardA, ASHCard* CardB)
 {
-    checkf(IsValid(PlayerState), TEXT("Invalid PlayerState"));
+    checkf(HasAuthority(), TEXT("Pairs can only be moved on the server"));
+    if (!IsValid(PlayerState) || !IsValid(CardA) || !IsValid(CardB))
+    {
+        return;
+    }
 
     ASHHand* Hand = PlayerState->GetHand();
-    checkf(IsValid(Hand), TEXT("Player has no Hand"));
+    if (!IsValid(Hand))
+    {
+        return;
+    }
 
     AVictoryStack* VictoryStack = Hand->GetVictoryStack();
-    checkf(IsValid(VictoryStack), TEXT("Hand has no VictoryStack"));
+    if (!IsValid(VictoryStack))
+    {
+        return;
+    }
 
     const bool bRemoved = Hand->RemoveActivationPair(CardA, CardB);
 
@@ -242,6 +301,21 @@ void ASHGameMode::FinishEffectTask(UCardEffectTask* CardEffectTask)
 
     MovePairToVictoryStack(ActivatingPlayer, CardA, CardB);
 
+    for (auto It = PendingPlayerSelections.CreateIterator(); It; ++It)
+    {
+        if (It.Value().Task == CardEffectTask)
+        {
+            It.RemoveCurrent();
+        }
+    }
+    for (auto It = PendingPairSelections.CreateIterator(); It; ++It)
+    {
+        if (It.Value().Task == CardEffectTask)
+        {
+            It.RemoveCurrent();
+        }
+    }
+
     ActiveEffectTasks.Remove(CardEffectTask);
 }
 
@@ -252,42 +326,30 @@ void ASHGameMode::PassHandsToLeft()
 	ASHGameState* SHGameState = GetGameState<ASHGameState>();
 	checkf(IsValid(SHGameState), TEXT("Invalid SHGameState"));
 
-	TMap<TObjectPtr<ASHPlayerState>, TArray<ASHCard*>> CardsByPlayer;
-	for (APlayerState* PlayerState : SHGameState->PlayerArray)
+	TArray<ASHHand*> ParticipantHands;
+	const int32 ParticipantCount = SHGameState->GetParticipantCount();
+	ParticipantHands.SetNum(ParticipantCount);
+	for (int32 Seat = 0; Seat < ParticipantCount; ++Seat)
 	{
-		ASHPlayerState* SHPlayerState = CastChecked<ASHPlayerState>(PlayerState);
-		ASHHand* Hand = SHPlayerState->GetHand();
-		checkf(IsValid(Hand), TEXT("Player has no hand"));
-		CardsByPlayer.Add(SHPlayerState, Hand->GetCards());
+		ParticipantHands[Seat] = SHGameState->FindParticipantHandBySeat(Seat);
+		checkf(IsValid(ParticipantHands[Seat]), TEXT("Participant in seat %d has no hand"), Seat);
 	}
 
-	for (const TPair<TObjectPtr<ASHPlayerState>, TArray<ASHCard*>>& Entry : CardsByPlayer)
+	TArray<TArray<ASHCard*>> CardsBySeat;
+	CardsBySeat.SetNum(ParticipantCount);
+	for (int32 Seat = 0; Seat < ParticipantCount; ++Seat)
 	{
-		ASHHand* SourceHand = Entry.Key->GetHand();
-		for (ASHCard* Card : Entry.Value)
+		CardsBySeat[Seat] = ParticipantHands[Seat]->GetCards();
+		for (ASHCard* Card : CardsBySeat[Seat])
 		{
-			SourceHand->RemoveCard(Card);
+			ParticipantHands[Seat]->RemoveCard(Card);
 		}
 	}
 
-	const int32 PlayerCount = SHGameState->PlayerArray.Num();
-	for (const TPair<TObjectPtr<ASHPlayerState>, TArray<ASHCard*>>& Entry : CardsByPlayer)
+	for (int32 SourceSeat = 0; SourceSeat < ParticipantCount; ++SourceSeat)
 	{
-		const int32 LeftSeat = (Entry.Key->GetSeatIndex() + 1) % PlayerCount;
-		ASHPlayerState* LeftPlayer = nullptr;
-		for (APlayerState* CandidateState : SHGameState->PlayerArray)
-		{
-			ASHPlayerState* Candidate = Cast<ASHPlayerState>(CandidateState);
-			if (IsValid(Candidate) && Candidate->GetSeatIndex() == LeftSeat)
-			{
-				LeftPlayer = Candidate;
-				break;
-			}
-		}
-
-		checkf(IsValid(LeftPlayer) && IsValid(LeftPlayer->GetHand()), TEXT("No player to the left"));
-		ASHHand* TargetHand = LeftPlayer->GetHand();
-		for (ASHCard* Card : Entry.Value)
+		ASHHand* TargetHand = ParticipantHands[(SourceSeat + 1) % ParticipantCount];
+		for (ASHCard* Card : CardsBySeat[SourceSeat])
 		{
 			TargetHand->AddCard(Card, TargetHand->GetCardCount());
 		}
@@ -358,6 +420,7 @@ void ASHGameMode::RequestPlayerSelection(
     checkf(IsValid(SelectingPlayer), TEXT("Invalid selecting player"));
     checkf(!Candidates.IsEmpty(), TEXT("Player selection requires at least one candidate"));
     checkf(!PendingPlayerSelections.Contains(SelectingPlayer), TEXT("Player already has a pending selection"));
+    checkf(!PendingPairSelections.Contains(SelectingPlayer), TEXT("Player already has a pending pair selection"));
 
     FPendingPlayerSelection& PendingSelection = PendingPlayerSelections.Add(SelectingPlayer);
     PendingSelection.Task = Task;
@@ -432,6 +495,7 @@ bool ASHGameMode::RequestActivationPairSelection(
     checkf(IsValid(Task) && ActiveEffectTasks.Contains(Task), TEXT("Pair selection requested by an inactive task"));
     checkf(IsValid(SelectingPlayer), TEXT("Invalid selecting player"));
     checkf(!PendingPairSelections.Contains(SelectingPlayer), TEXT("Player already has a pending pair selection"));
+    checkf(!PendingPlayerSelections.Contains(SelectingPlayer), TEXT("Player already has a pending player selection"));
 
     FPendingPairSelection& Pending = PendingPairSelections.Add(SelectingPlayer);
     Pending.Task = Task;
@@ -505,6 +569,10 @@ bool ASHGameMode::SubmitActivationPairSelection(ASHPlayerState* SelectingPlayer,
 
     UCardEffectTask* Task = Pending->Task;
     PendingPairSelections.Remove(SelectingPlayer);
+    if (ASHPlayerController* Controller = Cast<ASHPlayerController>(SelectingPlayer->GetOwner()))
+    {
+        Controller->ClientRequestActivationPairSelection({});
+    }
     if (IsValid(Task) && ActiveEffectTasks.Contains(Task))
     {
         Task->HandleActivationPairSelected(PairOwner, CardA, CardB);
@@ -617,8 +685,16 @@ bool ASHGameMode::TryFinishGame()
 
         CardsRemainingInHands += Hand->GetCardCount();
     }
+	for (ASHHand* NPCHand : SHGameState->GetNPCHands())
+	{
+		if (!IsValid(NPCHand))
+		{
+			return false;
+		}
+		CardsRemainingInHands += NPCHand->GetCardCount();
+	}
 
-    if (CardsRemainingInHands >= SHGameState->PlayerArray.Num())
+    if (CardsRemainingInHands >= SHGameState->GetParticipantCount())
     {
         return false;
     }
@@ -685,7 +761,7 @@ bool ASHGameMode::TryFinishGame()
 			return bATieBreaker;
 		}
 
-        return A.PlayerState->GetSeatIndex() < B.PlayerState->GetSeatIndex();
+		return A.PlayerState->GetSeatIndex() < B.PlayerState->GetSeatIndex();
     });
 
 	bool bHighestScoreHasTieBreaker = false;
@@ -701,11 +777,20 @@ bool ASHGameMode::TryFinishGame()
 
     for (FSHMatchResult& Result : Results)
     {
-        Result.bIsWinner = !Result.bAutomaticallyLost && Result.Points == HighestScore &&
+		Result.bIsWinner = !Result.bAutomaticallyLost && Result.Points == HighestScore &&
 			(!bHighestScoreHasTieBreaker || ScoreTieBreakers.Contains(Result.PlayerState));
     }
 
-    SHGameState->FinishGame(Results);
+	TArray<ASHHand*> AutomaticallyLosingNPCs;
+	for (ASHHand* NPCHand : SHGameState->GetNPCHands())
+	{
+		if (HandHasAutomaticLossCard(NPCHand))
+		{
+			AutomaticallyLosingNPCs.Add(NPCHand);
+		}
+	}
+
+    SHGameState->FinishGame(Results, AutomaticallyLosingNPCs);
     return true;
 }
 
@@ -722,7 +807,17 @@ bool ASHGameMode::PlayerHasAutomaticLossCard(ASHPlayerState* PlayerState) const
         return false;
     }
 
-    for (ASHCard* Card : Hand->GetCards())
+    return HandHasAutomaticLossCard(Hand);
+}
+
+bool ASHGameMode::HandHasAutomaticLossCard(const ASHHand* Hand) const
+{
+    if (!IsValid(Hand))
+    {
+        return false;
+    }
+
+    for (ASHCard* Card : const_cast<ASHHand*>(Hand)->GetCards())
     {
         if (!IsValid(Card))
         {

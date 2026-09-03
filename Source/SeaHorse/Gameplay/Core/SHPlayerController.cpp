@@ -70,33 +70,44 @@ void ASHPlayerController::TrySetupTableView()
         return;
     }
 
+	const TArray<ASHHand*> ParticipantHands = SHGameState->GetParticipantHands();
+	if (ParticipantHands.Num() != 4)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[SH_INIT] -> WAIT: expected 4 participant hands, received %d"),
+			ParticipantHands.Num());
+		return;
+	}
+
+	TSet<ASHHand*> HumanHands;
+	for (APlayerState* State : SHGameState->PlayerArray)
+	{
+		ASHPlayerState* ReplicatedPlayerState = Cast<ASHPlayerState>(State);
+		if (!IsValid(ReplicatedPlayerState) || ReplicatedPlayerState->GetSeatIndex() == INDEX_NONE ||
+			!IsValid(ReplicatedPlayerState->GetHand()))
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[SH_INIT] -> WAIT: incomplete replicated player/hand assignment"));
+			return;
+		}
+		HumanHands.Add(ReplicatedPlayerState->GetHand());
+	}
+
+	for (ASHHand* Hand : ParticipantHands)
+	{
+		if (IsValid(Hand) && !Hand->IsLogicalNPC() && !HumanHands.Contains(Hand))
+		{
+			UE_LOG(LogTemp, Warning,
+				TEXT("[SH_INIT] -> WAIT: human hand %s has no replicated PlayerState"), *GetNameSafe(Hand));
+			return;
+		}
+	}
+
     int32 ReceivedCardCount = 0;
 
-    for (APlayerState* CurrentPlayerState : SHGameState->PlayerArray)
+    for (ASHHand* Hand : ParticipantHands)
     {
-        ASHPlayerState* SHPlayerState = Cast<ASHPlayerState>(CurrentPlayerState);
-
-        if (!IsValid(SHPlayerState))
-        {
-            UE_LOG(LogTemp, Warning,
-                TEXT("[SH_INIT] -> WAIT: invalid PlayerState"));
-            return;
-        }
-
-        if (SHPlayerState->GetSeatIndex() == INDEX_NONE)
-        {
-            UE_LOG(LogTemp, Warning,
-                TEXT("[SH_INIT] -> WAIT: %s has no SeatIndex"), *GetNameSafe(SHPlayerState));
-            return;
-        }
-
-        ASHHand* Hand = SHPlayerState->GetHand();
-
         if (!IsValid(Hand))
         {
-            UE_LOG(LogTemp, Warning,
-                TEXT("[SH_INIT] -> WAIT: %s has no Hand"),
-                *GetNameSafe(SHPlayerState));
+            UE_LOG(LogTemp, Warning, TEXT("[SH_INIT] -> WAIT: invalid participant hand"));
             return;
         }
 
@@ -112,11 +123,10 @@ void ASHPlayerController::TrySetupTableView()
 
 
         UE_LOG(LogTemp, Warning,
-            TEXT("[SH_INIT] Player=%s LogicalSeat=%d Hand=%s LayoutSeat=%d Cards=%d Valid=%d"),
-            *GetNameSafe(SHPlayerState),
-            SHPlayerState->GetSeatIndex(),
+            TEXT("[SH_INIT] Hand=%s LogicalSeat=%d IsNPC=%d Cards=%d Valid=%d"),
             *GetNameSafe(Hand),
             Hand->GetLayoutSeatIndex(),
+            Hand->IsLogicalNPC(),
             Hand->GetCardCount(),
             ValidCards);
 
@@ -286,18 +296,15 @@ ASHHand* ASHPlayerController::FindVisualHandForLogicalHand(const ASHHand* Logica
         return nullptr;
     }
 
-    for (APlayerState* CurrentPlayerState : GameState->PlayerArray)
+    TArray<AActor*> Hands;
+    UGameplayStatics::GetAllActorsOfClass(GetWorld(), ASHHand::StaticClass(), Hands);
+    for (AActor* Actor : Hands)
     {
-        ASHPlayerState* SHPlayerState =
-            Cast<ASHPlayerState>(CurrentPlayerState);
-
-        if (!IsValid(SHPlayerState) ||
-            SHPlayerState->GetHand() != LogicalHand)
+        ASHHand* VisualHand = Cast<ASHHand>(Actor);
+        if (IsValid(VisualHand) && VisualHand->GetRepresentedHand() == LogicalHand)
         {
-            continue;
+            return VisualHand;
         }
-
-        return FindVisualHandForPlayer(SHPlayerState);
     }
 
     return nullptr;
@@ -315,18 +322,15 @@ void ASHPlayerController::SetupTableView()
 
     checkf(IsValid(LocalPlayerState), TEXT("Invalid local PlayerState"));
 
-    const int32 PlayerCount = SHGameState->PlayerArray.Num();
+    const int32 PlayerCount = SHGameState->GetParticipantCount();
 
     TArray<ASHHand*> HandsToUpdate;
 
-    for (APlayerState* CurrentPlayerState : SHGameState->PlayerArray)
+	for (ASHHand* LogicalHand : SHGameState->GetParticipantHands())
     {
-        ASHPlayerState* SHPlayerState =
-            CastChecked<ASHPlayerState>(CurrentPlayerState);
-
         const int32 VisualSeatIndex =
             GetVisualSeatIndex(
-                SHPlayerState->GetSeatIndex(),
+                LogicalHand->GetLayoutSeatIndex(),
                 PlayerCount
             );
 
@@ -340,21 +344,32 @@ void ASHPlayerController::SetupTableView()
         );
 
         
-        VisualHand->SetRepresentedPlayerState(SHPlayerState);
+        ASHPlayerState* ControllingPlayer = nullptr;
+		for (APlayerState* State : SHGameState->PlayerArray)
+		{
+			ASHPlayerState* Candidate = Cast<ASHPlayerState>(State);
+			if (IsValid(Candidate) && Candidate->GetHand() == LogicalHand)
+			{
+				ControllingPlayer = Candidate;
+				break;
+			}
+		}
+		if (IsValid(ControllingPlayer)) VisualHand->SetRepresentedPlayerState(ControllingPlayer);
+		else VisualHand->SetRepresentedHand(LogicalHand);
 
-        const bool bIsLocalPlayer =
-            SHPlayerState == LocalPlayerState;
+		const bool bIsLocalPlayer = ControllingPlayer == LocalPlayerState;
 
         VisualHand->SetShowCardFronts(bIsLocalPlayer);
 
         UE_LOG(
             LogTemp,
             Warning,
-            TEXT("[HAND VIEW] VisualSeat=%d Hand=%s Player=%s%s"),
+            TEXT("[HAND VIEW] VisualSeat=%d Hand=%s LogicalHand=%s IsNPC=%d Player=%s%s"),
             VisualSeatIndex,
             *GetNameSafe(VisualHand),
-            *GetNameSafe(SHPlayerState),
-            SHPlayerState == LocalPlayerState
+			*GetNameSafe(LogicalHand), LogicalHand->IsLogicalNPC(),
+			*GetNameSafe(ControllingPlayer),
+            ControllingPlayer == LocalPlayerState
             ? TEXT(" [LOCAL]")
             : TEXT("")
         );
@@ -369,6 +384,18 @@ void ASHPlayerController::SetupTableView()
         Hand->UpdateCardPositions();
         Hand->RefreshActivationPairsPresentation();
     }
+
+	// UpdateCardPositions is Blueprint-defined for regular hands. Apply the
+	// native NPC stack layout afterwards so every client gets the same stacked
+	// presentation at its locally rotated visual seat.
+	for (ASHHand* NPCHand : SHGameState->GetNPCHands())
+	{
+		const int32 VisualSeatIndex = GetVisualSeatIndex(NPCHand->GetLayoutSeatIndex(), PlayerCount);
+		if (ASHHand* VisualHand = FindLayoutHand(VisualSeatIndex))
+		{
+			VisualHand->LayoutNPCStack(NPCHand);
+		}
+	}
 
     for (APlayerState* CurrentPlayerState : SHGameState->PlayerArray)
     {
@@ -409,8 +436,7 @@ ASHHand* ASHPlayerController::FindLayoutHand(int32 LayoutSeatIndex) const
     {
         ASHHand* Hand = Cast<ASHHand>(Actor);
 
-        if (IsValid(Hand) &&
-            Hand->GetLayoutSeatIndex() == LayoutSeatIndex)
+        if (IsValid(Hand) && Hand->GetLayoutSeatIndex() == LayoutSeatIndex)
         {
             return Hand;
         }
@@ -665,6 +691,27 @@ void ASHPlayerController::ServerTakeCard_Implementation(ASHCard* Card, int32 Ins
         return;
     }
 
+    const bool bSourceIsNPC = SourceHand->IsLogicalNPC();
+    if (bSourceIsNPC)
+    {
+        ASHCard* TopCard = SourceHand->GetTopCard();
+        if (!IsValid(TopCard))
+        {
+            return;
+        }
+
+        // An NPC pile is one interaction target. Its cards overlap and a local
+        // cursor trace may identify a covered card while replication/layout is
+        // settling. Always resolve that click to the authoritative stack top.
+        if (Card != TopCard)
+        {
+            UE_LOG(LogTemp, Log,
+                TEXT("[SH_DRAW][NPC_TOP] Requested=%s ResolvedTop=%s Source=%s"),
+                *GetNameSafe(Card), *GetNameSafe(TopCard), *GetNameSafe(SourceHand));
+            Card = TopCard;
+        }
+    }
+
     if (Card->GetCardZone() != ECardZone::Hand)
     {
         return;
@@ -686,20 +733,43 @@ void ASHPlayerController::ServerTakeCard_Implementation(ASHCard* Card, int32 Ins
         }
     }
 
+    UE_LOG(LogTemp, Log,
+        TEXT("[SH_DRAW] Card=%s Source=%s SourceType=%s SourceCards=%d TopCard=%s Target=%s InsertIndex=%d"),
+        *GetNameSafe(Card), *GetNameSafe(SourceHand),
+        bSourceIsNPC ? TEXT("NPC") : TEXT("Player"),
+        SourceHand->GetCardCount(),
+        bSourceIsNPC ? *GetNameSafe(SourceHand->GetTopCard()) : TEXT("N/A"),
+        *GetNameSafe(TargetHand), InsertIndex);
+
     UTurnComponent* TurnComponent = SHGameMode->GetTurnComponent();
-    if (!IsValid(TurnComponent) || !TurnComponent->CanDrawCard(SHPlayerState, SourcePlayerState))
+    if (!IsValid(TurnComponent) || !TurnComponent->CanDrawCardFromHand(SHPlayerState, SourceHand))
     {
+        UE_LOG(LogTemp, Warning,
+            TEXT("[SH_DRAW][REJECT] Draw rules rejected Card=%s Source=%s Player=%s"),
+            *GetNameSafe(Card), *GetNameSafe(SourceHand), *GetNameSafe(SHPlayerState));
         return;
     }
 
-    SourceHand->RemoveCard(Card);
+    if (bSourceIsNPC)
+    {
+        SourceHand->TakeTopCard();
+    }
+    else
+    {
+        SourceHand->RemoveCard(Card);
+    }
     TargetHand->AddCard(Card, InsertIndex);
+
+    UE_LOG(LogTemp, Log,
+        TEXT("[SH_DRAW][ACCEPT] Card=%s Source=%s SourceCardsAfter=%d Target=%s TargetCardsAfter=%d"),
+        *GetNameSafe(Card), *GetNameSafe(SourceHand), SourceHand->GetCardCount(),
+        *GetNameSafe(TargetHand), TargetHand->GetCardCount());
 
     ClientReceiveCardDefinition(
         Card,
         Card->GetCardDefinition()
     );
 
-    TurnComponent->HandleCardDrawn(SHPlayerState, SourcePlayerState);
+    TurnComponent->HandleCardDrawnFromHand(SHPlayerState, SourceHand);
 }
 

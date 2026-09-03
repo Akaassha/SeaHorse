@@ -5,6 +5,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "SeaHorse/Gameplay/Core/SHPlayerController.h"
 #include "SeaHorse/Gameplay/Core/SHPlayerState.h"
+#include "SeaHorse/Gameplay/SHHand.h"
 #include "Net/UnrealNetwork.h"
 
 void ASHGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -16,9 +17,54 @@ void ASHGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLife
     DOREPLIFETIME(ASHGameState, CurrentPlayer);
     DOREPLIFETIME(ASHGameState, CurrentTurnPhase);
     DOREPLIFETIME(ASHGameState, FinishedMatch);
+    DOREPLIFETIME(ASHGameState, ParticipantHands);
 }
 
-void ASHGameState::FinishGame(const TArray<FSHMatchResult>& Results)
+TArray<ASHHand*> ASHGameState::GetNPCHands() const
+{
+	TArray<ASHHand*> Result;
+	for (ASHHand* Hand : ParticipantHands)
+	{
+		if (IsValid(Hand) && Hand->IsLogicalNPC()) Result.Add(Hand);
+	}
+	return Result;
+}
+
+int32 ASHGameState::GetParticipantCount() const
+{
+    return ParticipantHands.Num();
+}
+
+ASHHand* ASHGameState::FindParticipantHandBySeat(int32 SeatIndex) const
+{
+    for (ASHHand* Hand : ParticipantHands)
+    {
+        if (IsValid(Hand) && Hand->GetLayoutSeatIndex() == SeatIndex)
+        {
+            return Hand;
+        }
+    }
+    return nullptr;
+}
+
+void ASHGameState::SetParticipantHands(const TArray<ASHHand*>& NewHands)
+{
+    checkf(HasAuthority(), TEXT("Participant hands can only be assigned on the server"));
+    ParticipantHands = NewHands;
+    OnRep_ParticipantHands();
+    ForceNetUpdate();
+}
+
+void ASHGameState::OnRep_ParticipantHands()
+{
+    ASHPlayerController* PC = Cast<ASHPlayerController>(UGameplayStatics::GetPlayerController(this, 0));
+    if (IsValid(PC) && PC->IsLocalController())
+    {
+        PC->TrySetupTableView();
+    }
+}
+
+void ASHGameState::FinishGame(const TArray<FSHMatchResult>& Results, const TArray<ASHHand*>& AutomaticallyLosingNPCs)
 {
     checkf(HasAuthority(), TEXT("FinishGame can only be called on the server"));
 
@@ -28,6 +74,7 @@ void ASHGameState::FinishGame(const TArray<FSHMatchResult>& Results)
     }
 
     FinishedMatch.Results = Results;
+    FinishedMatch.AutomaticallyLosingNPCs = AutomaticallyLosingNPCs;
     FinishedMatch.bFinished = true;
     CurrentTurnPhase = ETurnPhase::None;
 

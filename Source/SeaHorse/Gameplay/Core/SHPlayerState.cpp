@@ -37,6 +37,16 @@ void ASHPlayerState::OnRep_VictoryPoints()
 void ASHPlayerState::SetHand(ASHHand* NewHand)
 {
 	Hand = NewHand;
+	ForceNetUpdate();
+}
+
+void ASHPlayerState::OnRep_Hand()
+{
+	if (ASHPlayerController* PC = Cast<ASHPlayerController>(UGameplayStatics::GetPlayerController(this, 0));
+		IsValid(PC) && PC->IsLocalController())
+	{
+		PC->TrySetupTableView();
+	}
 }
 
 ASHHand* ASHPlayerState::GetHand() const
@@ -50,9 +60,10 @@ void ASHPlayerState::SetSeatIndex(int32 NewSeatIndex)
 	checkf(HasAuthority(), TEXT("SeatIndex can only be assigned on the server"));
 
 	SeatIndex = NewSeatIndex;
+	ForceNetUpdate();
 }
 
-int32 ASHPlayerState::GetSeatIndex()
+int32 ASHPlayerState::GetSeatIndex() const
 {
 	return SeatIndex;
 }

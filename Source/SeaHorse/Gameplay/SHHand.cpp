@@ -4,16 +4,19 @@
 #include "SeaHorse/Gameplay/SHHand.h"
 #include "Net/UnrealNetwork.h"
 #include "SeaHorse/Gameplay/Cards/SHCard.h"
+#include "SeaHorse/Gameplay/Cards/CardDefinition.h"
+#include "SeaHorse/Gameplay/Cards/Fragments/CardEndGameRulesFragment.h"
 #include "SeaHorse/Gameplay/Core/SHPlayerController.h"
 #include "Kismet/GameplayStatics.h"
 #include "SeaHorse/Gameplay/Core/SHPlayerState.h"
 #include "Engine/EngineBaseTypes.h"
+#include "Algo/RandomShuffle.h"
 
 // Sets default values
 ASHHand::ASHHand()
 {
  	// Set this actor to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
-	PrimaryActorTick.bCanEverTick = true;
+	PrimaryActorTick.bCanEverTick = false;
 
 	bReplicates = true;
     SetReplicateMovement(false);
@@ -27,6 +30,8 @@ void ASHHand::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeP
 
 	DOREPLIFETIME(ASHHand, Cards);
     DOREPLIFETIME(ASHHand, ActivationPairs);
+	DOREPLIFETIME(ASHHand, LayoutSeatIndex);
+	DOREPLIFETIME(ASHHand, bIsNPC);
 }
 
 bool ASHHand::RemoveActivationPair(ASHCard* CardA, ASHCard* CardB)
@@ -52,8 +57,8 @@ bool ASHHand::RemoveActivationPair(ASHCard* CardA, ASHCard* CardB)
     }
 
     ActivationPairs.RemoveAt(PairIndex);
-
-    //UpdateActivationCardsLayout();
+    ForceNetUpdate();
+    OnRep_ActivationPairs();
 
     return true;
 }
@@ -90,6 +95,10 @@ void ASHHand::AddActivationPair(ASHCard* CardA, ASHCard* CardB)
 
     ASHHand* RepresentedHand = GetRepresentedHand();
     ASHHand* LogicalHand = IsValid(RepresentedHand) ? RepresentedHand : this;
+	if (LogicalHand->IsLogicalNPC())
+	{
+		return;
+	}
     LogicalHand->AddActivationPairToLogicalHand(CardA, CardB);
 }
 
@@ -97,6 +106,10 @@ void ASHHand::AddActivationPairToLogicalHand(ASHCard* CardA, ASHCard* CardB)
 {
     checkf(HasAuthority(), TEXT("Activation pairs can only be added on the server"));
 
+	if (bIsNPC)
+	{
+		return;
+	}
     checkf(IsValid(CardA) && IsValid(CardB) && CardA != CardB, TEXT("Invalid activation pair"));
 
     const bool bPairAlreadyExists = ActivationPairs.ContainsByPredicate(
@@ -182,12 +195,89 @@ void ASHHand::AddCard(ASHCard* Card, int32 Index)
 
     Card->SetOwner(this);
     Card->SetCardZone(ECardZone::Hand);
-    Cards.Insert(Card, Index);
+	if (bIsNPC)
+	{
+		Cards.Add(Card);
+	}
+	else
+	{
+		Cards.Insert(Card, Index);
+	}
 
     Card->ForceNetUpdate();
     ForceNetUpdate();
 
     RefreshLocalCardsPresentation();
+	OnHandCardsChanged.Broadcast(GetCardCount());
+	if (bIsNPC && ShouldShuffleForCard(Card))
+	{
+		ShuffleStack();
+	}
+}
+
+void ASHHand::SetIsNPC(bool bNewIsNPC)
+{
+	checkf(HasAuthority(), TEXT("Hand control mode can only be changed on the server"));
+	bIsNPC = bNewIsNPC;
+	OnRep_IsNPC();
+	ForceNetUpdate();
+}
+
+bool ASHHand::IsNPC() const
+{
+	// Blueprint calls this on a physical BP_Hand used as a local visual slot.
+	// Report the participant displayed in that slot, not the slot's own logical
+	// role on the authoritative table.
+	if (IsValid(RepresentedLogicalHand))
+	{
+		return RepresentedLogicalHand->bIsNPC;
+	}
+	if (IsValid(RepresentedPlayerState))
+	{
+		return false;
+	}
+	return bIsNPC;
+}
+
+ASHCard* ASHHand::GetTopCard() const
+{
+	return bIsNPC && !Cards.IsEmpty() ? Cards.Last() : nullptr;
+}
+
+ASHCard* ASHHand::TakeTopCard()
+{
+	checkf(HasAuthority(), TEXT("Cards can only be taken on the server"));
+	ASHCard* Card = GetTopCard();
+	if (IsValid(Card))
+	{
+		RemoveCard(Card);
+	}
+	return Card;
+}
+
+void ASHHand::ShuffleStack()
+{
+	checkf(HasAuthority(), TEXT("Stacks can only be shuffled on the server"));
+	if (!bIsNPC) return;
+	Algo::RandomShuffle(Cards);
+	ForceNetUpdate();
+	OnRep_Cards();
+	OnNPCStackShuffled.Broadcast();
+}
+
+void ASHHand::RevealStack()
+{
+	checkf(HasAuthority(), TEXT("Stacks can only be revealed on the server"));
+	if (!bIsNPC) return;
+	for (ASHCard* Card : Cards) if (IsValid(Card)) Card->Reveal();
+}
+
+bool ASHHand::ShouldShuffleForCard(const ASHCard* Card) const
+{
+	if (!bIsNPC || !IsValid(Card)) return false;
+	const UCardEndGameRulesFragment* Rules = Cast<UCardEndGameRulesFragment>(
+		UCardDefinition::FindFragmentByClass(Card->CardDefinition, UCardEndGameRulesFragment::StaticClass()));
+	return IsValid(Rules) && Rules->bOwnerAutomaticallyLoses;
 }
 
 TArray<ASHCard*> ASHHand::GetCards()
@@ -236,6 +326,11 @@ void ASHHand::RemoveCard(ASHCard* Card)
     //checkf(Cards.Contains(Card), TEXT("Card %s is not in this hand"), *GetNameSafe(Card));
 
     const int32 RemovedCount = Cards.RemoveSingle(Card);
+    if (RemovedCount == 0)
+    {
+        return;
+    }
+
     Card->SetFaceUp(false);
 
     UE_LOG(LogTemp, Warning,
@@ -244,12 +339,30 @@ void ASHHand::RemoveCard(ASHCard* Card)
         bShowCardFronts ? TEXT("TRUE") : TEXT("FALSE"),
         *GetNameSafe(Card));
 
+	ForceNetUpdate();
     RefreshLocalCardsPresentation();
+	OnHandCardsChanged.Broadcast(GetCardCount());
 }
 
 void ASHHand::OnRep_Cards()
 {
     RefreshLocalCardsPresentation();
+	OnHandCardsChanged.Broadcast(GetCardCount());
+	if (ASHPlayerController* PC = Cast<ASHPlayerController>(GetWorld()->GetFirstPlayerController());
+		IsValid(PC) && PC->IsLocalController())
+	{
+		PC->TrySetupTableView();
+	}
+}
+
+void ASHHand::OnRep_IsNPC()
+{
+	RefreshLocalCardsPresentation();
+	if (ASHPlayerController* PC = Cast<ASHPlayerController>(GetWorld()->GetFirstPlayerController());
+		IsValid(PC) && PC->IsLocalController())
+	{
+		PC->TrySetupTableView();
+	}
 }
 
 void ASHHand::RefreshLocalCardsPresentation()
@@ -272,8 +385,15 @@ void ASHHand::RefreshLocalCardsPresentation()
         return;
     }
 
-    VisualHand->RefreshCardsPresentation();
-    VisualHand->UpdateCardPositions();
+	if (bIsNPC)
+	{
+		VisualHand->LayoutNPCStack(this);
+	}
+	else
+	{
+		VisualHand->RefreshCardsPresentation();
+		VisualHand->UpdateCardPositions();
+	}
 }
 
 void ASHHand::OnRep_ActivationPairs()
@@ -312,6 +432,22 @@ int32 ASHHand::GetLayoutSeatIndex() const
     return LayoutSeatIndex;
 }
 
+void ASHHand::SetLayoutSeatIndex(int32 NewLayoutSeatIndex)
+{
+    checkf(HasAuthority(), TEXT("Layout seats can only be assigned on the server"));
+    LayoutSeatIndex = NewLayoutSeatIndex;
+	ForceNetUpdate();
+}
+
+void ASHHand::OnRep_LayoutSeatIndex()
+{
+	ASHPlayerController* LocalPC = Cast<ASHPlayerController>(GetWorld()->GetFirstPlayerController());
+	if (IsValid(LocalPC) && LocalPC->IsLocalController())
+	{
+		LocalPC->TrySetupTableView();
+	}
+}
+
 const FTransform& ASHHand::GetLayoutTransform() const
 {
     return LayoutTransform;
@@ -345,7 +481,41 @@ void ASHHand::RefreshCardsPresentation()
             *GetNameSafe(Card),
             bShowCardFronts ? TEXT("FRONT") : TEXT("BACK"));
 
+        // A card can previously have belonged to an NPC stack, where only the
+        // logical top card is hit-testable. Restore normal interaction when it
+        // is presented in a human player's hand.
+        Card->SetActorEnableCollision(true);
         Card->SetFaceUp(bShowCardFronts);
+    }
+}
+
+void ASHHand::LayoutNPCStack(ASHHand* LogicalNPCStack)
+{
+    if (!IsValid(LogicalNPCStack))
+    {
+        return;
+    }
+
+    const FTransform AnchorTransform = GetActorTransform();
+    const TArray<ASHCard*> StackCards = LogicalNPCStack->GetCards();
+    const int32 TopCardIndex = StackCards.Num() - 1;
+    for (int32 CardIndex = 0; CardIndex < StackCards.Num(); ++CardIndex)
+    {
+        ASHCard* Card = StackCards[CardIndex];
+        if (!IsValid(Card))
+        {
+            continue;
+        }
+
+        FTransform CardTransform = AnchorTransform;
+        CardTransform.SetLocation(
+            AnchorTransform.TransformPosition(NPCStackCardOffset * static_cast<double>(CardIndex)));
+        Card->SetActorTransform(CardTransform);
+        // Overlapping cards can otherwise win the cursor trace in a different
+        // order on each client. Gameplay defines Cards.Last() as the top, so
+        // make that the only card in an NPC stack that can be hit.
+        Card->SetActorEnableCollision(CardIndex == TopCardIndex);
+        Card->SetFaceUp(false);
     }
 }
 
@@ -365,12 +535,21 @@ FActivatedPair* ASHHand::FindActivationPair(ASHCard* Card)
 
 ASHHand* ASHHand::GetRepresentedHand() const
 {
-    if (!IsValid(RepresentedPlayerState))
+	if (IsValid(RepresentedLogicalHand))
+	{
+		return RepresentedLogicalHand;
+	}
+
+	if (!IsValid(RepresentedPlayerState))
     {
-        return nullptr;
+        // Before the client-relative table view is ready, every physical hand
+        // is also its own logical hand. This keeps Blueprint interaction and
+        // replication callbacks valid during initialization.
+        return const_cast<ASHHand*>(this);
     }
 
-    return RepresentedPlayerState->GetHand();
+    ASHHand* PlayerHand = RepresentedPlayerState->GetHand();
+	return IsValid(PlayerHand) ? PlayerHand : const_cast<ASHHand*>(this);
 }
 
 ASHPlayerState* ASHHand::GetRepresentedPlayerState() const

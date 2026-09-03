@@ -67,15 +67,17 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Cards")
 	TSubclassOf<ASHHand> HandClass;
 
-	UPROPERTY(EditDefaultsOnly)
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Players", meta = (ClampMin = "2", ClampMax = "4"))
 	int32 ExpectedPlayerCount = 3;
 
 private:
 	void TryStartGame();
 	void StartGame();
 	void AssignSeats();
+	void InitializeParticipantHands();
 	void RefreshPlayerScore(ASHPlayerState* PlayerState);
 	bool PlayerHasAutomaticLossCard(ASHPlayerState* PlayerState) const;
+	bool HandHasAutomaticLossCard(const ASHHand* Hand) const;
 
 	ASHHand* FindAvailableHand() const;
 
@@ -105,4 +107,6 @@ private:
 	};
 
 	TMap<TObjectPtr<ASHPlayerState>, FPendingPairSelection> PendingPairSelections;
+
+	static constexpr int32 TotalSeatCount = 4;
 };

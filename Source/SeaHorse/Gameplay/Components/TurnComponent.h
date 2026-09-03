@@ -6,6 +6,7 @@
 #include "TurnComponent.generated.h"
 
 class ASHPlayerState;
+class ASHHand;
 class UCardEffectTask;
 struct FActivatedPair;
 
@@ -52,7 +53,9 @@ public:
 
 	bool CanActivatePair(ASHPlayerState* RequestingPlayer, const FActivatedPair& ActivatedPair) const;
 	bool CanDrawCard(ASHPlayerState* DrawingPlayer, ASHPlayerState* SourcePlayer) const;
+	bool CanDrawCardFromHand(ASHPlayerState* DrawingPlayer, ASHHand* SourceHand) const;
 	void HandleCardDrawn(ASHPlayerState* DrawingPlayer, ASHPlayerState* SourcePlayer);
+	void HandleCardDrawnFromHand(ASHPlayerState* DrawingPlayer, ASHHand* SourceHand);
 	void ScheduleAdditionalDraw(UCardEffectTask* EffectTask, ASHPlayerState* PlayerState, EAdditionalDrawSourceRule SourceRule);
 	void SetForcedDrawSource(ASHPlayerState* DrawingPlayer, ASHPlayerState* SourcePlayer);
 	void ScheduleSkippedTurn(ASHPlayerState* PlayerState);
@@ -82,7 +85,7 @@ private:
 	TObjectPtr<ASHPlayerState> AdditionalDrawPlayer;
 
 	UPROPERTY(Transient)
-	TObjectPtr<ASHPlayerState> FirstDrawSource;
+	TObjectPtr<ASHHand> FirstDrawSourceHand;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UCardEffectTask> AdditionalDrawEffectTask;

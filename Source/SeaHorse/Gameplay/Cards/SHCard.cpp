@@ -10,7 +10,7 @@
 
 ASHCard::ASHCard()
 {
-	PrimaryActorTick.bCanEverTick = true;
+	PrimaryActorTick.bCanEverTick = false;
 
 	bReplicates = true;
 	SetReplicateMovement(false);
@@ -173,8 +173,19 @@ void ASHCard::OnRep_Owner()
         ASHHand* VisualHand = LocalPC->FindVisualHandForLogicalHand(LogicalHand);
         if (IsValid(VisualHand))
         {
-            VisualHand->RefreshCardsPresentation();
-            VisualHand->UpdateCardPositions();
+            if (LogicalHand->IsLogicalNPC())
+            {
+                // Owner and hand-array replication can arrive in either order.
+                // Never let the regular Blueprint fan layout overwrite an NPC
+                // stack when the card's replicated owner arrives last.
+                VisualHand->LayoutNPCStack(LogicalHand);
+            }
+            else
+            {
+                SetActorEnableCollision(true);
+                VisualHand->RefreshCardsPresentation();
+                VisualHand->UpdateCardPositions();
+            }
         }
     }
 }
