@@ -92,6 +92,7 @@ public:
 	void UpdateNPCCardsPositons(const TArray<ASHCard*>& Cards);
 
 protected:
+	bool CanLayoutHandCard(const ASHCard* Card) const;
 	bool GetExternalCardDropPreview(ASHCard*& OutDraggedCard, int32& OutInsertIndex) const;
 	int32 CalculateDropInsertIndex(const ASHCard* PreviewCard, int32 CurrentCardCount) const;
 

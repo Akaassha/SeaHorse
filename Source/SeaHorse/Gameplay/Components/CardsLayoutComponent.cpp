@@ -108,12 +108,22 @@ void USHHandCardsLayoutComponent::MoveCardsToDesiredPositions(float DeltaTime)
 	for (const TPair<TObjectPtr<ASHCard>, FTransform>& Entry : CardsTransforms)
 	{
 		ASHCard* Card = Entry.Key;
-		if (IsValid(Card) && Card != DraggedCard)
+		if (CanLayoutHandCard(Card) && Card != DraggedCard)
 		{
 			Card->SetActorTransform(UKismetMathLibrary::TInterpTo(
 				Card->GetActorTransform(), Entry.Value, DeltaTime, 5.0f));
 		}
 	}
+}
+
+bool USHHandCardsLayoutComponent::CanLayoutHandCard(const ASHCard* Card) const
+{
+	if (!IsValid(Card) || Card->GetCardZone() != ECardZone::Hand || !IsValid(OwningHand))
+	{
+		return false;
+	}
+	const ASHHand* RepresentedHand = OwningHand->GetRepresentedHand();
+	return IsValid(RepresentedHand) && Card->GetOwningHand() == RepresentedHand;
 }
 
 void USHHandCardsLayoutComponent::UpdateSingleCardPosition(ASHCard* Card, int32 Index, int32 CardsAmount)
@@ -268,7 +278,7 @@ void USHHandCardsLayoutComponent::UpdateNPCCardsPositons(const TArray<ASHCard*>&
 			continue;
 		}
 		FVector Location = SplineLocation;
-		Location.Z += Index;
+		Location.Z += Index * CardDepthSpacing;
 		FRotator Rotation = OwnerTransform.Rotator();
 		Rotation.Yaw += 90.0;
 		const FTransform Target(Rotation, Location, OwnerTransform.GetScale3D());
@@ -316,7 +326,15 @@ void USHActivatableCardsLayoutComponent::MovePairsToDesiredPositions(float Delta
 	for (const TPair<FActivatedPair, FTransform>& Entry : PairsTransform)
 	{
 		const FActivatedPair& Pair = Entry.Key;
-		if (!IsPairValid(Pair))
+		if (!IsPairValid(Pair) || !IsValid(OwningHand))
+		{
+			continue;
+		}
+		const ASHHand* RepresentedHand = OwningHand->GetRepresentedHand();
+		if (!IsValid(RepresentedHand) || Pair.CardA->GetOwningHand() != RepresentedHand ||
+			Pair.CardB->GetOwningHand() != RepresentedHand ||
+			Pair.CardA->GetCardZone() != ECardZone::Activation ||
+			Pair.CardB->GetCardZone() != ECardZone::Activation)
 		{
 			continue;
 		}

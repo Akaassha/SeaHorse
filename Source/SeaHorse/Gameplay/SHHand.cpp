@@ -540,7 +540,6 @@ void ASHHand::LayoutNPCStack(ASHHand* LogicalNPCStack)
         return;
     }
 
-    const FTransform AnchorTransform = GetActorTransform();
     const TArray<ASHCard*> StackCards = LogicalNPCStack->GetCards();
     const int32 TopCardIndex = StackCards.Num() - 1;
     for (int32 CardIndex = 0; CardIndex < StackCards.Num(); ++CardIndex)
@@ -551,16 +550,17 @@ void ASHHand::LayoutNPCStack(ASHHand* LogicalNPCStack)
             continue;
         }
 
-        FTransform CardTransform = AnchorTransform;
-        CardTransform.SetLocation(
-            AnchorTransform.TransformPosition(NPCStackCardOffset * static_cast<double>(CardIndex)));
-        Card->SetActorTransform(CardTransform);
         // Overlapping cards can otherwise win the cursor trace in a different
         // order on each client. Gameplay defines Cards.Last() as the top, so
         // make that the only card in an NPC stack that can be hit.
         Card->SetActorEnableCollision(CardIndex == TopCardIndex);
         Card->SetFaceUp(false);
     }
+
+	// The hand layout component is the sole transform writer. Previously this
+	// method snapped cards to the actor while the component interpolated them to
+	// its spline, producing visible oscillation during reconciliation/shuffles.
+	UpdateCardPositions();
 }
 
 bool ASHHand::ContainsCard(ASHCard* CardB)

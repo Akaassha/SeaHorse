@@ -8,6 +8,7 @@
 
 class ASHCard;
 class ASHHand;
+class USceneComponent;
 
 UCLASS()
 class SEAHORSE_API AVictoryStack : public AActor
@@ -40,7 +41,8 @@ protected:
 	UFUNCTION()
 	void OnRep_ReplicatedCards();
 
-	UFUNCTION(BlueprintImplementableEvent)
+	/** Rebuilds the local visual stack targets. Kept callable for Blueprint compatibility. */
+	UFUNCTION(BlueprintCallable, Category = "Victory Stack")
 	void RefreshCardsLayout();
 
 public:	
@@ -50,8 +52,19 @@ public:
 	FTransform GetLayout() { return LayoutTransform; };
 
 private:
+	void UpdateCardsLayout(float DeltaTime);
+	USceneComponent* ResolveCardPlaceholder();
 	ASHHand* FindOwningLogicalHand() const;
 	void SetPresentedCards(const TArray<TObjectPtr<ASHCard>>& NewCards);
 
 	FTransform LayoutTransform;
+
+	UPROPERTY(Transient)
+	TObjectPtr<USceneComponent> CardPlaceholder;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Victory Stack", meta = (Units = "cm"))
+	FVector StackCardOffset = FVector(0.0, 0.0, 0.2);
+
+	UPROPERTY(EditDefaultsOnly, Category = "Victory Stack", meta = (ClampMin = "0.0"))
+	float LayoutInterpolationSpeed = 5.0f;
 };

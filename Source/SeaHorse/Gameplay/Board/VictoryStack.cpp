@@ -8,6 +8,7 @@
 #include "SeaHorse/Gameplay/Core/SHPlayerState.h"
 #include "SeaHorse/Gameplay/SHHand.h"
 #include "Net/UnrealNetwork.h"
+#include "Components/SceneComponent.h"
 
 void AVictoryStack::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
@@ -20,7 +21,8 @@ void AVictoryStack::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLif
 AVictoryStack::AVictoryStack()
 {
  	// Set this actor to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
-	PrimaryActorTick.bCanEverTick = false;
+	PrimaryActorTick.bCanEverTick = true;
+	PrimaryActorTick.bStartWithTickEnabled = true;
 
     bReplicates = true;
     SetReplicateMovement(false);
@@ -51,13 +53,14 @@ void AVictoryStack::BeginPlay()
 	Super::BeginPlay();
 	
     LayoutTransform = GetActorTransform();
+	ResolveCardPlaceholder();
 }
 
 // Called every frame
 void AVictoryStack::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
-
+	UpdateCardsLayout(DeltaTime);
 }
 
 void AVictoryStack::OnRep_ReplicatedCards()
@@ -120,4 +123,55 @@ void AVictoryStack::SetPresentedCards(const TArray<TObjectPtr<ASHCard>>& NewCard
 {
     Cards = NewCards;
     RefreshCardsLayout();
+}
+
+void AVictoryStack::RefreshCardsLayout()
+{
+	ResolveCardPlaceholder();
+}
+
+USceneComponent* AVictoryStack::ResolveCardPlaceholder()
+{
+	if (IsValid(CardPlaceholder))
+	{
+		return CardPlaceholder;
+	}
+
+	TInlineComponentArray<USceneComponent*> SceneComponents(this);
+	for (USceneComponent* Component : SceneComponents)
+	{
+		if (IsValid(Component) && Component->GetFName() == TEXT("SM_CardPlaceHolder"))
+		{
+			CardPlaceholder = Component;
+			break;
+		}
+	}
+	if (!IsValid(CardPlaceholder))
+	{
+		CardPlaceholder = GetRootComponent();
+	}
+	return CardPlaceholder;
+}
+
+void AVictoryStack::UpdateCardsLayout(float DeltaTime)
+{
+	USceneComponent* Anchor = ResolveCardPlaceholder();
+	if (!IsValid(Anchor))
+	{
+		return;
+	}
+
+	const FTransform AnchorTransform = Anchor->GetComponentTransform();
+	for (int32 CardIndex = 0; CardIndex < Cards.Num(); ++CardIndex)
+	{
+		ASHCard* Card = Cards[CardIndex];
+		if (!IsValid(Card))
+		{
+			continue;
+		}
+		const FVector TargetLocation = AnchorTransform.TransformPosition(
+			StackCardOffset * static_cast<double>(CardIndex));
+		Card->SetActorLocation(FMath::VInterpTo(
+			Card->GetActorLocation(), TargetLocation, DeltaTime, LayoutInterpolationSpeed));
+	}
 }
