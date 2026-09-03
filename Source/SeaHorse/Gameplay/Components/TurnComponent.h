@@ -36,6 +36,20 @@ struct FForcedDrawSourceQueue
 	TArray<TObjectPtr<ASHHand>> Sources;
 };
 
+USTRUCT()
+struct FPendingAdditionalDraw
+{
+	GENERATED_BODY()
+
+	UPROPERTY(Transient)
+	TObjectPtr<UCardEffectTask> EffectTask;
+
+	UPROPERTY(Transient)
+	TObjectPtr<ASHPlayerState> Player;
+
+	EAdditionalDrawSourceRule SourceRule = EAdditionalDrawSourceRule::SamePlayer;
+};
+
 UCLASS(BlueprintType, Blueprintable, ClassGroup=(Custom), meta=(BlueprintSpawnableComponent))
 class SEAHORSE_API UTurnComponent : public UActorComponent
 {
@@ -74,6 +88,7 @@ private:
 	void EndTurn();
 	void EnterTurnPhase(ETurnPhase NewPhase);
 	void FinishAdditionalDraw();
+	void BeginWaitingForAdditionalDraw();
 	void UpdateForcedDrawGuidance(ASHPlayerState* DrawingPlayer);
 	void ClearDrawGuidance(ASHPlayerState* DrawingPlayer);
 	ASHHand* GetFirstForcedDrawSourceHand(const ASHPlayerState* DrawingPlayer) const;
@@ -93,6 +108,9 @@ private:
 
 	EAdditionalDrawSourceRule AdditionalDrawSourceRule = EAdditionalDrawSourceRule::SamePlayer;
 	bool bWaitingForAdditionalDraw = false;
+
+	UPROPERTY(Transient)
+	TArray<FPendingAdditionalDraw> PendingAdditionalDraws;
 
 	UPROPERTY(Transient)
 	TMap<TObjectPtr<ASHPlayerState>, FForcedDrawSourceQueue> ForcedDrawSources;

@@ -212,49 +212,7 @@ void UTurnComponent::HandleCardDrawnFromHand(ASHPlayerState* DrawingPlayer, ASHH
 	if (DrawingPlayer == AdditionalDrawPlayer)
 	{
 		FirstDrawSourceHand = SourceHand;
-		bWaitingForAdditionalDraw = true;
-
-		TArray<ASHPlayerState*> ValidSources;
-		TArray<ASHHand*> ValidSourceHands;
-		bool bHasValidSource = false;
-		for (APlayerState* PlayerState : GetSHGameState()->PlayerArray)
-		{
-			ASHPlayerState* Candidate = Cast<ASHPlayerState>(PlayerState);
-			if (CanDrawCard(DrawingPlayer, Candidate))
-			{
-				ValidSources.Add(Candidate);
-				ValidSourceHands.Add(Candidate->GetHand());
-				bHasValidSource = true;
-			}
-		}
-		for (ASHHand* NPCHand : GetSHGameState()->GetNPCHands())
-		{
-			if (CanDrawCardFromHand(DrawingPlayer, NPCHand))
-			{
-				ValidSourceHands.Add(NPCHand);
-				bHasValidSource = true;
-			}
-		}
-
-		if (!bHasValidSource)
-		{
-			UE_LOG(LogTemp, Log,
-				TEXT("[SH_ADDITIONAL_DRAW] No valid source for the second draw; completing the effect after the first draw"));
-			FinishAdditionalDraw();
-			return;
-		}
-
-		ASHPlayerController* Controller = Cast<ASHPlayerController>(DrawingPlayer->GetOwner());
-		if (IsValid(Controller))
-		{
-			const ECardDrawGuidanceType GuidanceType =
-				AdditionalDrawSourceRule == EAdditionalDrawSourceRule::SamePlayer
-				? ECardDrawGuidanceType::AdditionalFromSamePlayer
-				: ECardDrawGuidanceType::AdditionalFromDifferentPlayer;
-
-			Controller->ClientUpdateCardDrawGuidance(ValidSources, GuidanceType);
-			Controller->ClientSetGuidedDrawHands(ValidSourceHands);
-		}
+		BeginWaitingForAdditionalDraw();
 		return;
 	}
 
@@ -265,15 +223,69 @@ void UTurnComponent::HandleCardDrawnFromHand(ASHPlayerState* DrawingPlayer, ASHH
 void UTurnComponent::FinishAdditionalDraw()
 {
 	UCardEffectTask* CompletedEffectTask = AdditionalDrawEffectTask;
+	if (IsValid(CompletedEffectTask))
+	{
+		CompletedEffectTask->FinishEffect();
+	}
+
+	if (!PendingAdditionalDraws.IsEmpty())
+	{
+		const FPendingAdditionalDraw NextDraw = PendingAdditionalDraws[0];
+		PendingAdditionalDraws.RemoveAt(0);
+		AdditionalDrawPlayer = NextDraw.Player;
+		AdditionalDrawEffectTask = NextDraw.EffectTask;
+		AdditionalDrawSourceRule = NextDraw.SourceRule;
+		BeginWaitingForAdditionalDraw();
+		return;
+	}
+
 	AdditionalDrawPlayer = nullptr;
 	FirstDrawSourceHand = nullptr;
 	AdditionalDrawEffectTask = nullptr;
 	bWaitingForAdditionalDraw = false;
 	EnterTurnPhase(ETurnPhase::SecondPairing);
+}
 
-	if (IsValid(CompletedEffectTask))
+void UTurnComponent::BeginWaitingForAdditionalDraw()
+{
+	bWaitingForAdditionalDraw = true;
+	TArray<ASHPlayerState*> ValidSources;
+	TArray<ASHHand*> ValidSourceHands;
+
+	for (APlayerState* PlayerState : GetSHGameState()->PlayerArray)
 	{
-		CompletedEffectTask->FinishEffect();
+		ASHPlayerState* Candidate = Cast<ASHPlayerState>(PlayerState);
+		if (CanDrawCard(AdditionalDrawPlayer, Candidate))
+		{
+			ValidSources.Add(Candidate);
+			ValidSourceHands.Add(Candidate->GetHand());
+		}
+	}
+	for (ASHHand* NPCHand : GetSHGameState()->GetNPCHands())
+	{
+		if (CanDrawCardFromHand(AdditionalDrawPlayer, NPCHand))
+		{
+			ValidSourceHands.Add(NPCHand);
+		}
+	}
+
+	if (ValidSourceHands.IsEmpty())
+	{
+		UE_LOG(LogTemp, Log,
+			TEXT("[SH_ADDITIONAL_DRAW] No valid source; completing queued effect without a draw"));
+		FinishAdditionalDraw();
+		return;
+	}
+
+	ASHPlayerController* Controller = Cast<ASHPlayerController>(AdditionalDrawPlayer->GetOwner());
+	if (IsValid(Controller))
+	{
+		const ECardDrawGuidanceType GuidanceType =
+			AdditionalDrawSourceRule == EAdditionalDrawSourceRule::SamePlayer
+			? ECardDrawGuidanceType::AdditionalFromSamePlayer
+			: ECardDrawGuidanceType::AdditionalFromDifferentPlayer;
+		Controller->ClientUpdateCardDrawGuidance(ValidSources, GuidanceType);
+		Controller->ClientSetGuidedDrawHands(ValidSourceHands);
 	}
 }
 
@@ -286,11 +298,19 @@ void UTurnComponent::ScheduleAdditionalDraw(
 	checkf(IsValid(EffectTask), TEXT("Cannot schedule an additional draw without its effect task"));
 	checkf(IsValid(PlayerState), TEXT("Cannot schedule a draw for an invalid player"));
 	checkf(GetSHGameState()->GetCurrentPlayer() == PlayerState, TEXT("Additional draw must target the current player"));
-	checkf(!IsValid(AdditionalDrawPlayer), TEXT("An additional draw is already scheduled"));
+	if (!IsValid(AdditionalDrawPlayer))
+	{
+		AdditionalDrawPlayer = PlayerState;
+		AdditionalDrawEffectTask = EffectTask;
+		AdditionalDrawSourceRule = SourceRule;
+		return;
+	}
 
-	AdditionalDrawPlayer = PlayerState;
-	AdditionalDrawEffectTask = EffectTask;
-	AdditionalDrawSourceRule = SourceRule;
+	FPendingAdditionalDraw& Pending = PendingAdditionalDraws.AddDefaulted_GetRef();
+	Pending.EffectTask = EffectTask;
+	Pending.Player = PlayerState;
+	Pending.SourceRule = SourceRule;
+	UE_LOG(LogTemp, Log, TEXT("[SH_ADDITIONAL_DRAW] Queued effect; pending count=%d"), PendingAdditionalDraws.Num());
 }
 
 void UTurnComponent::SetForcedDrawSource(ASHPlayerState* DrawingPlayer, ASHPlayerState* SourcePlayer)
