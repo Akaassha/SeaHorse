@@ -86,11 +86,10 @@ void UTransferSpecifiedCardEffectTask::StartEffect_Implementation()
 	const ASHGameState* GameState = GetWorld()->GetGameState<ASHGameState>();
 	checkf(IsValid(GameState), TEXT("Invalid SHGameState"));
 
-	TArray<ASHPlayerState*> Candidates;
-	for (APlayerState* PlayerState : GameState->PlayerArray)
+	TArray<ASHHand*> Candidates;
+	for (ASHHand* Candidate : GameState->GetParticipantHands())
 	{
-		ASHPlayerState* Candidate = Cast<ASHPlayerState>(PlayerState);
-		if (IsValid(Candidate) && Candidate != GetActivatingPlayer())
+		if (IsValid(Candidate) && Candidate != ActivatingHand)
 		{
 			Candidates.Add(Candidate);
 		}
@@ -102,10 +101,10 @@ void UTransferSpecifiedCardEffectTask::StartEffect_Implementation()
 		return;
 	}
 
-	RequestPlayerSelection(Candidates, EPlayerSelectionPurpose::CardTransferRecipient);
+	RequestParticipantSelection(Candidates, EPlayerSelectionPurpose::CardTransferRecipient);
 }
 
-void UTransferSpecifiedCardEffectTask::HandlePlayerSelected(ASHPlayerState* SelectedPlayer)
+void UTransferSpecifiedCardEffectTask::HandleParticipantSelected(ASHHand* SelectedHand)
 {
 	const UTransferCardEffectFragment* Fragment = Cast<UTransferCardEffectFragment>(
 		UCardDefinition::FindFragmentByClass(
@@ -115,9 +114,9 @@ void UTransferSpecifiedCardEffectTask::HandlePlayerSelected(ASHPlayerState* Sele
 	ASHGameMode* GameMode = GetTypedOuter<ASHGameMode>();
 	if (IsValid(GameMode) && IsValid(Fragment))
 	{
-		GameMode->TransferCardToPlayer(
-			GetActivatingPlayer(),
-			SelectedPlayer,
+		GameMode->TransferCardToHand(
+			GetActivatingPlayer()->GetHand(),
+			SelectedHand,
 			Fragment->CardDefinitionToTransfer);
 	}
 

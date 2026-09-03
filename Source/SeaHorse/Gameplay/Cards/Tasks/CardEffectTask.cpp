@@ -5,12 +5,22 @@
 #include "SeaHorse/Gameplay/Cards/SHCard.h"
 #include "SeaHorse/Gameplay/Core/SHPlayerState.h"
 #include "SeaHorse/Gameplay/Core/SHGameMode.h"
+#include "SeaHorse/Gameplay/SHHand.h"
 
 void UCardEffectTask::Initialize(ASHPlayerState* InActivatingPlayer, ASHCard* InCardA, ASHCard* InCardB)
 {
     ActivatingPlayer = InActivatingPlayer;
     CardA = InCardA;
     CardB = InCardB;
+}
+
+void UCardEffectTask::RequestParticipantSelection(
+    const TArray<ASHHand*>& Candidates,
+    EPlayerSelectionPurpose Purpose)
+{
+    ASHGameMode* GameMode = GetTypedOuter<ASHGameMode>();
+    checkf(IsValid(GameMode), TEXT("CardEffectTask has no valid GameMode"));
+    GameMode->RequestParticipantSelection(this, ActivatingPlayer, Candidates, Purpose);
 }
 
 
@@ -37,6 +47,11 @@ void UCardEffectTask::RequestPlayerSelection(
 }
 
 void UCardEffectTask::HandlePlayerSelected(ASHPlayerState* SelectedPlayer)
+{
+    checkNoEntry();
+}
+
+void UCardEffectTask::HandleParticipantSelected(ASHHand* SelectedHand)
 {
     checkNoEntry();
 }

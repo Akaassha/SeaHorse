@@ -196,6 +196,18 @@ void ASHCard::Tick(float DeltaTime)
 
 }
 
+void ASHCard::NotifyActorOnClicked(FKey ButtonPressed)
+{
+    ASHPlayerController* LocalPC = Cast<ASHPlayerController>(GetWorld()->GetFirstPlayerController());
+    if (IsValid(LocalPC) && LocalPC->IsLocalController() &&
+        LocalPC->TrySubmitParticipantSelectionForCard(this))
+    {
+        return;
+    }
+
+    Super::NotifyActorOnClicked(ButtonPressed);
+}
+
 void ASHCard::OnCardZoneChanged()
 {
 }

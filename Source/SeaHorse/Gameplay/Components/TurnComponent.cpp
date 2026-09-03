@@ -159,9 +159,9 @@ bool UTurnComponent::CanDrawCardFromHand(ASHPlayerState* DrawingPlayer, ASHHand*
 			: SourceHand != FirstDrawSourceHand;
 	}
 
-	if (ASHPlayerState* ForcedSource = GetFirstForcedDrawSource(DrawingPlayer))
+	if (ASHHand* ForcedSourceHand = GetFirstForcedDrawSourceHand(DrawingPlayer))
 	{
-		if (SourceHand != ForcedSource->GetHand())
+		if (SourceHand != ForcedSourceHand)
 		{
 			return false;
 		}
@@ -215,6 +215,7 @@ void UTurnComponent::HandleCardDrawnFromHand(ASHPlayerState* DrawingPlayer, ASHH
 		bWaitingForAdditionalDraw = true;
 
 		TArray<ASHPlayerState*> ValidSources;
+		TArray<ASHHand*> ValidSourceHands;
 		bool bHasValidSource = false;
 		for (APlayerState* PlayerState : GetSHGameState()->PlayerArray)
 		{
@@ -222,6 +223,7 @@ void UTurnComponent::HandleCardDrawnFromHand(ASHPlayerState* DrawingPlayer, ASHH
 			if (CanDrawCard(DrawingPlayer, Candidate))
 			{
 				ValidSources.Add(Candidate);
+				ValidSourceHands.Add(Candidate->GetHand());
 				bHasValidSource = true;
 			}
 		}
@@ -229,6 +231,7 @@ void UTurnComponent::HandleCardDrawnFromHand(ASHPlayerState* DrawingPlayer, ASHH
 		{
 			if (CanDrawCardFromHand(DrawingPlayer, NPCHand))
 			{
+				ValidSourceHands.Add(NPCHand);
 				bHasValidSource = true;
 			}
 		}
@@ -250,6 +253,7 @@ void UTurnComponent::HandleCardDrawnFromHand(ASHPlayerState* DrawingPlayer, ASHH
 				: ECardDrawGuidanceType::AdditionalFromDifferentPlayer;
 
 			Controller->ClientUpdateCardDrawGuidance(ValidSources, GuidanceType);
+			Controller->ClientSetGuidedDrawHands(ValidSourceHands);
 		}
 		return;
 	}
@@ -291,11 +295,16 @@ void UTurnComponent::ScheduleAdditionalDraw(
 
 void UTurnComponent::SetForcedDrawSource(ASHPlayerState* DrawingPlayer, ASHPlayerState* SourcePlayer)
 {
+	SetForcedDrawSourceHand(DrawingPlayer, IsValid(SourcePlayer) ? SourcePlayer->GetHand() : nullptr);
+}
+
+void UTurnComponent::SetForcedDrawSourceHand(ASHPlayerState* DrawingPlayer, ASHHand* SourceHand)
+{
 	CheckServerAuthority();
-	checkf(IsValid(DrawingPlayer) && IsValid(SourcePlayer) && DrawingPlayer != SourcePlayer,
+	checkf(IsValid(DrawingPlayer) && IsValid(SourceHand) && DrawingPlayer->GetHand() != SourceHand,
 		TEXT("Invalid forced draw participants"));
 
-	ForcedDrawSources.FindOrAdd(DrawingPlayer).Sources.Add(SourcePlayer);
+	ForcedDrawSources.FindOrAdd(DrawingPlayer).Sources.Add(SourceHand);
 	UpdateForcedDrawGuidance(DrawingPlayer);
 }
 
@@ -421,8 +430,7 @@ void UTurnComponent::UpdateForcedDrawGuidance(ASHPlayerState* DrawingPlayer)
 	FForcedDrawSourceQueue* ForcedQueue = ForcedDrawSources.Find(DrawingPlayer);
 	while (ForcedQueue && !ForcedQueue->Sources.IsEmpty())
 	{
-		ASHPlayerState* Candidate = ForcedQueue->Sources[0];
-		ASHHand* CandidateHand = IsValid(Candidate) ? Candidate->GetHand() : nullptr;
+		ASHHand* CandidateHand = ForcedQueue->Sources[0];
 		if (IsValid(CandidateHand) && CandidateHand->GetCardCount() > 0)
 		{
 			break;
@@ -437,8 +445,7 @@ void UTurnComponent::UpdateForcedDrawGuidance(ASHPlayerState* DrawingPlayer)
 		ForcedQueue = nullptr;
 	}
 
-	ASHPlayerState* ForcedSource = ForcedQueue ? ForcedQueue->Sources[0].Get() : nullptr;
-	ASHHand* ForcedHand = IsValid(ForcedSource) ? ForcedSource->GetHand() : nullptr;
+	ASHHand* ForcedHand = ForcedQueue ? ForcedQueue->Sources[0].Get() : nullptr;
 
 	if (!IsValid(ForcedHand) || ForcedHand->GetCardCount() <= 0)
 	{
@@ -450,14 +457,23 @@ void UTurnComponent::UpdateForcedDrawGuidance(ASHPlayerState* DrawingPlayer)
 	if (IsValid(Controller))
 	{
 		TArray<ASHPlayerState*> ValidSources;
-		ValidSources.Add(ForcedSource);
+		for (APlayerState* State : GameState->PlayerArray)
+		{
+			ASHPlayerState* Candidate = Cast<ASHPlayerState>(State);
+			if (IsValid(Candidate) && Candidate->GetHand() == ForcedHand)
+			{
+				ValidSources.Add(Candidate);
+				break;
+			}
+		}
 		Controller->ClientUpdateCardDrawGuidance(
 			ValidSources,
 			ECardDrawGuidanceType::ForcedSelectedPlayer);
+		Controller->ClientSetGuidedDrawHands({ForcedHand});
 	}
 }
 
-ASHPlayerState* UTurnComponent::GetFirstForcedDrawSource(const ASHPlayerState* DrawingPlayer) const
+ASHHand* UTurnComponent::GetFirstForcedDrawSourceHand(const ASHPlayerState* DrawingPlayer) const
 {
 	const FForcedDrawSourceQueue* ForcedQueue = ForcedDrawSources.Find(DrawingPlayer);
 	return ForcedQueue && !ForcedQueue->Sources.IsEmpty()
@@ -474,6 +490,7 @@ void UTurnComponent::ClearDrawGuidance(ASHPlayerState* DrawingPlayer)
 	if (IsValid(Controller))
 	{
 		Controller->ClientUpdateCardDrawGuidance({}, ECardDrawGuidanceType::None);
+		Controller->ClientSetGuidedDrawHands({});
 	}
 }
 

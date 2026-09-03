@@ -30,6 +30,10 @@ class SEAHORSE_API ASHPlayerController : public APlayerController
 	GENERATED_BODY()
 
 public:
+	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+	virtual bool InputKey(const FInputKeyEventArgs& Params) override;
+
 	UFUNCTION(BlueprintCallable)
 	void TrySetupTableView();
 
@@ -40,6 +44,15 @@ public:
 
 	UFUNCTION(BlueprintCallable, Server, Reliable, Category = "Card Effects")
 	void ServerSubmitPlayerSelection(ASHPlayerState* SelectedPlayer);
+
+	UFUNCTION(Server, Reliable)
+	void ServerSubmitParticipantSelection(ASHHand* SelectedHand);
+
+	UFUNCTION(Client, Reliable)
+	void ClientRequestParticipantSelection(const TArray<ASHHand*>& Candidates, EPlayerSelectionPurpose Purpose);
+
+	/** Consumes card clicks while a hand/participant selection is pending. */
+	bool TrySubmitParticipantSelectionForCard(const ASHCard* Card);
 
 	UFUNCTION(BlueprintPure, Category = "Card Effects")
 	ASHPlayerState* FindPlayerStateForCard(const ASHCard* Card) const;
@@ -66,6 +79,13 @@ public:
 	void ClientUpdateCardDrawGuidance(
 		const TArray<ASHPlayerState*>& ValidSources,
 		ECardDrawGuidanceType GuidanceType);
+
+	UFUNCTION(Client, Reliable)
+	void ClientSetGuidedDrawHands(const TArray<ASHHand*>& ValidHands);
+
+	/** Reconciles card layout/fronts after a server-side bulk hand transfer. */
+	UFUNCTION(Client, Reliable)
+	void ClientReconcileRotatedHands();
 
 	UFUNCTION(BlueprintImplementableEvent, Category = "Card Effects")
 	void OnCardDrawGuidanceUpdated(
@@ -104,4 +124,12 @@ protected:
 
 private:
 	ASHHand* FindVisualHandForPlayer(const ASHPlayerState* PlayerState) const;
+	void ReconcileRotatedHandsPresentation();
+	FTimerHandle TableSetupRetryTimer;
+	FTimerHandle RotatedHandsReconcileTimer;
+	int32 RemainingRotatedHandsReconciles = 0;
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<ASHHand>> LocalParticipantSelectionCandidates;
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<ASHHand>> LocalGuidedDrawHands;
 };

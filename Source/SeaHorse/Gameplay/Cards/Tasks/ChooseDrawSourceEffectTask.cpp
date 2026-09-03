@@ -32,15 +32,13 @@ void UChooseDrawSourceEffectTask::HandlePlayerSelected(ASHPlayerState* SelectedP
 		const ASHGameState* GameState = GetWorld()->GetGameState<ASHGameState>();
 		checkf(IsValid(GameState), TEXT("Invalid SHGameState"));
 
-		TArray<ASHPlayerState*> SourceCandidates;
-		for (APlayerState* PlayerState : GameState->PlayerArray)
+		TArray<ASHHand*> SourceCandidates;
+		for (ASHHand* CandidateHand : GameState->GetParticipantHands())
 		{
-			ASHPlayerState* Candidate = Cast<ASHPlayerState>(PlayerState);
-			ASHHand* CandidateHand = IsValid(Candidate) ? Candidate->GetHand() : nullptr;
-			if (IsValid(Candidate) && Candidate != DrawingPlayer &&
-				IsValid(CandidateHand) && CandidateHand->GetCardCount() > 0)
+			if (IsValid(CandidateHand) && CandidateHand != DrawingPlayer->GetHand() &&
+				CandidateHand->GetCardCount() > 0)
 			{
-				SourceCandidates.Add(Candidate);
+				SourceCandidates.Add(CandidateHand);
 			}
 		}
 
@@ -52,17 +50,22 @@ void UChooseDrawSourceEffectTask::HandlePlayerSelected(ASHPlayerState* SelectedP
 			return;
 		}
 
-		RequestPlayerSelection(SourceCandidates, EPlayerSelectionPurpose::PlayerToDrawFrom);
+		RequestParticipantSelection(SourceCandidates, EPlayerSelectionPurpose::PlayerToDrawFrom);
 		return;
 	}
 
+	// The second step is hand-based and is handled by HandleParticipantSelected.
+	FinishEffect();
+}
+
+void UChooseDrawSourceEffectTask::HandleParticipantSelected(ASHHand* SelectedHand)
+{
 	ASHGameMode* GameMode = GetTypedOuter<ASHGameMode>();
 	checkf(IsValid(GameMode), TEXT("ChooseDrawSourceEffectTask has no valid GameMode"));
 
 	UTurnComponent* TurnComponent = GameMode->GetTurnComponent();
 	checkf(IsValid(TurnComponent), TEXT("GameMode has no TurnComponent"));
 
-	ASHHand* SelectedHand = IsValid(SelectedPlayer) ? SelectedPlayer->GetHand() : nullptr;
 	if (!IsValid(SelectedHand) || SelectedHand->GetCardCount() <= 0)
 	{
 		UE_LOG(LogTemp, Log,
@@ -71,6 +74,6 @@ void UChooseDrawSourceEffectTask::HandlePlayerSelected(ASHPlayerState* SelectedP
 		return;
 	}
 
-	TurnComponent->SetForcedDrawSource(DrawingPlayer, SelectedPlayer);
+	TurnComponent->SetForcedDrawSourceHand(DrawingPlayer, SelectedHand);
 	FinishEffect();
 }

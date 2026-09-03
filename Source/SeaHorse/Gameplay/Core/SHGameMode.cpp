@@ -308,6 +308,13 @@ void ASHGameMode::FinishEffectTask(UCardEffectTask* CardEffectTask)
             It.RemoveCurrent();
         }
     }
+    for (auto It = PendingParticipantSelections.CreateIterator(); It; ++It)
+    {
+        if (It.Value().Task == CardEffectTask)
+        {
+            It.RemoveCurrent();
+        }
+    }
     for (auto It = PendingPairSelections.CreateIterator(); It; ++It)
     {
         if (It.Value().Task == CardEffectTask)
@@ -354,6 +361,21 @@ void ASHGameMode::PassHandsToLeft()
 			TargetHand->AddCard(Card, TargetHand->GetCardCount());
 		}
 	}
+
+	// Cards and their Owner pointers are replicated by different actors/channels.
+	// Ask every local view to reconcile several times while that bulk update
+	// settles, including the listen-server view where OnRep does not run.
+	for (APlayerState* State : SHGameState->PlayerArray)
+	{
+		ASHPlayerState* PlayerState = Cast<ASHPlayerState>(State);
+		ASHPlayerController* Controller = IsValid(PlayerState)
+			? Cast<ASHPlayerController>(PlayerState->GetOwner())
+			: nullptr;
+		if (IsValid(Controller))
+		{
+			Controller->ClientReconcileRotatedHands();
+		}
+	}
 }
 
 void ASHGameMode::MoveAllActivationPairsToVictoryStacks()
@@ -390,8 +412,19 @@ bool ASHGameMode::TransferCardToPlayer(
 {
 	checkf(HasAuthority(), TEXT("Cards can only be transferred on the server"));
 
-	ASHHand* SourceHand = IsValid(FromPlayer) ? FromPlayer->GetHand() : nullptr;
-	ASHHand* TargetHand = IsValid(ToPlayer) ? ToPlayer->GetHand() : nullptr;
+	return TransferCardToHand(
+		IsValid(FromPlayer) ? FromPlayer->GetHand() : nullptr,
+		IsValid(ToPlayer) ? ToPlayer->GetHand() : nullptr,
+		CardDefinition);
+}
+
+bool ASHGameMode::TransferCardToHand(
+	ASHHand* SourceHand,
+	ASHHand* TargetHand,
+	TSubclassOf<UCardDefinition> CardDefinition)
+{
+	checkf(HasAuthority(), TEXT("Cards can only be transferred on the server"));
+
 	if (!IsValid(SourceHand) || !IsValid(TargetHand) || SourceHand == TargetHand || !CardDefinition)
 	{
 		return false;
@@ -410,6 +443,62 @@ bool ASHGameMode::TransferCardToPlayer(
 	return false;
 }
 
+void ASHGameMode::RequestParticipantSelection(
+    UCardEffectTask* Task,
+    ASHPlayerState* SelectingPlayer,
+    const TArray<ASHHand*>& Candidates,
+    EPlayerSelectionPurpose Purpose)
+{
+    checkf(IsValid(Task) && ActiveEffectTasks.Contains(Task), TEXT("Selection requested by an inactive effect task"));
+    checkf(IsValid(SelectingPlayer), TEXT("Invalid selecting player"));
+    checkf(!Candidates.IsEmpty(), TEXT("Participant selection requires at least one candidate"));
+    checkf(!PendingPlayerSelections.Contains(SelectingPlayer), TEXT("Player already has a pending player selection"));
+    checkf(!PendingParticipantSelections.Contains(SelectingPlayer), TEXT("Player already has a pending participant selection"));
+    checkf(!PendingPairSelections.Contains(SelectingPlayer), TEXT("Player already has a pending pair selection"));
+
+    FPendingParticipantSelection& Pending = PendingParticipantSelections.Add(SelectingPlayer);
+    Pending.Task = Task;
+    const ASHGameState* SHGameState = GetGameState<ASHGameState>();
+    const TArray<ASHHand*> ParticipantHands = IsValid(SHGameState) ? SHGameState->GetParticipantHands() : TArray<ASHHand*>();
+    for (ASHHand* Candidate : Candidates)
+    {
+        if (IsValid(Candidate) && ParticipantHands.Contains(Candidate))
+        {
+            Pending.Candidates.AddUnique(Candidate);
+        }
+    }
+
+    checkf(!Pending.Candidates.IsEmpty(), TEXT("Participant selection has no valid candidates"));
+    ASHPlayerController* Controller = Cast<ASHPlayerController>(SelectingPlayer->GetOwner());
+    checkf(IsValid(Controller), TEXT("Selecting player has no controller"));
+
+    TArray<ASHHand*> ClientCandidates;
+    for (ASHHand* Candidate : Pending.Candidates)
+    {
+        ClientCandidates.Add(Candidate);
+    }
+    Controller->ClientRequestParticipantSelection(ClientCandidates, Purpose);
+}
+
+void ASHGameMode::SubmitParticipantSelection(ASHPlayerState* SelectingPlayer, ASHHand* SelectedHand)
+{
+    FPendingParticipantSelection* Pending = PendingParticipantSelections.Find(SelectingPlayer);
+    if (!Pending || !IsValid(SelectedHand) || !Pending->Candidates.Contains(SelectedHand))
+    {
+        UE_LOG(LogTemp, Warning,
+            TEXT("[SH_PARTICIPANT_SELECTION][REJECTED] SelectingPlayer=%s SelectedHand=%s HasPending=%d"),
+            *GetNameSafe(SelectingPlayer), *GetNameSafe(SelectedHand), Pending != nullptr);
+        return;
+    }
+
+    UCardEffectTask* Task = Pending->Task;
+    PendingParticipantSelections.Remove(SelectingPlayer);
+    if (IsValid(Task) && ActiveEffectTasks.Contains(Task))
+    {
+        Task->HandleParticipantSelected(SelectedHand);
+    }
+}
+
 void ASHGameMode::RequestPlayerSelection(
     UCardEffectTask* Task,
     ASHPlayerState* SelectingPlayer,
@@ -420,6 +509,7 @@ void ASHGameMode::RequestPlayerSelection(
     checkf(IsValid(SelectingPlayer), TEXT("Invalid selecting player"));
     checkf(!Candidates.IsEmpty(), TEXT("Player selection requires at least one candidate"));
     checkf(!PendingPlayerSelections.Contains(SelectingPlayer), TEXT("Player already has a pending selection"));
+    checkf(!PendingParticipantSelections.Contains(SelectingPlayer), TEXT("Player already has a pending participant selection"));
     checkf(!PendingPairSelections.Contains(SelectingPlayer), TEXT("Player already has a pending pair selection"));
 
     FPendingPlayerSelection& PendingSelection = PendingPlayerSelections.Add(SelectingPlayer);
@@ -496,6 +586,7 @@ bool ASHGameMode::RequestActivationPairSelection(
     checkf(IsValid(SelectingPlayer), TEXT("Invalid selecting player"));
     checkf(!PendingPairSelections.Contains(SelectingPlayer), TEXT("Player already has a pending pair selection"));
     checkf(!PendingPlayerSelections.Contains(SelectingPlayer), TEXT("Player already has a pending player selection"));
+    checkf(!PendingParticipantSelections.Contains(SelectingPlayer), TEXT("Player already has a pending participant selection"));
 
     FPendingPairSelection& Pending = PendingPairSelections.Add(SelectingPlayer);
     Pending.Task = Task;

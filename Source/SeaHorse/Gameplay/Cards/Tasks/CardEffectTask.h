@@ -8,6 +8,7 @@
 
 class ASHPlayerState;
 class ASHCard;
+class ASHHand;
 
 UENUM(BlueprintType)
 enum class EPlayerSelectionPurpose : uint8
@@ -35,8 +36,10 @@ public:
     void FinishEffect();
 
     void RequestPlayerSelection(const TArray<ASHPlayerState*>& Candidates, EPlayerSelectionPurpose Purpose);
+    void RequestParticipantSelection(const TArray<ASHHand*>& Candidates, EPlayerSelectionPurpose Purpose);
     bool RequestActivationPairSelection(const TArray<ASHCard*>& CandidateCards);
     virtual void HandlePlayerSelected(ASHPlayerState* SelectedPlayer);
+    virtual void HandleParticipantSelected(ASHHand* SelectedHand);
     virtual void HandleActivationPairSelected(ASHPlayerState* PairOwner, ASHCard* SelectedCardA, ASHCard* SelectedCardB);
 
     ASHPlayerState* GetActivatingPlayer() const { return ActivatingPlayer; }

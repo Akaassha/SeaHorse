@@ -33,7 +33,7 @@ struct FForcedDrawSourceQueue
 	GENERATED_BODY()
 
 	UPROPERTY(Transient)
-	TArray<TObjectPtr<ASHPlayerState>> Sources;
+	TArray<TObjectPtr<ASHHand>> Sources;
 };
 
 UCLASS(BlueprintType, Blueprintable, ClassGroup=(Custom), meta=(BlueprintSpawnableComponent))
@@ -58,6 +58,7 @@ public:
 	void HandleCardDrawnFromHand(ASHPlayerState* DrawingPlayer, ASHHand* SourceHand);
 	void ScheduleAdditionalDraw(UCardEffectTask* EffectTask, ASHPlayerState* PlayerState, EAdditionalDrawSourceRule SourceRule);
 	void SetForcedDrawSource(ASHPlayerState* DrawingPlayer, ASHPlayerState* SourcePlayer);
+	void SetForcedDrawSourceHand(ASHPlayerState* DrawingPlayer, ASHHand* SourceHand);
 	void ScheduleSkippedTurn(ASHPlayerState* PlayerState);
 
 protected:
@@ -75,7 +76,7 @@ private:
 	void FinishAdditionalDraw();
 	void UpdateForcedDrawGuidance(ASHPlayerState* DrawingPlayer);
 	void ClearDrawGuidance(ASHPlayerState* DrawingPlayer);
-	ASHPlayerState* GetFirstForcedDrawSource(const ASHPlayerState* DrawingPlayer) const;
+	ASHHand* GetFirstForcedDrawSourceHand(const ASHPlayerState* DrawingPlayer) const;
 	ASHGameState* GetSHGameState() const;
 	void CheckServerAuthority() const;
 

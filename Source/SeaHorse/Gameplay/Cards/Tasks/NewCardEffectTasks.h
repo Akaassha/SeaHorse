@@ -35,7 +35,7 @@ class SEAHORSE_API UTransferSpecifiedCardEffectTask : public UCardEffectTask
 	GENERATED_BODY()
 public:
 	virtual void StartEffect_Implementation() override;
-	virtual void HandlePlayerSelected(ASHPlayerState* SelectedPlayer) override;
+	virtual void HandleParticipantSelected(ASHHand* SelectedHand) override;
 };
 
 UCLASS()

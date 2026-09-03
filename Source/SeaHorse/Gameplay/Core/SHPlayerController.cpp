@@ -13,6 +13,51 @@
 #include "SeaHorse/Gameplay/Core/SHGameMode.h"
 #include "SeaHorse/Gameplay/Components/TurnComponent.h"
 #include "SeaHorse/Gameplay/Cards/Fragments/CardEffectFragment.h"
+#include "TimerManager.h"
+#include "InputKeyEventArgs.h"
+
+void ASHPlayerController::BeginPlay()
+{
+	Super::BeginPlay();
+	if (IsLocalController())
+	{
+		GetWorldTimerManager().SetTimer(
+			TableSetupRetryTimer, this, &ASHPlayerController::TrySetupTableView, 0.1f, true, 0.0f);
+	}
+}
+
+void ASHPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	GetWorldTimerManager().ClearTimer(TableSetupRetryTimer);
+	GetWorldTimerManager().ClearTimer(RotatedHandsReconcileTimer);
+	Super::EndPlay(EndPlayReason);
+}
+
+bool ASHPlayerController::InputKey(const FInputKeyEventArgs& Params)
+{
+	if (IsLocalController() && Params.Key == EKeys::LeftMouseButton && Params.Event == IE_Pressed &&
+		(!LocalParticipantSelectionCandidates.IsEmpty() || !LocalGuidedDrawHands.IsEmpty()))
+	{
+		FHitResult HitResult;
+		GetHitResultUnderCursor(ECC_Visibility, true, HitResult);
+		ASHCard* HitCard = Cast<ASHCard>(HitResult.GetActor());
+
+		UE_LOG(LogTemp, Warning,
+			TEXT("[SH_PARTICIPANT_SELECTION][INPUT] Controller=%s HitActor=%s HitCard=%s"),
+			*GetNameSafe(this), *GetNameSafe(HitResult.GetActor()), *GetNameSafe(HitCard));
+
+		if (IsValid(HitCard))
+		{
+			TrySubmitParticipantSelectionForCard(HitCard);
+		}
+
+		// Do not let BP_SHPlayerController interpret the same press as a normal
+		// card draw/drag while an effect target or guided draw is pending.
+		return true;
+	}
+
+	return Super::InputKey(Params);
+}
 
 void ASHPlayerController::TrySetupTableView()
 {
@@ -146,19 +191,13 @@ void ASHPlayerController::TrySetupTableView()
         ReceivedCardCount,
         SHGameState->GetInitialDealtCardCount());
 
-    if (ReceivedCardCount != SHGameState->GetInitialDealtCardCount())
-    {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[SH_INIT] -> WAIT: incomplete initial deal"));
-        return;
-    }
-
     UE_LOG(LogTemp, Warning,
         TEXT("[SH_INIT][%.3f] >>> READY - calling SetupTableView"),
         GetWorld()->GetTimeSeconds());
 
     SetupTableView();
     bTableViewInitialized = true;
+	GetWorldTimerManager().ClearTimer(TableSetupRetryTimer);
 
     UE_LOG(LogTemp, Warning,
         TEXT("[SH_INIT][%.3f] <<< TABLE INITIALIZED"),
@@ -231,6 +270,61 @@ void ASHPlayerController::ClientUpdateCardDrawGuidance_Implementation(
     OnCardDrawGuidanceUpdated(ValidSources, GuidanceType);
 }
 
+void ASHPlayerController::ClientSetGuidedDrawHands_Implementation(const TArray<ASHHand*>& ValidHands)
+{
+    LocalGuidedDrawHands.Reset();
+    for (ASHHand* Hand : ValidHands)
+    {
+        if (IsValid(Hand))
+        {
+            LocalGuidedDrawHands.AddUnique(Hand);
+        }
+    }
+}
+
+void ASHPlayerController::ClientReconcileRotatedHands_Implementation()
+{
+	RemainingRotatedHandsReconciles = 10;
+	ReconcileRotatedHandsPresentation();
+	GetWorldTimerManager().SetTimer(
+		RotatedHandsReconcileTimer,
+		this,
+		&ASHPlayerController::ReconcileRotatedHandsPresentation,
+		0.1f,
+		true);
+}
+
+void ASHPlayerController::ReconcileRotatedHandsPresentation()
+{
+	const ASHGameState* GameState = GetWorld()->GetGameState<ASHGameState>();
+	if (IsValid(GameState))
+	{
+		for (ASHHand* LogicalHand : GameState->GetParticipantHands())
+		{
+			ASHHand* VisualHand = FindVisualHandForLogicalHand(LogicalHand);
+			if (!IsValid(LogicalHand) || !IsValid(VisualHand))
+			{
+				continue;
+			}
+
+			if (LogicalHand->IsLogicalNPC())
+			{
+				VisualHand->LayoutNPCStack(LogicalHand);
+			}
+			else
+			{
+				VisualHand->RefreshCardsPresentation();
+				VisualHand->UpdateCardPositions();
+			}
+		}
+	}
+
+	if (--RemainingRotatedHandsReconciles <= 0)
+	{
+		GetWorldTimerManager().ClearTimer(RotatedHandsReconcileTimer);
+	}
+}
+
 void ASHPlayerController::ServerSubmitPlayerSelection_Implementation(ASHPlayerState* SelectedPlayer)
 {
     ASHGameMode* GameMode = GetWorld()->GetAuthGameMode<ASHGameMode>();
@@ -245,6 +339,70 @@ void ASHPlayerController::ServerSubmitPlayerSelection_Implementation(ASHPlayerSt
     if (IsValid(GameMode) && IsValid(SelectingPlayer))
     {
         GameMode->SubmitPlayerSelection(SelectingPlayer, SelectedPlayer);
+    }
+}
+
+void ASHPlayerController::ClientRequestParticipantSelection_Implementation(
+    const TArray<ASHHand*>& Candidates,
+    EPlayerSelectionPurpose Purpose)
+{
+    LocalParticipantSelectionCandidates.Reset();
+    for (ASHHand* Candidate : Candidates)
+    {
+        if (IsValid(Candidate))
+        {
+            LocalParticipantSelectionCandidates.AddUnique(Candidate);
+        }
+    }
+
+    UE_LOG(LogTemp, Warning,
+        TEXT("[SH_PARTICIPANT_SELECTION][CLIENT_REQUEST] Controller=%s Purpose=%s CandidateCount=%d"),
+        *GetNameSafe(this), *UEnum::GetValueAsString(Purpose),
+        LocalParticipantSelectionCandidates.Num());
+}
+
+bool ASHPlayerController::TrySubmitParticipantSelectionForCard(const ASHCard* Card)
+{
+    if (LocalParticipantSelectionCandidates.IsEmpty())
+    {
+        if (LocalGuidedDrawHands.IsEmpty())
+        {
+            return false;
+        }
+
+        ASHHand* SourceHand = IsValid(Card) ? Card->GetOwningHand() : nullptr;
+        if (IsValid(SourceHand) && LocalGuidedDrawHands.Contains(SourceHand))
+        {
+            const ASHPlayerState* LocalPlayerState = GetPlayerState<ASHPlayerState>();
+            const ASHHand* TargetHand = IsValid(LocalPlayerState) ? LocalPlayerState->GetHand() : nullptr;
+            const int32 InsertIndex = IsValid(TargetHand) ? TargetHand->GetCardCount() : 0;
+            LocalGuidedDrawHands.Reset();
+            ServerTakeCard(const_cast<ASHCard*>(Card), InsertIndex);
+        }
+        return true;
+    }
+
+    ASHHand* SelectedHand = IsValid(Card) ? Card->GetOwningHand() : nullptr;
+    const bool bValidCandidate = IsValid(SelectedHand) &&
+        LocalParticipantSelectionCandidates.Contains(SelectedHand);
+
+    // While selection is pending, consume every card click so it cannot also
+    // become a normal draw/pair action through the Blueprint click handler.
+    if (bValidCandidate)
+    {
+        LocalParticipantSelectionCandidates.Reset();
+        ServerSubmitParticipantSelection(SelectedHand);
+    }
+    return true;
+}
+
+void ASHPlayerController::ServerSubmitParticipantSelection_Implementation(ASHHand* SelectedHand)
+{
+    ASHGameMode* GameMode = GetWorld()->GetAuthGameMode<ASHGameMode>();
+    ASHPlayerState* SelectingPlayer = GetPlayerState<ASHPlayerState>();
+    if (IsValid(GameMode) && IsValid(SelectingPlayer))
+    {
+        GameMode->SubmitParticipantSelection(SelectingPlayer, SelectedHand);
     }
 }
 
