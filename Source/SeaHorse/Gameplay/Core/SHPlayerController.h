@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerController.h"
 #include "SeaHorse/Gameplay/Cards/Tasks/CardEffectTask.h"
+#include "SeaHorse/Gameplay/Presentation/PairTargetingIndicator.h"
 #include "SHPlayerController.generated.h"
 
 class ASHHand;
@@ -103,6 +104,10 @@ public:
 	UFUNCTION(Client, Reliable)
 	void ClientRequestActivationPairSelection(const TArray<ASHCard*>& CandidateCards);
 
+	UFUNCTION(Client, Reliable)
+	void ClientSetPairTargetSelection(ASHCard* CardA, ASHCard* CardB,
+		bool bSelectingTarget, FName EffectPresentationId);
+
 	UFUNCTION(BlueprintImplementableEvent, Category = "Card Effects")
 	void OnActivationPairSelectionRequested(const TArray<ASHCard*>& CandidateCards);
 
@@ -169,6 +174,13 @@ private:
 	void HandleTurnStateChanged(ASHPlayerState* CurrentPlayer, ETurnPhase TurnPhase);
 	void KeepDraggedCardAboveOtherCards();
 	void UpdateLocalActivatablePairHover();
+	void StartPairTargetingIndicator(ASHCard* CardA, ASHCard* CardB, FName EffectPresentationId);
+	void StopPairTargetingIndicator();
+	void UpdatePairTargetingIndicator();
+	bool ResolveTargetingCursor(FVector& OutLocation, bool& bOutValidTarget,
+		AActor*& OutValidTargetActor) const;
+	void SetCardHoverSuppressedForTargeting(bool bSuppressed);
+	void SetCurrentValidEffectTarget(AActor* NewTarget);
 	ASHHand* FindVisualHandForPlayer(const ASHPlayerState* PlayerState) const;
 	ASHHand* FindNearestDropHand(const ASHCard* DraggedCard) const;
 	void ReconcileRotatedHandsPresentation();
@@ -182,12 +194,41 @@ private:
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<ASHPlayerState>> LocalPlayerSelectionCandidates;
 	UPROPERTY(Transient)
+	TArray<TObjectPtr<ASHCard>> LocalActivationPairSelectionCandidates;
+	UPROPERTY(Transient)
 	TArray<TObjectPtr<ASHHand>> LocalGuidedDrawHands;
 	UPROPERTY(Transient)
 	TObjectPtr<ASHCard> LocallyDraggedCard;
 
 	UPROPERTY(Transient)
 	TObjectPtr<ASHCard> LastActivatableHoverCard;
+
+	/** Optional BP subclass can add particles or further presentation without owning gameplay state. */
+	UPROPERTY(EditDefaultsOnly, Category = "Card Effects|Targeting")
+	TSubclassOf<APairTargetingIndicator> PairTargetingIndicatorClass;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Card Effects|Targeting")
+	FPairTargetingIndicatorStyle DefaultPairTargetingStyle;
+
+	/** Local presentation styles resolved using CardEffectFragment.EffectPresentationId. */
+	UPROPERTY(EditDefaultsOnly, Category = "Card Effects|Targeting")
+	TMap<FName, FPairTargetingIndicatorStyle> PairTargetingStyles;
+
+	UPROPERTY(Transient)
+	TObjectPtr<APairTargetingIndicator> PairTargetingIndicator;
+
+	UPROPERTY(Transient)
+	TObjectPtr<ASHCard> TargetingSourceCardA;
+
+	UPROPERTY(Transient)
+	TObjectPtr<ASHCard> TargetingSourceCardB;
+
+	UPROPERTY(Transient)
+	TObjectPtr<AActor> CurrentValidEffectTarget;
+
+	FName CurrentTargetingEffectPresentationId;
+	bool bSavedEnableMouseOverEvents = false;
+	bool bCardHoverSuppressedForTargeting = false;
 
 	UPROPERTY(EditDefaultsOnly, Category="Card Drag", meta=(ClampMin="0.0", Units="cm"))
 	double DraggedCardZClearance = 5.0;

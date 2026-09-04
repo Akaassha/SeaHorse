@@ -226,6 +226,18 @@ void ASHGameMode::StartGame()
 
 
 // ***** Begin Card Effects *****
+
+void ASHGameMode::SetPairTargetSelectionPresentation(UCardEffectTask* Task,
+	ASHPlayerState* SelectingPlayer, bool bSelectingTarget) const
+{
+	ASHPlayerController* Controller = IsValid(SelectingPlayer)
+		? Cast<ASHPlayerController>(SelectingPlayer->GetOwner()) : nullptr;
+	if (IsValid(Task) && IsValid(Controller) && IsValid(Task->GetCardA()) && IsValid(Task->GetCardB()))
+	{
+		Controller->ClientSetPairTargetSelection(Task->GetCardA(), Task->GetCardB(),
+			bSelectingTarget, Task->GetEffectPresentationId());
+	}
+}
 void ASHGameMode::MovePairToVictoryStack(ASHPlayerState* PlayerState, ASHCard* CardA, ASHCard* CardB)
 {
     checkf(HasAuthority(), TEXT("Pairs can only be moved on the server"));
@@ -283,7 +295,10 @@ void ASHGameMode::CardActivateEffect(ASHPlayerState* InActivatingPlayer, ASHCard
     EffectTask->Initialize(
         InActivatingPlayer,
         CardA,
-        CardB
+        CardB,
+        NewEffectFragment->EffectPresentationId.IsNone()
+            ? NewEffectFragment->EffectTaskClass->GetFName()
+            : NewEffectFragment->EffectPresentationId
     );
 
     EffectTask->StartEffect();
@@ -304,6 +319,7 @@ void ASHGameMode::FinishEffectTask(UCardEffectTask* CardEffectTask)
     {
         if (It.Value().Task == CardEffectTask)
         {
+            SetPairTargetSelectionPresentation(CardEffectTask, It.Key().Get(), false);
             It.RemoveCurrent();
         }
     }
@@ -311,6 +327,7 @@ void ASHGameMode::FinishEffectTask(UCardEffectTask* CardEffectTask)
     {
         if (It.Value().Task == CardEffectTask)
         {
+            SetPairTargetSelectionPresentation(CardEffectTask, It.Key().Get(), false);
             It.RemoveCurrent();
         }
     }
@@ -318,6 +335,7 @@ void ASHGameMode::FinishEffectTask(UCardEffectTask* CardEffectTask)
     {
         if (It.Value().Task == CardEffectTask)
         {
+            SetPairTargetSelectionPresentation(CardEffectTask, It.Key().Get(), false);
             It.RemoveCurrent();
         }
     }
@@ -690,6 +708,7 @@ void ASHGameMode::RequestParticipantSelection(
     {
         ClientCandidates.Add(Candidate);
     }
+	SetPairTargetSelectionPresentation(Task, SelectingPlayer, true);
     Controller->ClientRequestParticipantSelection(ClientCandidates, Purpose);
 }
 
@@ -706,6 +725,7 @@ void ASHGameMode::SubmitParticipantSelection(ASHPlayerState* SelectingPlayer, AS
 
     UCardEffectTask* Task = Pending->Task;
     PendingParticipantSelections.Remove(SelectingPlayer);
+	SetPairTargetSelectionPresentation(Task, SelectingPlayer, false);
     if (IsValid(Task) && ActiveEffectTasks.Contains(Task))
     {
         Task->HandleParticipantSelected(SelectedHand);
@@ -746,6 +766,7 @@ void ASHGameMode::RequestPlayerSelection(
     {
         ClientCandidates.Add(Candidate);
     }
+	SetPairTargetSelectionPresentation(Task, SelectingPlayer, true);
     SelectingController->ClientRequestPlayerSelection(ClientCandidates, Purpose);
 }
 
@@ -783,6 +804,7 @@ void ASHGameMode::SubmitPlayerSelection(ASHPlayerState* SelectingPlayer, ASHPlay
 
     UCardEffectTask* Task = PendingSelection->Task;
     PendingPlayerSelections.Remove(SelectingPlayer);
+	SetPairTargetSelectionPresentation(Task, SelectingPlayer, false);
 
     if (IsValid(Task) && ActiveEffectTasks.Contains(Task))
     {
@@ -826,6 +848,7 @@ bool ASHGameMode::RequestActivationPairSelection(
     {
         ClientCandidates.Add(Card);
     }
+	SetPairTargetSelectionPresentation(Task, SelectingPlayer, true);
     Controller->ClientRequestActivationPairSelection(ClientCandidates);
     return true;
 }
@@ -873,6 +896,7 @@ bool ASHGameMode::SubmitActivationPairSelection(ASHPlayerState* SelectingPlayer,
 
     UCardEffectTask* Task = Pending->Task;
     PendingPairSelections.Remove(SelectingPlayer);
+	SetPairTargetSelectionPresentation(Task, SelectingPlayer, false);
     if (ASHPlayerController* Controller = Cast<ASHPlayerController>(SelectingPlayer->GetOwner()))
     {
         Controller->ClientRequestActivationPairSelection({});

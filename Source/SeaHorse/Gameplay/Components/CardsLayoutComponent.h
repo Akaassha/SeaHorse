@@ -77,6 +77,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Cards Layout")
 	void SetFocusedCardIndex(int32 FocusedCardIndex);
 
+	/** Disables the normal hand hover lift/spread while a local effect is choosing a target. */
+	UFUNCTION(BlueprintCallable, Category="Cards Layout")
+	void SetTargetingFocusSuppressed(bool bSuppressed);
+
 	UFUNCTION(BlueprintCallable, Category="Cards Layout")
 	void SetSelectedCardIndex(int32 SelectedCardIndex);
 
@@ -110,6 +114,9 @@ protected:
 
 	/** Prevents hover focus from fighting the temporary gap shown for a dragged card. */
 	bool bSuppressFocusedCardPresentation = false;
+
+	/** Presentation-only suppression controlled locally while choosing an effect target. */
+	bool bSuppressFocusedCardForTargeting = false;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Cards Layout")
 	double FocusSpreadDistance = 0.0;

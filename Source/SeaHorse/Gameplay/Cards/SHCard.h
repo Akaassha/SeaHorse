@@ -63,6 +63,14 @@ public:
 	UFUNCTION(BlueprintCallable)
 	void RefreshCardFace();
 
+	/** Local presentation hook: reset/disable the normal lift hover while effect targeting is active. */
+	UFUNCTION(BlueprintImplementableEvent, Category = "Card|Targeting")
+	void OnNormalHoverSuppressionChanged(bool bSuppressed);
+
+	/** Local presentation hook emitted only while this card is the valid target under the arrow. */
+	UFUNCTION(BlueprintImplementableEvent, Category = "Card|Targeting")
+	void OnEffectTargetHoverChanged(bool bTargeted, FName EffectPresentationId);
+
 	UPROPERTY(ReplicatedUsing = OnRep_CardDefinition, BlueprintReadOnly, EditAnywhere, meta = (ExposeOnSpawn = "true"))
 	TSubclassOf<UCardDefinition> CardDefinition;
 

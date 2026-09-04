@@ -45,6 +45,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Player Representation")
 	bool IsPlayerSelectionEnabled() const { return bSelectable; }
 
+	/** Local presentation hook emitted while this representation is the valid target under the arrow. */
+	UFUNCTION(BlueprintImplementableEvent, Category = "Player Representation|Targeting")
+	void OnEffectTargetHoverChanged(bool bTargeted, FName EffectPresentationId);
+
 	UPROPERTY(BlueprintAssignable, Category = "Player Representation")
 	FOnPlayerRepresentationChanged OnRepresentationChanged;
 

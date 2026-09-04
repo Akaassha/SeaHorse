@@ -18,6 +18,10 @@ class SEAHORSE_API UCardEffectFragment : public UCardFragment
 public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly)
 	TSubclassOf<UCardEffectTask> EffectTaskClass;
+
+	/** Identifier used by Blueprint to choose a visual representation for this card effect. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Presentation")
+	FName EffectPresentationId;
 };
 
 UCLASS(BlueprintType, EditInlineNew)

@@ -82,6 +82,8 @@ protected:
 	int32 ExpectedPlayerCount = 3;
 
 private:
+	void SetPairTargetSelectionPresentation(UCardEffectTask* Task,
+		ASHPlayerState* SelectingPlayer, bool bSelectingTarget) const;
 	void TryStartGame();
 	void StartGame();
 	void AssignSeats();

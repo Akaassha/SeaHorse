@@ -7,11 +7,13 @@
 #include "SeaHorse/Gameplay/Core/SHGameMode.h"
 #include "SeaHorse/Gameplay/SHHand.h"
 
-void UCardEffectTask::Initialize(ASHPlayerState* InActivatingPlayer, ASHCard* InCardA, ASHCard* InCardB)
+void UCardEffectTask::Initialize(ASHPlayerState* InActivatingPlayer, ASHCard* InCardA, ASHCard* InCardB,
+    FName InEffectPresentationId)
 {
     ActivatingPlayer = InActivatingPlayer;
     CardA = InCardA;
     CardB = InCardB;
+    EffectPresentationId = InEffectPresentationId;
 }
 
 void UCardEffectTask::RequestParticipantSelection(

@@ -32,31 +32,46 @@ void UChooseDrawSourceEffectTask::HandlePlayerSelected(ASHPlayerState* SelectedP
 		const ASHGameState* GameState = GetWorld()->GetGameState<ASHGameState>();
 		checkf(IsValid(GameState), TEXT("Invalid SHGameState"));
 
-		TArray<ASHHand*> SourceCandidates;
+		TArray<ASHPlayerState*> SourceCandidates;
 		for (APlayerState* PlayerState : GameState->PlayerArray)
 		{
-			const ASHPlayerState* SourcePlayer = Cast<ASHPlayerState>(PlayerState);
+			ASHPlayerState* SourcePlayer = Cast<ASHPlayerState>(PlayerState);
 			ASHHand* CandidateHand = IsValid(SourcePlayer) ? SourcePlayer->GetHand() : nullptr;
-			if (IsValid(CandidateHand) && CandidateHand != DrawingPlayer->GetHand() &&
-				CandidateHand->GetCardCount() > 0)
+			if (IsValid(SourcePlayer) && SourcePlayer != DrawingPlayer &&
+				IsValid(CandidateHand) && !CandidateHand->IsLogicalNPC())
 			{
-				SourceCandidates.Add(CandidateHand);
+				SourceCandidates.Add(SourcePlayer);
 			}
 		}
 
 		if (SourceCandidates.IsEmpty())
 		{
 			UE_LOG(LogTemp, Log,
-				TEXT("[SH_CHOOSE_DRAW_SOURCE] Selected drawing player has no valid source; completing the effect"));
+				TEXT("[SH_CHOOSE_DRAW_SOURCE] Selected drawing player has no other human source; completing the effect"));
 			FinishEffect();
 			return;
 		}
 
-		RequestParticipantSelection(SourceCandidates, EPlayerSelectionPurpose::PlayerToDrawFrom);
+		// This is another player choice, so keep using the world-space player
+		// representations instead of requiring a click on one of their cards.
+		// Empty hands remain selectable: forced-draw validation handles a source
+		// that is still empty when that player's draw is actually attempted.
+		RequestPlayerSelection(SourceCandidates, EPlayerSelectionPurpose::PlayerToDrawFrom);
 		return;
 	}
 
-	// The second step is hand-based and is handled by HandleParticipantSelected.
+	ASHGameMode* GameMode = GetTypedOuter<ASHGameMode>();
+	checkf(IsValid(GameMode), TEXT("ChooseDrawSourceEffectTask has no valid GameMode"));
+
+	UTurnComponent* TurnComponent = GameMode->GetTurnComponent();
+	checkf(IsValid(TurnComponent), TEXT("GameMode has no TurnComponent"));
+
+	ASHHand* SelectedHand = IsValid(SelectedPlayer) ? SelectedPlayer->GetHand() : nullptr;
+	if (IsValid(SelectedPlayer) && SelectedPlayer != DrawingPlayer &&
+		IsValid(SelectedHand) && !SelectedHand->IsLogicalNPC())
+	{
+		TurnComponent->SetForcedDrawSource(DrawingPlayer, SelectedPlayer);
+	}
 	FinishEffect();
 }
 
@@ -68,7 +83,7 @@ void UChooseDrawSourceEffectTask::HandleParticipantSelected(ASHHand* SelectedHan
 	UTurnComponent* TurnComponent = GameMode->GetTurnComponent();
 	checkf(IsValid(TurnComponent), TEXT("GameMode has no TurnComponent"));
 
-	if (!IsValid(SelectedHand) || SelectedHand->IsLogicalNPC() || SelectedHand->GetCardCount() <= 0)
+	if (!IsValid(SelectedHand) || SelectedHand->IsLogicalNPC())
 	{
 		UE_LOG(LogTemp, Log,
 			TEXT("[SH_CHOOSE_DRAW_SOURCE] Selected source is invalid, empty, or belongs to an NPC; completing the effect without forcing a source"));

@@ -30,12 +30,236 @@ void ASHPlayerController::Tick(float DeltaSeconds)
 	Super::Tick(DeltaSeconds);
 	KeepDraggedCardAboveOtherCards();
 	UpdateLocalActivatablePairHover();
+	UpdatePairTargetingIndicator();
+}
+
+void ASHPlayerController::StartPairTargetingIndicator(
+	ASHCard* CardA, ASHCard* CardB, FName EffectPresentationId)
+{
+	StopPairTargetingIndicator();
+	if (!IsLocalController() || !IsValid(CardA) || !IsValid(CardB))
+	{
+		return;
+	}
+
+	TargetingSourceCardA = CardA;
+	TargetingSourceCardB = CardB;
+	CurrentTargetingEffectPresentationId = EffectPresentationId;
+	SetCardHoverSuppressedForTargeting(true);
+	TSubclassOf<APairTargetingIndicator> IndicatorClass = PairTargetingIndicatorClass;
+	if (!IndicatorClass)
+	{
+		IndicatorClass = APairTargetingIndicator::StaticClass();
+	}
+	PairTargetingIndicator = GetWorld()->SpawnActor<APairTargetingIndicator>(
+		IndicatorClass, FTransform::Identity);
+	if (IsValid(PairTargetingIndicator))
+	{
+		FPairTargetingIndicatorStyle ResolvedStyle = DefaultPairTargetingStyle;
+		if (const FPairTargetingIndicatorStyle* EffectStyle = PairTargetingStyles.Find(EffectPresentationId))
+		{
+			ResolvedStyle = *EffectStyle;
+			// Asset references left empty in an effect override inherit from the default style.
+			ResolvedStyle.BodyMesh = IsValid(ResolvedStyle.BodyMesh)
+				? ResolvedStyle.BodyMesh : DefaultPairTargetingStyle.BodyMesh;
+			ResolvedStyle.ArrowHeadMesh = IsValid(ResolvedStyle.ArrowHeadMesh)
+				? ResolvedStyle.ArrowHeadMesh : DefaultPairTargetingStyle.ArrowHeadMesh;
+			ResolvedStyle.ValidMaterial = IsValid(ResolvedStyle.ValidMaterial)
+				? ResolvedStyle.ValidMaterial : DefaultPairTargetingStyle.ValidMaterial;
+			ResolvedStyle.InvalidMaterial = IsValid(ResolvedStyle.InvalidMaterial)
+				? ResolvedStyle.InvalidMaterial : DefaultPairTargetingStyle.InvalidMaterial;
+		}
+		UE_LOG(LogTemp, Log,
+			TEXT("[SH_TARGETING_INDICATOR] EffectId=%s BodyMesh=%s ArrowMesh=%s ValidMaterial=%s InvalidMaterial=%s"),
+			*EffectPresentationId.ToString(), *GetNameSafe(ResolvedStyle.BodyMesh),
+			*GetNameSafe(ResolvedStyle.ArrowHeadMesh), *GetNameSafe(ResolvedStyle.ValidMaterial),
+			*GetNameSafe(ResolvedStyle.InvalidMaterial));
+		PairTargetingIndicator->InitializeIndicator(ResolvedStyle, EffectPresentationId);
+		UpdatePairTargetingIndicator();
+	}
+}
+
+void ASHPlayerController::StopPairTargetingIndicator()
+{
+	SetCurrentValidEffectTarget(nullptr);
+	if (IsValid(PairTargetingIndicator))
+	{
+		PairTargetingIndicator->Destroy();
+	}
+	PairTargetingIndicator = nullptr;
+	TargetingSourceCardA = nullptr;
+	TargetingSourceCardB = nullptr;
+	CurrentTargetingEffectPresentationId = NAME_None;
+	SetCardHoverSuppressedForTargeting(false);
+}
+
+void ASHPlayerController::SetCardHoverSuppressedForTargeting(bool bSuppressed)
+{
+	if (bCardHoverSuppressedForTargeting == bSuppressed)
+	{
+		return;
+	}
+	bCardHoverSuppressedForTargeting = bSuppressed;
+	if (bSuppressed)
+	{
+		bSavedEnableMouseOverEvents = bEnableMouseOverEvents;
+		bEnableMouseOverEvents = false;
+	}
+	else
+	{
+		bEnableMouseOverEvents = bSavedEnableMouseOverEvents;
+	}
+
+	for (TActorIterator<ASHCard> It(GetWorld()); It; ++It)
+	{
+		if (IsValid(*It))
+		{
+			It->OnNormalHoverSuppressionChanged(bSuppressed);
+		}
+	}
+
+	// BP_Hand traces the cursor and sets focus every tick independently of
+	// bEnableMouseOverEvents. Block that focus at the native layout source.
+	for (TActorIterator<ASHHand> It(GetWorld()); It; ++It)
+	{
+		ASHHand* Hand = *It;
+		if (!IsValid(Hand))
+		{
+			continue;
+		}
+		TArray<USHHandCardsLayoutComponent*> LayoutComponents;
+		Hand->GetComponents<USHHandCardsLayoutComponent>(LayoutComponents);
+		for (USHHandCardsLayoutComponent* Layout : LayoutComponents)
+		{
+			if (IsValid(Layout))
+			{
+				Layout->SetTargetingFocusSuppressed(bSuppressed);
+			}
+		}
+		Hand->UpdateCardPositions();
+	}
+}
+
+void ASHPlayerController::SetCurrentValidEffectTarget(AActor* NewTarget)
+{
+	if (CurrentValidEffectTarget == NewTarget)
+	{
+		return;
+	}
+	if (ASHCard* PreviousCard = Cast<ASHCard>(CurrentValidEffectTarget))
+	{
+		PreviousCard->OnEffectTargetHoverChanged(false, CurrentTargetingEffectPresentationId);
+	}
+	else if (ASHPlayerRepresentation* PreviousPlayer =
+		Cast<ASHPlayerRepresentation>(CurrentValidEffectTarget))
+	{
+		PreviousPlayer->OnEffectTargetHoverChanged(false, CurrentTargetingEffectPresentationId);
+	}
+
+	CurrentValidEffectTarget = NewTarget;
+	if (ASHCard* NewCard = Cast<ASHCard>(CurrentValidEffectTarget))
+	{
+		NewCard->OnEffectTargetHoverChanged(true, CurrentTargetingEffectPresentationId);
+	}
+	else if (ASHPlayerRepresentation* NewPlayer =
+		Cast<ASHPlayerRepresentation>(CurrentValidEffectTarget))
+	{
+		NewPlayer->OnEffectTargetHoverChanged(true, CurrentTargetingEffectPresentationId);
+	}
+}
+
+bool ASHPlayerController::ResolveTargetingCursor(FVector& OutLocation, bool& bOutValidTarget,
+	AActor*& OutValidTargetActor) const
+{
+	bOutValidTarget = false;
+	OutValidTargetActor = nullptr;
+	FHitResult HitResult;
+	if (GetHitResultUnderCursor(ECC_Visibility, true, HitResult))
+	{
+		OutLocation = HitResult.ImpactPoint;
+		AActor* HitActor = HitResult.GetActor();
+		if (const ASHPlayerRepresentation* Picker = Cast<ASHPlayerRepresentation>(HitActor))
+		{
+			bOutValidTarget = LocalPlayerSelectionCandidates.Contains(Picker->GetRepresentedPlayerState());
+		}
+		else if (const ASHCard* Card = Cast<ASHCard>(HitActor))
+		{
+			bOutValidTarget = LocalActivationPairSelectionCandidates.Contains(Card) ||
+				LocalParticipantSelectionCandidates.Contains(Card->GetOwningHand());
+		}
+		if (bOutValidTarget)
+		{
+			OutValidTargetActor = HitActor;
+		}
+
+		if (IsValid(HitActor))
+		{
+			FVector BoundsOrigin;
+			FVector BoundsExtent;
+			HitActor->GetActorBounds(false, BoundsOrigin, BoundsExtent);
+			OutLocation.Z = FMath::Max(OutLocation.Z, BoundsOrigin.Z + BoundsExtent.Z);
+		}
+		return true;
+	}
+
+	FVector RayOrigin;
+	FVector RayDirection;
+	if (DeprojectMousePositionToWorld(RayOrigin, RayDirection))
+	{
+		const float PlaneZ = IsValid(TargetingSourceCardA)
+			? TargetingSourceCardA->GetActorLocation().Z : 0.0f;
+		const FPlane CursorPlane(FVector(0.0f, 0.0f, PlaneZ), FVector::UpVector);
+		OutLocation = FMath::LinePlaneIntersection(
+			RayOrigin, RayOrigin + RayDirection * HALF_WORLD_MAX, CursorPlane);
+		return true;
+	}
+	return false;
+}
+
+void ASHPlayerController::UpdatePairTargetingIndicator()
+{
+	if (!IsValid(PairTargetingIndicator))
+	{
+		return;
+	}
+	if (!IsValid(TargetingSourceCardA) || !IsValid(TargetingSourceCardB))
+	{
+		StopPairTargetingIndicator();
+		return;
+	}
+
+	FVector End;
+	bool bValidTarget = false;
+	AActor* ValidTargetActor = nullptr;
+	if (!ResolveTargetingCursor(End, bValidTarget, ValidTargetActor))
+	{
+		SetCurrentValidEffectTarget(nullptr);
+		return;
+	}
+	SetCurrentValidEffectTarget(ValidTargetActor);
+	const FVector Start = (TargetingSourceCardA->GetActorLocation() +
+		TargetingSourceCardB->GetActorLocation()) * 0.5f;
+	PairTargetingIndicator->UpdateIndicator(Start, End, bValidTarget);
 }
 
 void ASHPlayerController::UpdateLocalActivatablePairHover()
 {
 	if (!IsLocalController())
 	{
+		return;
+	}
+	if (IsValid(PairTargetingIndicator))
+	{
+		if (IsValid(LastActivatableHoverCard))
+		{
+			if (ASHHand* PreviousVisualHand =
+				FindVisualHandForLogicalHand(LastActivatableHoverCard->GetOwningHand()))
+			{
+				PreviousVisualHand->SetLocalActivatableCardHovered(
+					LastActivatableHoverCard, false);
+			}
+			LastActivatableHoverCard = nullptr;
+		}
 		return;
 	}
 
@@ -117,6 +341,7 @@ void ASHPlayerController::BeginPlay()
 
 void ASHPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	StopPairTargetingIndicator();
 	GetWorldTimerManager().ClearTimer(TableSetupRetryTimer);
 	GetWorldTimerManager().ClearTimer(RotatedHandsReconcileTimer);
 	Super::EndPlay(EndPlayReason);
@@ -604,6 +829,14 @@ void ASHPlayerController::ServerSubmitParticipantSelection_Implementation(ASHHan
 void ASHPlayerController::ClientRequestActivationPairSelection_Implementation(
     const TArray<ASHCard*>& CandidateCards)
 {
+	LocalActivationPairSelectionCandidates.Reset();
+	for (ASHCard* Candidate : CandidateCards)
+	{
+		if (IsValid(Candidate))
+		{
+			LocalActivationPairSelectionCandidates.AddUnique(Candidate);
+		}
+	}
     OnActivationPairSelectionRequested(CandidateCards);
 }
 
@@ -832,6 +1065,49 @@ void ASHPlayerController::ClientReceiveCardDefinition_Implementation(ASHCard* Ca
 			VisualHand->RefreshPairActivationAvailability();
 		}
 	}
+}
+
+void ASHPlayerController::ClientSetPairTargetSelection_Implementation(
+	ASHCard* CardA, ASHCard* CardB, bool bSelectingTarget,
+	FName EffectPresentationId)
+{
+	if (!IsLocalController())
+	{
+		return;
+	}
+
+	// Always process teardown. An effect may move or destroy either source card
+	// before this RPC is received, so invalid card references cannot block cleanup.
+	if (!bSelectingTarget)
+	{
+		if (ASHPlayerState* LocalPS = GetPlayerState<ASHPlayerState>();
+			IsValid(LocalPS) && IsValid(CardA) && IsValid(CardB))
+		{
+			if (ASHHand* VisualHand = FindVisualHandForLogicalHand(LocalPS->GetHand()))
+			{
+				VisualHand->PresentPairTargetSelection(
+					CardA, CardB, false, EffectPresentationId);
+			}
+		}
+		StopPairTargetingIndicator();
+		LocalPlayerSelectionCandidates.Reset();
+		LocalParticipantSelectionCandidates.Reset();
+		LocalActivationPairSelectionCandidates.Reset();
+		return;
+	}
+
+	ASHPlayerState* LocalPS = GetPlayerState<ASHPlayerState>();
+	if (!IsValid(LocalPS) || !IsValid(CardA) || !IsValid(CardB))
+	{
+		StopPairTargetingIndicator();
+		return;
+	}
+	if (ASHHand* VisualHand = FindVisualHandForLogicalHand(LocalPS->GetHand()))
+	{
+		VisualHand->PresentPairTargetSelection(
+			CardA, CardB, true, EffectPresentationId);
+	}
+	StartPairTargetingIndicator(CardA, CardB, EffectPresentationId);
 }
 
 ASHHand* ASHPlayerController::FindVisualHandForPlayer(const ASHPlayerState* InPlayerState) const

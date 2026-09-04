@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "SeaHorse/Gameplay/Cards/Tasks/CardEffectTask.h"
 #include "SHHand.generated.h"
 
 class ASHCard;
@@ -112,6 +113,19 @@ public:
 	/** Local-only hover hook. It is emitted only while this pair can be activated locally. */
 	UFUNCTION(BlueprintImplementableEvent, Category = "Cards|Activation")
 	void OnActivatablePairHoverChanged(ASHCard* CardA, ASHCard* CardB, bool bHovered);
+
+	/** Legacy event retained so existing Blueprint graphs continue to compile. */
+	UFUNCTION(BlueprintImplementableEvent, Category = "Cards|Activation")
+	void OnPairTargetSelectionChanged(ASHCard* CardA, ASHCard* CardB,
+		bool bSelectingTarget, ECardEffectTargetSelectionType SelectionType);
+
+	/** Local owner-only hook, identified by the activated card's effect fragment. */
+	UFUNCTION(BlueprintImplementableEvent, Category = "Cards|Activation")
+	void OnPairEffectTargetSelectionChanged(ASHCard* CardA, ASHCard* CardB,
+		bool bSelectingTarget, FName EffectPresentationId);
+
+	void PresentPairTargetSelection(ASHCard* CardA, ASHCard* CardB,
+		bool bSelectingTarget, FName EffectPresentationId);
 
 	/** Local presentation query; true only for the owning player during their turn. */
 	UFUNCTION(BlueprintPure, Category = "Cards|Activation")

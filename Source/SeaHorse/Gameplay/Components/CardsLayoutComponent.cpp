@@ -142,7 +142,8 @@ void USHHandCardsLayoutComponent::UpdateSingleCardPosition(ASHCard* Card, int32 
 	const FTransform BaseTransform(Rotation, Location, FVector::OneVector);
 	CardsTransforms_WithNoOffsets.Add(Card, BaseTransform);
 
-	const bool bIsFocused = !bSuppressFocusedCardPresentation && Index == FocusedCardIndexValue;
+	const bool bIsFocused = !bSuppressFocusedCardPresentation &&
+		!bSuppressFocusedCardForTargeting && Index == FocusedCardIndexValue;
 	if (bIsFocused || Index == SelectedCardIndexValue)
 	{
 		if (IsValid(TableCenterDirectionComponent))
@@ -160,7 +161,8 @@ void USHHandCardsLayoutComponent::UpdateSingleCardPosition(ASHCard* Card, int32 
 
 double USHHandCardsLayoutComponent::CalculateFocusOffset(int32 Index) const
 {
-	if (bSuppressFocusedCardPresentation || FocusedCardIndexValue == INDEX_NONE ||
+	if (bSuppressFocusedCardPresentation || bSuppressFocusedCardForTargeting ||
+		FocusedCardIndexValue == INDEX_NONE ||
 		Index == FocusedCardIndexValue)
 	{
 		return 0.0;
@@ -170,7 +172,16 @@ double USHHandCardsLayoutComponent::CalculateFocusOffset(int32 Index) const
 
 void USHHandCardsLayoutComponent::SetFocusedCardIndex(int32 FocusedCardIndex)
 {
-	FocusedCardIndexValue = FocusedCardIndex;
+	FocusedCardIndexValue = bSuppressFocusedCardForTargeting ? INDEX_NONE : FocusedCardIndex;
+}
+
+void USHHandCardsLayoutComponent::SetTargetingFocusSuppressed(bool bSuppressed)
+{
+	bSuppressFocusedCardForTargeting = bSuppressed;
+	if (bSuppressed)
+	{
+		FocusedCardIndexValue = INDEX_NONE;
+	}
 }
 
 void USHHandCardsLayoutComponent::SetSelectedCardIndex(int32 SelectedCardIndex)

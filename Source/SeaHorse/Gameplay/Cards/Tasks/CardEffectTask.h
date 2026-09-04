@@ -25,6 +25,16 @@ enum class ECardEffectPairDisposition : uint8
 	MoveToVictoryStack,
 	KeepOnTable
 };
+
+/** Legacy target-kind enum retained for Blueprint asset compatibility. */
+UENUM(BlueprintType)
+enum class ECardEffectTargetSelectionType : uint8
+{
+	Player,
+	Participant,
+	ActivationPair
+};
+
 /**
  * 
  */
@@ -34,7 +44,8 @@ class SEAHORSE_API UCardEffectTask : public UObject
 	GENERATED_BODY()
 	
 public:
-    void Initialize(ASHPlayerState* InActivatingPlayer, ASHCard* InCardA,  ASHCard* InCardB);
+    void Initialize(ASHPlayerState* InActivatingPlayer, ASHCard* InCardA, ASHCard* InCardB,
+        FName InEffectPresentationId);
 
     UFUNCTION(BlueprintNativeEvent)
     void StartEffect();
@@ -57,6 +68,7 @@ public:
     ASHPlayerState* GetActivatingPlayer() const { return ActivatingPlayer; }
     ASHCard* GetCardA() const { return CardA; }
     ASHCard* GetCardB() const { return CardB; }
+    FName GetEffectPresentationId() const { return EffectPresentationId; }
 
 protected:
     UPROPERTY()
@@ -67,4 +79,6 @@ protected:
 
     UPROPERTY()
     TObjectPtr<ASHCard> CardB;
+
+    FName EffectPresentationId;
 };

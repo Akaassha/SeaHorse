@@ -499,6 +499,23 @@ void ASHHand::SetLocalActivatableCardHovered(ASHCard* Card, bool bHovered)
 	}
 }
 
+void ASHHand::PresentPairTargetSelection(ASHCard* CardA, ASHCard* CardB,
+	bool bSelectingTarget, FName EffectPresentationId)
+{
+	const ASHPlayerController* LocalPC = GetWorld()
+		? Cast<ASHPlayerController>(GetWorld()->GetFirstPlayerController()) : nullptr;
+	const ASHPlayerState* LocalPS = IsValid(LocalPC)
+		? LocalPC->GetPlayerState<ASHPlayerState>() : nullptr;
+	if (!IsValid(LocalPC) || !LocalPC->IsLocalController() || !IsValid(LocalPS) ||
+		RepresentedPlayerState != LocalPS || GetRepresentedHand() != LocalPS->GetHand() ||
+		!IsValid(CardA) || !IsValid(CardB))
+	{
+		return;
+	}
+
+	OnPairEffectTargetSelectionChanged(CardA, CardB, bSelectingTarget, EffectPresentationId);
+}
+
 void ASHHand::RefreshPairActivationAvailability()
 {
 	const ASHHand* LogicalHand = GetRepresentedHand();
