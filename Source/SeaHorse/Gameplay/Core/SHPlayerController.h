@@ -165,7 +165,10 @@ protected:
 	bool bTableViewInitialized = false;
 
 private:
+	UFUNCTION()
+	void HandleTurnStateChanged(ASHPlayerState* CurrentPlayer, ETurnPhase TurnPhase);
 	void KeepDraggedCardAboveOtherCards();
+	void UpdateLocalActivatablePairHover();
 	ASHHand* FindVisualHandForPlayer(const ASHPlayerState* PlayerState) const;
 	ASHHand* FindNearestDropHand(const ASHCard* DraggedCard) const;
 	void ReconcileRotatedHandsPresentation();
@@ -182,6 +185,9 @@ private:
 	TArray<TObjectPtr<ASHHand>> LocalGuidedDrawHands;
 	UPROPERTY(Transient)
 	TObjectPtr<ASHCard> LocallyDraggedCard;
+
+	UPROPERTY(Transient)
+	TObjectPtr<ASHCard> LastActivatableHoverCard;
 
 	UPROPERTY(EditDefaultsOnly, Category="Card Drag", meta=(ClampMin="0.0", Units="cm"))
 	double DraggedCardZClearance = 5.0;

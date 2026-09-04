@@ -105,10 +105,24 @@ public:
 	UFUNCTION(BlueprintImplementableEvent, Category = "Cards|Activation")
 	void OnPairReadyForVictory(ASHCard* CardA, ASHCard* CardB);
 
+	/** Local-only presentation hook for showing/hiding an activation indicator. */
+	UFUNCTION(BlueprintImplementableEvent, Category = "Cards|Activation")
+	void OnPairActivationAvailabilityChanged(ASHCard* CardA, ASHCard* CardB, bool bCanActivate);
+
+	/** Local-only hover hook. It is emitted only while this pair can be activated locally. */
+	UFUNCTION(BlueprintImplementableEvent, Category = "Cards|Activation")
+	void OnActivatablePairHoverChanged(ASHCard* CardA, ASHCard* CardB, bool bHovered);
+
+	/** Local presentation query; true only for the owning player during their turn. */
+	UFUNCTION(BlueprintPure, Category = "Cards|Activation")
+	bool CanLocalPlayerActivatePair(ASHCard* Card) const;
+	void SetLocalActivatableCardHovered(ASHCard* Card, bool bHovered);
+
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Cards|Activation")
 	virtual void AddActivationPair(ASHCard* CardA, ASHCard* CardB);
 	void AddActivationPairToLogicalHand(ASHCard* CardA, ASHCard* CardB);
 	void RefreshActivationPairsPresentation();
+	void RefreshPairActivationAvailability();
 	void NotifyPairSettled(ASHCard* CardA, ASHCard* CardB);
 	void PresentPairCreated(ASHCard* CardA, ASHCard* CardB);
 	void PresentStoredPairActivated(ASHCard* CardA, ASHCard* CardB);
@@ -268,6 +282,14 @@ private:
 	/** Prevents multicast and owner RPC delivery from replaying an activation presentation. */
 	UPROPERTY(Transient)
 	TArray<FActivatedPair> PresentedEffectActivations;
+
+	/** Pairs for which the local owner's BP currently shows an activation indicator. */
+	UPROPERTY(Transient)
+	TArray<FActivatedPair> LocallyActivatablePairs;
+
+	UPROPERTY(Transient)
+	FActivatedPair LocallyHoveredActivatablePair;
+	bool bHasLocallyHoveredActivatablePair = false;
 
 	/** Exists on every instance so client-side BP animations can pause local card movement. */
 	TMap<FName, int32> LocalPresentationBlocks;

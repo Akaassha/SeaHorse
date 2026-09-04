@@ -65,6 +65,9 @@ public:
 	void MarkPairingActionUsed() { bPairingActionUsed = true; }
 
 	bool CanActivatePair(ASHPlayerState* RequestingPlayer, const FActivatedPair& ActivatedPair) const;
+	/** Shared server/client rule evaluation. Does not grant authority to activate. */
+	static bool CanActivatePairForState(const ASHGameState* GameState,
+		const ASHPlayerState* RequestingPlayer, const FActivatedPair& ActivatedPair);
 	bool CanDrawCard(ASHPlayerState* DrawingPlayer, ASHPlayerState* SourcePlayer) const;
 	bool CanDrawCardFromHand(ASHPlayerState* DrawingPlayer, ASHHand* SourceHand) const;
 	void HandleCardDrawn(ASHPlayerState* DrawingPlayer, ASHPlayerState* SourcePlayer);

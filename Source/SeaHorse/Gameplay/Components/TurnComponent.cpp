@@ -63,14 +63,19 @@ void UTurnComponent::SkipCurrentPhase(ASHPlayerState* RequestingPlayer)
 
 bool UTurnComponent::CanActivatePair(ASHPlayerState* RequestingPlayer, const FActivatedPair& ActivatedPair) const
 {
+	return CanActivatePairForState(GetSHGameState(), RequestingPlayer, ActivatedPair);
+}
+
+bool UTurnComponent::CanActivatePairForState(const ASHGameState* GameState,
+	const ASHPlayerState* RequestingPlayer, const FActivatedPair& ActivatedPair)
+{
 	if (!IsValid(RequestingPlayer) || !IsValid(ActivatedPair.CardA) ||
 		!IsValid(ActivatedPair.CardB) || ActivatedPair.bActivated)
 	{
 		return false;
 	}
 
-	const ASHGameState* GameState = GetSHGameState();
-	if (GameState->IsGameEnded())
+	if (!IsValid(GameState) || GameState->IsGameEnded())
 	{
 		return false;
 	}

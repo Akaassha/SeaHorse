@@ -83,6 +83,7 @@ void ASHHand::SetRepresentedPlayerState(ASHPlayerState* InPlayerState)
 		PresentedActivationPairs.Reset();
 		SettledActivationPairs.Reset();
 		PresentedEffectActivations.Reset();
+		LocallyActivatablePairs.Reset();
 	}
 	RepresentedPlayerState = InPlayerState;
 	RepresentedLogicalHand = nullptr;
@@ -96,6 +97,7 @@ void ASHHand::SetRepresentedHand(ASHHand* InHand)
 		PresentedActivationPairs.Reset();
 		SettledActivationPairs.Reset();
 		PresentedEffectActivations.Reset();
+		LocallyActivatablePairs.Reset();
 	}
 	RepresentedPlayerState = nullptr;
 	RepresentedLogicalHand = InHand;
@@ -276,6 +278,10 @@ void ASHHand::FinishTurnBlockingEffect(FName EffectId)
 			GameMode->GetTurnComponent()->FinishTurnTransitionBlock(EffectId);
 		}
 	}
+
+	// Ready can replicate while the pair-settled BP timeline is still playing.
+	// Re-evaluate only after the local presentation lock has actually ended.
+	RefreshPairActivationAvailability();
 }
 
 void ASHHand::PresentStoredPairActivated(ASHCard* CardA, ASHCard* CardB)
@@ -412,6 +418,126 @@ void ASHHand::RefreshActivationPairsPresentation()
 			PresentedActivationPairs.Add(Pair);
 		}
 	}
+
+	RefreshPairActivationAvailability();
+}
+
+bool ASHHand::CanLocalPlayerActivatePair(ASHCard* Card) const
+{
+	const ASHPlayerController* LocalPC = GetWorld()
+		? Cast<ASHPlayerController>(GetWorld()->GetFirstPlayerController()) : nullptr;
+	const ASHPlayerState* LocalPS = IsValid(LocalPC)
+		? LocalPC->GetPlayerState<ASHPlayerState>() : nullptr;
+	const ASHGameState* GameState = GetWorld() ? GetWorld()->GetGameState<ASHGameState>() : nullptr;
+	const ASHHand* LogicalHand = GetRepresentedHand();
+	if (!IsValid(LocalPC) || !LocalPC->IsLocalController() ||
+		!IsValid(LocalPS) || !IsValid(GameState) ||
+		RepresentedPlayerState != LocalPS || LogicalHand != LocalPS->GetHand() ||
+		GameState->GetCurrentPlayer() != LocalPS || !LocalPresentationBlocks.IsEmpty())
+	{
+		return false;
+	}
+
+	const FActivatedPair* Pair = LogicalHand->ActivationPairs.FindByPredicate(
+		[Card](const FActivatedPair& Candidate)
+		{
+			return Candidate.CardA == Card || Candidate.CardB == Card;
+		});
+	// CardDefinition is owner-only and may arrive after the pair/state update.
+	// Never interpret missing client data as permission to show the indicator.
+	if (!Pair || !IsValid(Pair->CardA) || !IsValid(Pair->CardB) ||
+		!Pair->CardA->CardDefinition)
+	{
+		return false;
+	}
+	// Gameplay may accept an early click and queue it while the pair is still
+	// being created. The activation indicator, however, must appear only after
+	// the pair has settled on the table and the server has advanced it to Ready.
+	return Pair->State == EActivationPairState::Ready &&
+		UTurnComponent::CanActivatePairForState(GameState, LocalPS, *Pair);
+}
+
+void ASHHand::SetLocalActivatableCardHovered(ASHCard* Card, bool bHovered)
+{
+	const ASHHand* LogicalHand = GetRepresentedHand();
+	const FActivatedPair* Pair = IsValid(LogicalHand)
+		? LogicalHand->ActivationPairs.FindByPredicate(
+			[Card](const FActivatedPair& Candidate)
+			{
+				return Candidate.CardA == Card || Candidate.CardB == Card;
+			})
+		: nullptr;
+
+	if (bHovered)
+	{
+		if (!Pair || !CanLocalPlayerActivatePair(Card))
+		{
+			return;
+		}
+		if (bHasLocallyHoveredActivatablePair && LocallyHoveredActivatablePair == *Pair)
+		{
+			return;
+		}
+		if (bHasLocallyHoveredActivatablePair)
+		{
+			OnActivatablePairHoverChanged(LocallyHoveredActivatablePair.CardA,
+				LocallyHoveredActivatablePair.CardB, false);
+		}
+		LocallyHoveredActivatablePair = *Pair;
+		bHasLocallyHoveredActivatablePair = true;
+		OnActivatablePairHoverChanged(Pair->CardA, Pair->CardB, true);
+		return;
+	}
+
+	if (bHasLocallyHoveredActivatablePair &&
+		(LocallyHoveredActivatablePair.CardA == Card || LocallyHoveredActivatablePair.CardB == Card))
+	{
+		OnActivatablePairHoverChanged(LocallyHoveredActivatablePair.CardA,
+			LocallyHoveredActivatablePair.CardB, false);
+		bHasLocallyHoveredActivatablePair = false;
+		LocallyHoveredActivatablePair = FActivatedPair{};
+	}
+}
+
+void ASHHand::RefreshPairActivationAvailability()
+{
+	const ASHHand* LogicalHand = GetRepresentedHand();
+	TArray<FActivatedPair> NewActivatablePairs;
+	if (IsValid(LogicalHand))
+	{
+		for (const FActivatedPair& Pair : LogicalHand->ActivationPairs)
+		{
+			if (IsValid(Pair.CardA) && IsValid(Pair.CardB) &&
+				CanLocalPlayerActivatePair(Pair.CardA))
+			{
+				NewActivatablePairs.Add(Pair);
+			}
+		}
+	}
+
+	for (const FActivatedPair& PreviousPair : LocallyActivatablePairs)
+	{
+		if (!NewActivatablePairs.Contains(PreviousPair))
+		{
+			if (bHasLocallyHoveredActivatablePair &&
+				LocallyHoveredActivatablePair == PreviousPair)
+			{
+				OnActivatablePairHoverChanged(PreviousPair.CardA, PreviousPair.CardB, false);
+				bHasLocallyHoveredActivatablePair = false;
+				LocallyHoveredActivatablePair = FActivatedPair{};
+			}
+			OnPairActivationAvailabilityChanged(
+				PreviousPair.CardA, PreviousPair.CardB, false);
+		}
+	}
+	for (const FActivatedPair& NewPair : NewActivatablePairs)
+	{
+		if (!LocallyActivatablePairs.Contains(NewPair))
+		{
+			OnPairActivationAvailabilityChanged(NewPair.CardA, NewPair.CardB, true);
+		}
+	}
+	LocallyActivatablePairs = MoveTemp(NewActivatablePairs);
 }
 
 // Called every frame

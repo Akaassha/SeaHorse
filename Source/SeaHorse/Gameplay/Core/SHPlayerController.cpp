@@ -29,6 +29,49 @@ void ASHPlayerController::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 	KeepDraggedCardAboveOtherCards();
+	UpdateLocalActivatablePairHover();
+}
+
+void ASHPlayerController::UpdateLocalActivatablePairHover()
+{
+	if (!IsLocalController())
+	{
+		return;
+	}
+
+	FHitResult HitResult;
+	GetHitResultUnderCursor(ECC_Visibility, true, HitResult);
+	ASHCard* CardUnderCursor = Cast<ASHCard>(HitResult.GetActor());
+	ASHHand* HoverVisualHand = IsValid(CardUnderCursor)
+		? FindVisualHandForLogicalHand(CardUnderCursor->GetOwningHand()) : nullptr;
+	if (!IsValid(HoverVisualHand) || !HoverVisualHand->CanLocalPlayerActivatePair(CardUnderCursor))
+	{
+		CardUnderCursor = nullptr;
+		HoverVisualHand = nullptr;
+	}
+	if (CardUnderCursor == LastActivatableHoverCard)
+	{
+		return;
+	}
+
+	if (IsValid(LastActivatableHoverCard))
+	{
+		if (ASHHand* PreviousVisualHand =
+			FindVisualHandForLogicalHand(LastActivatableHoverCard->GetOwningHand()))
+		{
+			PreviousVisualHand->SetLocalActivatableCardHovered(
+				LastActivatableHoverCard, false);
+		}
+	}
+
+	LastActivatableHoverCard = CardUnderCursor;
+	if (IsValid(CardUnderCursor))
+	{
+		if (IsValid(HoverVisualHand))
+		{
+			HoverVisualHand->SetLocalActivatableCardHovered(CardUnderCursor, true);
+		}
+	}
 }
 
 void ASHPlayerController::KeepDraggedCardAboveOtherCards()
@@ -626,6 +669,8 @@ void ASHPlayerController::SetupTableView()
         GetWorld()->GetGameState<ASHGameState>();
 
     checkf(IsValid(SHGameState), TEXT("Invalid SHGameState"));
+	SHGameState->OnTurnStateChanged.RemoveDynamic(this, &ASHPlayerController::HandleTurnStateChanged);
+	SHGameState->OnTurnStateChanged.AddDynamic(this, &ASHPlayerController::HandleTurnStateChanged);
 
     ASHPlayerState* LocalPlayerState =
         GetPlayerState<ASHPlayerState>();
@@ -723,6 +768,19 @@ void ASHPlayerController::SetupTableView()
 
 }
 
+void ASHPlayerController::HandleTurnStateChanged(ASHPlayerState* CurrentPlayer, ETurnPhase TurnPhase)
+{
+	ASHPlayerState* LocalPS = GetPlayerState<ASHPlayerState>();
+	if (!IsLocalController() || !IsValid(LocalPS))
+	{
+		return;
+	}
+	if (ASHHand* VisualHand = FindVisualHandForLogicalHand(LocalPS->GetHand()))
+	{
+		VisualHand->RefreshPairActivationAvailability();
+	}
+}
+
 int32 ASHPlayerController::GetVisualSeatIndex(int32 PlayerSeatIndex, int32 PlayerCount) const
 {
     ASHPlayerState* LocalPlayerState = GetPlayerState<ASHPlayerState>();
@@ -766,6 +824,14 @@ void ASHPlayerController::ClientReceiveCardDefinition_Implementation(ASHCard* Ca
 
     Card->ApplyOwnerCardDefinition(CardDefinition);
     Card->SetFaceUp(true);
+
+	if (ASHPlayerState* LocalPS = GetPlayerState<ASHPlayerState>())
+	{
+		if (ASHHand* VisualHand = FindVisualHandForLogicalHand(LocalPS->GetHand()))
+		{
+			VisualHand->RefreshPairActivationAvailability();
+		}
+	}
 }
 
 ASHHand* ASHPlayerController::FindVisualHandForPlayer(const ASHPlayerState* InPlayerState) const
