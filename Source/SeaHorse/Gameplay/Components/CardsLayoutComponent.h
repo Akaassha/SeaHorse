@@ -108,6 +108,9 @@ protected:
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Cards Layout")
 	int32 SelectedCardIndexValue = INDEX_NONE;
 
+	/** Prevents hover focus from fighting the temporary gap shown for a dragged card. */
+	bool bSuppressFocusedCardPresentation = false;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Cards Layout")
 	double FocusSpreadDistance = 0.0;
 

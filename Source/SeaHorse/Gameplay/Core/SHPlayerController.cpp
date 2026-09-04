@@ -17,6 +17,50 @@
 #include "SeaHorse/Gameplay/Cards/Fragments/CardEffectFragment.h"
 #include "TimerManager.h"
 #include "InputKeyEventArgs.h"
+#include "EngineUtils.h"
+
+ASHPlayerController::ASHPlayerController()
+{
+	PrimaryActorTick.bCanEverTick = true;
+	PrimaryActorTick.TickGroup = TG_PostUpdateWork;
+}
+
+void ASHPlayerController::Tick(float DeltaSeconds)
+{
+	Super::Tick(DeltaSeconds);
+	KeepDraggedCardAboveOtherCards();
+}
+
+void ASHPlayerController::KeepDraggedCardAboveOtherCards()
+{
+	if (!IsLocalController() || !IsValid(LocallyDraggedCard))
+	{
+		return;
+	}
+
+	// NPC stack cards inherit the stack actor scale. Once a card is being
+	// dragged, present it at the same neutral scale used by a player's hand.
+	// The destination/source layout takes the scale back over after release.
+	LocallyDraggedCard->SetActorScale3D(FVector::OneVector);
+
+	double HighestOtherCardZ = -TNumericLimits<double>::Max();
+	for (TActorIterator<ASHCard> It(GetWorld()); It; ++It)
+	{
+		const ASHCard* OtherCard = *It;
+		if (IsValid(OtherCard) && OtherCard != LocallyDraggedCard)
+		{
+			HighestOtherCardZ = FMath::Max(HighestOtherCardZ,
+				static_cast<double>(OtherCard->GetActorLocation().Z));
+		}
+	}
+
+	if (HighestOtherCardZ > -TNumericLimits<double>::Max())
+	{
+		FVector DragLocation = LocallyDraggedCard->GetActorLocation();
+		DragLocation.Z = HighestOtherCardZ + DraggedCardZClearance;
+		LocallyDraggedCard->SetActorLocation(DragLocation);
+	}
+}
 
 void ASHPlayerController::BeginPlay()
 {

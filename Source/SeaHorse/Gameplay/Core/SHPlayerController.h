@@ -47,6 +47,8 @@ class SEAHORSE_API ASHPlayerController : public APlayerController
 	GENERATED_BODY()
 
 public:
+	ASHPlayerController();
+	virtual void Tick(float DeltaSeconds) override;
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	virtual bool InputKey(const FInputKeyEventArgs& Params) override;
@@ -163,6 +165,7 @@ protected:
 	bool bTableViewInitialized = false;
 
 private:
+	void KeepDraggedCardAboveOtherCards();
 	ASHHand* FindVisualHandForPlayer(const ASHPlayerState* PlayerState) const;
 	ASHHand* FindNearestDropHand(const ASHCard* DraggedCard) const;
 	void ReconcileRotatedHandsPresentation();
@@ -179,6 +182,9 @@ private:
 	TArray<TObjectPtr<ASHHand>> LocalGuidedDrawHands;
 	UPROPERTY(Transient)
 	TObjectPtr<ASHCard> LocallyDraggedCard;
+
+	UPROPERTY(EditDefaultsOnly, Category="Card Drag", meta=(ClampMin="0.0", Units="cm"))
+	double DraggedCardZClearance = 5.0;
 	UPROPERTY(Transient)
 	TObjectPtr<ASHCard> LastPreviewCard;
 	int32 LastPreviewInsertIndex = INDEX_NONE;

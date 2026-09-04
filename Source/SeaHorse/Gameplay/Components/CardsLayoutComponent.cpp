@@ -83,6 +83,7 @@ void USHHandCardsLayoutComponent::UpdateCardsPositions(const TArray<ASHCard*>& C
 	ASHCard* PreviewCard = nullptr;
 	int32 PreviewInsertIndex = INDEX_NONE;
 	const bool bShowDropPreview = GetExternalCardDropPreview(PreviewCard, PreviewInsertIndex);
+	bSuppressFocusedCardPresentation = bShowDropPreview;
 	const bool bOwnCardReorder = bShowDropPreview && IsValid(PreviewCard) &&
 		PreviewCard->GetOwningHand() == OwningHand->GetRepresentedHand();
 
@@ -141,7 +142,8 @@ void USHHandCardsLayoutComponent::UpdateSingleCardPosition(ASHCard* Card, int32 
 	const FTransform BaseTransform(Rotation, Location, FVector::OneVector);
 	CardsTransforms_WithNoOffsets.Add(Card, BaseTransform);
 
-	if (Index == FocusedCardIndexValue || Index == SelectedCardIndexValue)
+	const bool bIsFocused = !bSuppressFocusedCardPresentation && Index == FocusedCardIndexValue;
+	if (bIsFocused || Index == SelectedCardIndexValue)
 	{
 		if (IsValid(TableCenterDirectionComponent))
 		{
@@ -158,7 +160,8 @@ void USHHandCardsLayoutComponent::UpdateSingleCardPosition(ASHCard* Card, int32 
 
 double USHHandCardsLayoutComponent::CalculateFocusOffset(int32 Index) const
 {
-	if (FocusedCardIndexValue == INDEX_NONE || Index == FocusedCardIndexValue)
+	if (bSuppressFocusedCardPresentation || FocusedCardIndexValue == INDEX_NONE ||
+		Index == FocusedCardIndexValue)
 	{
 		return 0.0;
 	}
