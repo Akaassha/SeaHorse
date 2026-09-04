@@ -57,8 +57,6 @@ public:
 	UFUNCTION(BlueprintCallable)
 	void TrySetupTableView();
 
-	bool IsTableViewInitialized() { return bTableViewInitialized; }
-
 	/** Local drag preview used by hand layout components. Gameplay remains server authoritative. */
 	void BeginLocalCardDrag(ASHCard* Card);
 	void EndLocalCardDrag(ASHCard* Card);
@@ -96,7 +94,8 @@ public:
 	ASHPlayerState* FindPlayerStateForCard(const ASHCard* Card) const;
 
 	UFUNCTION(Client, Reliable)
-	void ClientRequestPlayerSelection(const TArray<ASHPlayerState*>& Candidates, EPlayerSelectionPurpose Purpose);
+	void ClientRequestPlayerSelection(const TArray<ASHPlayerState*>& Candidates,
+		EPlayerSelectionPurpose Purpose);
 
 	UFUNCTION(BlueprintImplementableEvent, Category = "Card Effects")
 	void OnPlayerSelectionRequested(const TArray<ASHPlayerState*>& Candidates, EPlayerSelectionPurpose Purpose);
@@ -181,6 +180,8 @@ private:
 		AActor*& OutValidTargetActor) const;
 	void SetCardHoverSuppressedForTargeting(bool bSuppressed);
 	void SetCurrentValidEffectTarget(AActor* NewTarget);
+	void ClearLocalPlayerSelection();
+	void ClearLocalEffectSelectionState();
 	ASHHand* FindVisualHandForPlayer(const ASHPlayerState* PlayerState) const;
 	ASHHand* FindNearestDropHand(const ASHCard* DraggedCard) const;
 	void ReconcileRotatedHandsPresentation();

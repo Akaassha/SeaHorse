@@ -10,6 +10,7 @@
 void UCardEffectTask::Initialize(ASHPlayerState* InActivatingPlayer, ASHCard* InCardA, ASHCard* InCardB,
     FName InEffectPresentationId)
 {
+	bFinished = false;
     ActivatingPlayer = InActivatingPlayer;
     CardA = InCardA;
     CardB = InCardB;
@@ -20,6 +21,10 @@ void UCardEffectTask::RequestParticipantSelection(
     const TArray<ASHHand*>& Candidates,
     EPlayerSelectionPurpose Purpose)
 {
+	if (bFinished)
+	{
+		return;
+	}
     ASHGameMode* GameMode = GetTypedOuter<ASHGameMode>();
     checkf(IsValid(GameMode), TEXT("CardEffectTask has no valid GameMode"));
     GameMode->RequestParticipantSelection(this, ActivatingPlayer, Candidates, Purpose);
@@ -33,6 +38,12 @@ void UCardEffectTask::StartEffect_Implementation()
 
 void UCardEffectTask::FinishEffect()
 {
+	if (bFinished)
+	{
+		return;
+	}
+	bFinished = true;
+
     ASHGameMode* GameMode = GetTypedOuter<ASHGameMode>();
     checkf(IsValid(GameMode), TEXT("CardEffectTask has no valid GameMode"));
 
@@ -48,6 +59,10 @@ void UCardEffectTask::RequestPlayerSelection(
     const TArray<ASHPlayerState*>& Candidates,
     EPlayerSelectionPurpose Purpose)
 {
+	if (bFinished)
+	{
+		return;
+	}
     ASHGameMode* GameMode = GetTypedOuter<ASHGameMode>();
     checkf(IsValid(GameMode), TEXT("CardEffectTask has no valid GameMode"));
     GameMode->RequestPlayerSelection(this, ActivatingPlayer, Candidates, Purpose);
@@ -65,6 +80,10 @@ void UCardEffectTask::HandleParticipantSelected(ASHHand* SelectedHand)
 
 bool UCardEffectTask::RequestActivationPairSelection(const TArray<ASHCard*>& CandidateCards)
 {
+	if (bFinished)
+	{
+		return false;
+	}
     ASHGameMode* GameMode = GetTypedOuter<ASHGameMode>();
     checkf(IsValid(GameMode), TEXT("CardEffectTask has no valid GameMode"));
     return GameMode->RequestActivationPairSelection(this, ActivatingPlayer, CandidateCards);

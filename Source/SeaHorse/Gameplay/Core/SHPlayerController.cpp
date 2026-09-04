@@ -546,7 +546,7 @@ void ASHPlayerController::ClientRequestPlayerSelection_Implementation(
     const TArray<ASHPlayerState*>& Candidates,
     EPlayerSelectionPurpose Purpose)
 {
-	LocalPlayerSelectionCandidates.Reset();
+	ClearLocalPlayerSelection();
 	for (ASHPlayerState* Candidate : Candidates)
 	{
 		if (IsValid(Candidate))
@@ -601,23 +601,38 @@ bool ASHPlayerController::TrySubmitPlayerSelectionForPicker(ASHPlayerState* Sele
 
 	if (IsValid(SelectedPlayer) && LocalPlayerSelectionCandidates.Contains(SelectedPlayer))
 	{
-		LocalPlayerSelectionCandidates.Reset();
-		const ASHGameState* GameState = GetWorld()->GetGameState<ASHGameState>();
-		if (IsValid(GameState))
-		{
-			for (ASHHand* LogicalHand : GameState->GetParticipantHands())
-			{
-				ASHHand* VisualHand = FindVisualHandForLogicalHand(LogicalHand);
-				if (ASHPlayerRepresentation* Picker = IsValid(VisualHand) ? VisualHand->GetPlayerPicker() : nullptr)
-				{
-					Picker->SetSelectable(false);
-				}
-			}
-		}
+		ClearLocalPlayerSelection();
 		ServerSubmitPlayerSelection(SelectedPlayer);
 	}
 
 	return true;
+}
+
+void ASHPlayerController::ClearLocalPlayerSelection()
+{
+	LocalPlayerSelectionCandidates.Reset();
+	const ASHGameState* GameState = GetWorld() ? GetWorld()->GetGameState<ASHGameState>() : nullptr;
+	if (!IsValid(GameState))
+	{
+		return;
+	}
+
+	for (ASHHand* LogicalHand : GameState->GetParticipantHands())
+	{
+		ASHHand* VisualHand = FindVisualHandForLogicalHand(LogicalHand);
+		if (ASHPlayerRepresentation* Picker =
+			IsValid(VisualHand) ? VisualHand->GetPlayerPicker() : nullptr)
+		{
+			Picker->SetSelectable(false);
+		}
+	}
+}
+
+void ASHPlayerController::ClearLocalEffectSelectionState()
+{
+	ClearLocalPlayerSelection();
+	LocalParticipantSelectionCandidates.Reset();
+	LocalActivationPairSelectionCandidates.Reset();
 }
 
 void ASHPlayerController::ClientRequestAdditionalCardDraw_Implementation(const TArray<ASHPlayerState*>& ValidSources)
@@ -744,7 +759,8 @@ void ASHPlayerController::ReconcileRotatedHandsPresentation()
 	}
 }
 
-void ASHPlayerController::ServerSubmitPlayerSelection_Implementation(ASHPlayerState* SelectedPlayer)
+void ASHPlayerController::ServerSubmitPlayerSelection_Implementation(
+	ASHPlayerState* SelectedPlayer)
 {
     ASHGameMode* GameMode = GetWorld()->GetAuthGameMode<ASHGameMode>();
     ASHPlayerState* SelectingPlayer = GetPlayerState<ASHPlayerState>();
@@ -757,7 +773,7 @@ void ASHPlayerController::ServerSubmitPlayerSelection_Implementation(ASHPlayerSt
 
     if (IsValid(GameMode) && IsValid(SelectingPlayer))
     {
-        GameMode->SubmitPlayerSelection(SelectingPlayer, SelectedPlayer);
+		GameMode->SubmitPlayerSelection(SelectingPlayer, SelectedPlayer);
     }
 }
 
@@ -1090,9 +1106,7 @@ void ASHPlayerController::ClientSetPairTargetSelection_Implementation(
 			}
 		}
 		StopPairTargetingIndicator();
-		LocalPlayerSelectionCandidates.Reset();
-		LocalParticipantSelectionCandidates.Reset();
-		LocalActivationPairSelectionCandidates.Reset();
+		ClearLocalEffectSelectionState();
 		return;
 	}
 

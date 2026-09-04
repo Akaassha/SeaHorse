@@ -195,7 +195,7 @@ void USHHandCardsLayoutComponent::RemoveCardFromLayout(ASHCard* Card)
 	CardsTransforms.Remove(Card);
 }
 
-void USHHandCardsLayoutComponent::SetDreggedCard(ASHCard* Card)
+void USHHandCardsLayoutComponent::SetDraggedCard(ASHCard* Card)
 {
 	ASHCard* PreviousCard = DraggedCard;
 	DraggedCard = Card;
@@ -211,6 +211,11 @@ void USHHandCardsLayoutComponent::SetDreggedCard(ASHCard* Card)
 			PC->EndLocalCardDrag(PreviousCard);
 		}
 	}
+}
+
+void USHHandCardsLayoutComponent::SetDreggedCard(ASHCard* Card)
+{
+	SetDraggedCard(Card);
 }
 
 double USHHandCardsLayoutComponent::GetDistanceToLayout(const FVector& WorldLocation) const
@@ -314,7 +319,7 @@ int32 USHHandCardsLayoutComponent::CalculateDropInsertIndex(const ASHCard* Previ
 	return BestIndex;
 }
 
-void USHHandCardsLayoutComponent::UpdateNPCCardsPositons(const TArray<ASHCard*>& Cards)
+void USHHandCardsLayoutComponent::UpdateNPCCardsPositions(const TArray<ASHCard*>& Cards)
 {
 	if (!bInitialized || !IsValid(OwnerSpline))
 	{
@@ -341,6 +346,11 @@ void USHHandCardsLayoutComponent::UpdateNPCCardsPositons(const TArray<ASHCard*>&
 		CardsTransforms.Add(Card, Target);
 		CardsTransforms_WithNoOffsets.Add(Card, Target);
 	}
+}
+
+void USHHandCardsLayoutComponent::UpdateNPCCardsPositons(const TArray<ASHCard*>& Cards)
+{
+	UpdateNPCCardsPositions(Cards);
 }
 
 void USHActivatableCardsLayoutComponent::UpdateCardsPositions(const TArray<ASHCard*>& Cards)

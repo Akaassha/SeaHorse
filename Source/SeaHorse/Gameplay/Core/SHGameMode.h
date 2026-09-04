@@ -61,8 +61,6 @@ public:
 	bool HasActiveEffectTasks() const { return !ActiveEffectTasks.IsEmpty(); }
 	void PassHandsToLeft();
 	void MoveAllActivationPairsToVictoryStacks();
-	bool TransferCardToPlayer(ASHPlayerState* FromPlayer, ASHPlayerState* ToPlayer,
-		TSubclassOf<class UCardDefinition> CardDefinition);
 	bool TransferCardToHand(ASHHand* FromHand, ASHHand* ToHand,
 		TSubclassOf<class UCardDefinition> CardDefinition);
 
@@ -75,15 +73,14 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Systems")
 	TSubclassOf<UDeckComponent> DeckComponentClass;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Cards")
-	TSubclassOf<ASHHand> HandClass;
-
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Players", meta = (ClampMin = "2", ClampMax = "4"))
 	int32 ExpectedPlayerCount = 3;
 
 private:
 	void SetPairTargetSelectionPresentation(UCardEffectTask* Task,
-		ASHPlayerState* SelectingPlayer, bool bSelectingTarget) const;
+		ASHPlayerState* SelectingPlayer, bool bSelectingTarget);
+	bool HasPendingSelection(UCardEffectTask* Task, ASHPlayerState* SelectingPlayer) const;
+	void FinishSelectionStep(UCardEffectTask* Task, ASHPlayerState* SelectingPlayer);
 	void TryStartGame();
 	void StartGame();
 	void AssignSeats();
@@ -132,6 +129,7 @@ private:
 	{
 		TObjectPtr<UCardEffectTask> Task;
 		TArray<TObjectPtr<ASHPlayerState>> Candidates;
+		EPlayerSelectionPurpose Purpose;
 	};
 
 	TMap<TObjectPtr<ASHPlayerState>, FPendingPlayerSelection> PendingPlayerSelections;
@@ -151,6 +149,10 @@ private:
 	};
 
 	TMap<TObjectPtr<ASHPlayerState>, FPendingPairSelection> PendingPairSelections;
+
+	/** Server bookkeeping for one continuous, possibly multi-step local targeting session. */
+	UPROPERTY(Transient)
+	TMap<TObjectPtr<ASHPlayerState>, TObjectPtr<UCardEffectTask>> ActiveTargetPresentations;
 
 	static constexpr int32 TotalSeatCount = 4;
 };

@@ -75,22 +75,3 @@ void UChooseDrawSourceEffectTask::HandlePlayerSelected(ASHPlayerState* SelectedP
 	FinishEffect();
 }
 
-void UChooseDrawSourceEffectTask::HandleParticipantSelected(ASHHand* SelectedHand)
-{
-	ASHGameMode* GameMode = GetTypedOuter<ASHGameMode>();
-	checkf(IsValid(GameMode), TEXT("ChooseDrawSourceEffectTask has no valid GameMode"));
-
-	UTurnComponent* TurnComponent = GameMode->GetTurnComponent();
-	checkf(IsValid(TurnComponent), TEXT("GameMode has no TurnComponent"));
-
-	if (!IsValid(SelectedHand) || SelectedHand->IsLogicalNPC())
-	{
-		UE_LOG(LogTemp, Log,
-			TEXT("[SH_CHOOSE_DRAW_SOURCE] Selected source is invalid, empty, or belongs to an NPC; completing the effect without forcing a source"));
-		FinishEffect();
-		return;
-	}
-
-	TurnComponent->SetForcedDrawSourceHand(DrawingPlayer, SelectedHand);
-	FinishEffect();
-}

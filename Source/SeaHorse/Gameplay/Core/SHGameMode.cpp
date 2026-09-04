@@ -228,14 +228,56 @@ void ASHGameMode::StartGame()
 // ***** Begin Card Effects *****
 
 void ASHGameMode::SetPairTargetSelectionPresentation(UCardEffectTask* Task,
-	ASHPlayerState* SelectingPlayer, bool bSelectingTarget) const
+	ASHPlayerState* SelectingPlayer, bool bSelectingTarget)
 {
 	ASHPlayerController* Controller = IsValid(SelectingPlayer)
 		? Cast<ASHPlayerController>(SelectingPlayer->GetOwner()) : nullptr;
-	if (IsValid(Task) && IsValid(Controller) && IsValid(Task->GetCardA()) && IsValid(Task->GetCardB()))
+	if (!IsValid(Task) || !IsValid(Controller))
 	{
-		Controller->ClientSetPairTargetSelection(Task->GetCardA(), Task->GetCardB(),
-			bSelectingTarget, Task->GetEffectPresentationId());
+		return;
+	}
+
+	if (bSelectingTarget)
+	{
+		if (ActiveTargetPresentations.FindRef(SelectingPlayer) == Task)
+		{
+			return;
+		}
+		if (!IsValid(Task->GetCardA()) || !IsValid(Task->GetCardB()))
+		{
+			return;
+		}
+		ActiveTargetPresentations.Add(SelectingPlayer, Task);
+	}
+	else
+	{
+		if (ActiveTargetPresentations.FindRef(SelectingPlayer) != Task)
+		{
+			return;
+		}
+		ActiveTargetPresentations.Remove(SelectingPlayer);
+	}
+
+	Controller->ClientSetPairTargetSelection(Task->GetCardA(), Task->GetCardB(),
+		bSelectingTarget, Task->GetEffectPresentationId());
+}
+
+bool ASHGameMode::HasPendingSelection(
+	UCardEffectTask* Task, ASHPlayerState* SelectingPlayer) const
+{
+	const FPendingPlayerSelection* PlayerSelection = PendingPlayerSelections.Find(SelectingPlayer);
+	const FPendingParticipantSelection* ParticipantSelection = PendingParticipantSelections.Find(SelectingPlayer);
+	const FPendingPairSelection* PairSelection = PendingPairSelections.Find(SelectingPlayer);
+	return (PlayerSelection && PlayerSelection->Task == Task) ||
+		(ParticipantSelection && ParticipantSelection->Task == Task) ||
+		(PairSelection && PairSelection->Task == Task);
+}
+
+void ASHGameMode::FinishSelectionStep(UCardEffectTask* Task, ASHPlayerState* SelectingPlayer)
+{
+	if (!HasPendingSelection(Task, SelectingPlayer))
+	{
+		SetPairTargetSelectionPresentation(Task, SelectingPlayer, false);
 	}
 }
 void ASHGameMode::MovePairToVictoryStack(ASHPlayerState* PlayerState, ASHCard* CardA, ASHCard* CardB)
@@ -306,6 +348,10 @@ void ASHGameMode::CardActivateEffect(ASHPlayerState* InActivatingPlayer, ASHCard
 void ASHGameMode::FinishEffectTask(UCardEffectTask* CardEffectTask)
 {
     checkf(IsValid(CardEffectTask), TEXT("Invalid EffectTask"));
+	if (!ActiveEffectTasks.Contains(CardEffectTask))
+	{
+		return;
+	}
 
     ASHPlayerState* ActivatingPlayer = CardEffectTask->GetActivatingPlayer();
 
@@ -339,6 +385,23 @@ void ASHGameMode::FinishEffectTask(UCardEffectTask* CardEffectTask)
             It.RemoveCurrent();
         }
     }
+
+	// Presentation bookkeeping is intentionally independent of the pending
+	// selection containers so an externally completed/cancelled task cannot
+	// leave a local targeting session behind.
+	TArray<TObjectPtr<ASHPlayerState>> PresentationOwners;
+	for (const TPair<TObjectPtr<ASHPlayerState>, TObjectPtr<UCardEffectTask>>& Entry
+		: ActiveTargetPresentations)
+	{
+		if (Entry.Value == CardEffectTask)
+		{
+			PresentationOwners.Add(Entry.Key);
+		}
+	}
+	for (ASHPlayerState* PresentationOwner : PresentationOwners)
+	{
+		SetPairTargetSelectionPresentation(CardEffectTask, PresentationOwner, false);
+	}
 
 	const ECardEffectPairDisposition PairDisposition = CardEffectTask->GetPairDisposition();
 	ActiveEffectTasks.Remove(CardEffectTask);
@@ -636,19 +699,6 @@ void ASHGameMode::MoveAllActivationPairsToVictoryStacks()
 	}
 }
 
-bool ASHGameMode::TransferCardToPlayer(
-	ASHPlayerState* FromPlayer,
-	ASHPlayerState* ToPlayer,
-	TSubclassOf<UCardDefinition> CardDefinition)
-{
-	checkf(HasAuthority(), TEXT("Cards can only be transferred on the server"));
-
-	return TransferCardToHand(
-		IsValid(FromPlayer) ? FromPlayer->GetHand() : nullptr,
-		IsValid(ToPlayer) ? ToPlayer->GetHand() : nullptr,
-		CardDefinition);
-}
-
 bool ASHGameMode::TransferCardToHand(
 	ASHHand* SourceHand,
 	ASHHand* TargetHand,
@@ -725,11 +775,11 @@ void ASHGameMode::SubmitParticipantSelection(ASHPlayerState* SelectingPlayer, AS
 
     UCardEffectTask* Task = Pending->Task;
     PendingParticipantSelections.Remove(SelectingPlayer);
-	SetPairTargetSelectionPresentation(Task, SelectingPlayer, false);
     if (IsValid(Task) && ActiveEffectTasks.Contains(Task))
     {
         Task->HandleParticipantSelected(SelectedHand);
     }
+	FinishSelectionStep(Task, SelectingPlayer);
 }
 
 void ASHGameMode::RequestPlayerSelection(
@@ -747,6 +797,7 @@ void ASHGameMode::RequestPlayerSelection(
 
     FPendingPlayerSelection& PendingSelection = PendingPlayerSelections.Add(SelectingPlayer);
     PendingSelection.Task = Task;
+	PendingSelection.Purpose = Purpose;
     for (ASHPlayerState* Candidate : Candidates)
     {
         if (IsValid(Candidate))
@@ -767,13 +818,15 @@ void ASHGameMode::RequestPlayerSelection(
         ClientCandidates.Add(Candidate);
     }
 	SetPairTargetSelectionPresentation(Task, SelectingPlayer, true);
-    SelectingController->ClientRequestPlayerSelection(ClientCandidates, Purpose);
+	SelectingController->ClientRequestPlayerSelection(ClientCandidates, Purpose);
 }
 
-void ASHGameMode::SubmitPlayerSelection(ASHPlayerState* SelectingPlayer, ASHPlayerState* SelectedPlayer)
+void ASHGameMode::SubmitPlayerSelection(ASHPlayerState* SelectingPlayer,
+	ASHPlayerState* SelectedPlayer)
 {
     FPendingPlayerSelection* PendingSelection = PendingPlayerSelections.Find(SelectingPlayer);
-    if (!PendingSelection || !IsValid(SelectedPlayer) || !PendingSelection->Candidates.Contains(SelectedPlayer))
+	if (!PendingSelection || !IsValid(SelectedPlayer) ||
+		!PendingSelection->Candidates.Contains(SelectedPlayer))
     {
         FString CandidateNames;
         if (PendingSelection)
@@ -794,6 +847,27 @@ void ASHGameMode::SubmitPlayerSelection(ASHPlayerState* SelectingPlayer, ASHPlay
             *GetNameSafe(SelectedPlayer),
             PendingSelection != nullptr,
             *CandidateNames);
+
+		// The client may have optimistically cleared its pickers, or a duplicate
+		// click from the previous step may arrive after a multi-step transition.
+		// Re-send the authoritative current request so the game cannot deadlock.
+		if (PendingSelection)
+		{
+			if (ASHPlayerController* Controller =
+				Cast<ASHPlayerController>(SelectingPlayer->GetOwner()))
+			{
+				TArray<ASHPlayerState*> ClientCandidates;
+				for (ASHPlayerState* Candidate : PendingSelection->Candidates)
+				{
+					if (IsValid(Candidate))
+					{
+						ClientCandidates.Add(Candidate);
+					}
+				}
+				Controller->ClientRequestPlayerSelection(
+					ClientCandidates, PendingSelection->Purpose);
+			}
+		}
         return;
     }
 
@@ -804,12 +878,12 @@ void ASHGameMode::SubmitPlayerSelection(ASHPlayerState* SelectingPlayer, ASHPlay
 
     UCardEffectTask* Task = PendingSelection->Task;
     PendingPlayerSelections.Remove(SelectingPlayer);
-	SetPairTargetSelectionPresentation(Task, SelectingPlayer, false);
 
     if (IsValid(Task) && ActiveEffectTasks.Contains(Task))
     {
         Task->HandlePlayerSelected(SelectedPlayer);
     }
+	FinishSelectionStep(Task, SelectingPlayer);
 }
 
 bool ASHGameMode::RequestActivationPairSelection(
@@ -896,7 +970,6 @@ bool ASHGameMode::SubmitActivationPairSelection(ASHPlayerState* SelectingPlayer,
 
     UCardEffectTask* Task = Pending->Task;
     PendingPairSelections.Remove(SelectingPlayer);
-	SetPairTargetSelectionPresentation(Task, SelectingPlayer, false);
     if (ASHPlayerController* Controller = Cast<ASHPlayerController>(SelectingPlayer->GetOwner()))
     {
         Controller->ClientRequestActivationPairSelection({});
@@ -905,6 +978,7 @@ bool ASHGameMode::SubmitActivationPairSelection(ASHPlayerState* SelectingPlayer,
     {
         Task->HandleActivationPairSelected(PairOwner, CardA, CardB);
     }
+	FinishSelectionStep(Task, SelectingPlayer);
     return true;
 }
 // ***** End Card Effects *****

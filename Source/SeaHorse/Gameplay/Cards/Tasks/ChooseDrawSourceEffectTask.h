@@ -12,7 +12,6 @@ class SEAHORSE_API UChooseDrawSourceEffectTask : public UCardEffectTask
 public:
 	virtual void StartEffect_Implementation() override;
 	virtual void HandlePlayerSelected(ASHPlayerState* SelectedPlayer) override;
-	virtual void HandleParticipantSelected(ASHHand* SelectedHand) override;
 
 private:
 	UPROPERTY()

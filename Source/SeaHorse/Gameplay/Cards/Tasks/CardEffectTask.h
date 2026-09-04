@@ -26,15 +26,6 @@ enum class ECardEffectPairDisposition : uint8
 	KeepOnTable
 };
 
-/** Legacy target-kind enum retained for Blueprint asset compatibility. */
-UENUM(BlueprintType)
-enum class ECardEffectTargetSelectionType : uint8
-{
-	Player,
-	Participant,
-	ActivationPair
-};
-
 /**
  * 
  */
@@ -69,6 +60,7 @@ public:
     ASHCard* GetCardA() const { return CardA; }
     ASHCard* GetCardB() const { return CardB; }
     FName GetEffectPresentationId() const { return EffectPresentationId; }
+	bool IsFinished() const { return bFinished; }
 
 protected:
     UPROPERTY()
@@ -81,4 +73,5 @@ protected:
     TObjectPtr<ASHCard> CardB;
 
     FName EffectPresentationId;
+	bool bFinished = false;
 };

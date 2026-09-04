@@ -87,13 +87,19 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Cards Layout")
 	void RemoveCardFromLayout(ASHCard* Card);
 
-	// Kept misspelled for compatibility with existing Blueprint callers.
+	UFUNCTION(BlueprintCallable, Category="Cards Layout")
+	void SetDraggedCard(ASHCard* Card);
+
+	/** Compatibility wrapper for existing Blueprint assets. */
 	UFUNCTION(BlueprintCallable, Category="Cards Layout")
 	void SetDreggedCard(ASHCard* Card);
 
 	double GetDistanceToLayout(const FVector& WorldLocation) const;
 
-	// Kept misspelled for compatibility with existing Blueprint callers.
+	UFUNCTION(BlueprintCallable, Category="Cards Layout")
+	void UpdateNPCCardsPositions(const TArray<ASHCard*>& Cards);
+
+	/** Compatibility wrapper for existing Blueprint assets. */
 	UFUNCTION(BlueprintCallable, Category="Cards Layout")
 	void UpdateNPCCardsPositons(const TArray<ASHCard*>& Cards);
 
