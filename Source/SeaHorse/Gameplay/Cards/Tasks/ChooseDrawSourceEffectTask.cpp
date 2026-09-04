@@ -33,8 +33,10 @@ void UChooseDrawSourceEffectTask::HandlePlayerSelected(ASHPlayerState* SelectedP
 		checkf(IsValid(GameState), TEXT("Invalid SHGameState"));
 
 		TArray<ASHHand*> SourceCandidates;
-		for (ASHHand* CandidateHand : GameState->GetParticipantHands())
+		for (APlayerState* PlayerState : GameState->PlayerArray)
 		{
+			const ASHPlayerState* SourcePlayer = Cast<ASHPlayerState>(PlayerState);
+			ASHHand* CandidateHand = IsValid(SourcePlayer) ? SourcePlayer->GetHand() : nullptr;
 			if (IsValid(CandidateHand) && CandidateHand != DrawingPlayer->GetHand() &&
 				CandidateHand->GetCardCount() > 0)
 			{
@@ -66,10 +68,10 @@ void UChooseDrawSourceEffectTask::HandleParticipantSelected(ASHHand* SelectedHan
 	UTurnComponent* TurnComponent = GameMode->GetTurnComponent();
 	checkf(IsValid(TurnComponent), TEXT("GameMode has no TurnComponent"));
 
-	if (!IsValid(SelectedHand) || SelectedHand->GetCardCount() <= 0)
+	if (!IsValid(SelectedHand) || SelectedHand->IsLogicalNPC() || SelectedHand->GetCardCount() <= 0)
 	{
 		UE_LOG(LogTemp, Log,
-			TEXT("[SH_CHOOSE_DRAW_SOURCE] Selected source has no cards; completing the effect without forcing a source"));
+			TEXT("[SH_CHOOSE_DRAW_SOURCE] Selected source is invalid, empty, or belongs to an NPC; completing the effect without forcing a source"));
 		FinishEffect();
 		return;
 	}

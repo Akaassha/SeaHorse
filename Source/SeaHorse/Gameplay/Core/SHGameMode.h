@@ -40,6 +40,10 @@ public:
 	void CardActivateEffect(ASHPlayerState* InActivatingPlayer, ASHCard* CardA, ASHCard* CardB);
 
 	void FinishEffectTask(UCardEffectTask* CardEffectTask);
+	void FlushCompletedEffectPairs();
+	void RequestStoredPairActivation(ASHPlayerState* ActivatingPlayer, ASHCard* SelectedCard);
+	void NotifyActivationPairSettled(ASHCard* CardA, ASHCard* CardB);
+	void TryProcessQueuedPairActivations();
 	void RequestPlayerSelection(UCardEffectTask* Task, ASHPlayerState* SelectingPlayer,
 		const TArray<ASHPlayerState*>& Candidates, EPlayerSelectionPurpose Purpose);
 	void SubmitPlayerSelection(ASHPlayerState* SelectingPlayer, ASHPlayerState* SelectedPlayer);
@@ -54,6 +58,7 @@ public:
 		return !PendingPlayerSelections.IsEmpty() || !PendingParticipantSelections.IsEmpty() ||
 			!PendingPairSelections.IsEmpty();
 	}
+	bool HasActiveEffectTasks() const { return !ActiveEffectTasks.IsEmpty(); }
 	void PassHandsToLeft();
 	void MoveAllActivationPairsToVictoryStacks();
 	bool TransferCardToPlayer(ASHPlayerState* FromPlayer, ASHPlayerState* ToPlayer,
@@ -97,6 +102,29 @@ private:
 
 	UPROPERTY()
 	TArray<TObjectPtr<UCardEffectTask>> ActiveEffectTasks;
+
+	struct FCompletedEffectPair
+	{
+		TObjectPtr<ASHPlayerState> ActivatingPlayer;
+		TObjectPtr<ASHCard> CardA;
+		TObjectPtr<ASHCard> CardB;
+		bool bMoveToVictoryStack = true;
+	};
+
+	TArray<FCompletedEffectPair> CompletedEffectPairsWaitingForPresentation;
+
+	struct FPendingPairActivation
+	{
+		TObjectPtr<ASHPlayerState> ActivatingPlayer;
+		TObjectPtr<ASHCard> CardA;
+		TObjectPtr<ASHCard> CardB;
+		bool bClickPresentationStarted = false;
+		bool bAbilityStarted = false;
+	};
+
+	TArray<FPendingPairActivation> PendingPairActivations;
+	void StartQueuedPairAbility(const FPendingPairActivation& PendingActivation);
+	void CompleteQueuedPairActivation(ASHCard* CardA, ASHCard* CardB);
 
 	struct FPendingPlayerSelection
 	{

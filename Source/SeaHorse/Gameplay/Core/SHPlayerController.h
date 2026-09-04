@@ -12,6 +12,23 @@ class ASHPlayerState;
 class ASHCard;
 class UCardDefinition;
 
+USTRUCT()
+struct FPendingPairPresentationEvent
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	TObjectPtr<ASHHand> LogicalHand;
+
+	UPROPERTY()
+	TObjectPtr<ASHCard> CardA;
+
+	UPROPERTY()
+	TObjectPtr<ASHCard> CardB;
+
+	bool bEffectActivation = false;
+};
+
 UENUM(BlueprintType)
 enum class ECardDrawGuidanceType : uint8
 {
@@ -57,6 +74,9 @@ public:
 	UFUNCTION(BlueprintCallable, Server, Reliable, Category = "Card Effects")
 	void ServerSubmitPlayerSelection(ASHPlayerState* SelectedPlayer);
 
+	/** Called by a world-space player picker. Returns true when the click was consumed. */
+	bool TrySubmitPlayerSelectionForPicker(ASHPlayerState* SelectedPlayer);
+
 	UFUNCTION(Server, Reliable)
 	void ServerSubmitParticipantSelection(ASHHand* SelectedHand);
 
@@ -99,6 +119,11 @@ public:
 	UFUNCTION(Client, Reliable)
 	void ClientReconcileRotatedHands();
 
+	/** Reliable owner-channel fallback for pair presentation events. */
+	UFUNCTION(Client, Reliable)
+	void ClientNotifyPairPresentation(ASHHand* LogicalHand, ASHCard* CardA, ASHCard* CardB,
+		bool bEffectActivation);
+
 	UFUNCTION(BlueprintImplementableEvent, Category = "Card Effects")
 	void OnCardDrawGuidanceUpdated(
 		const TArray<ASHPlayerState*>& ValidSources,
@@ -137,11 +162,15 @@ protected:
 private:
 	ASHHand* FindVisualHandForPlayer(const ASHPlayerState* PlayerState) const;
 	void ReconcileRotatedHandsPresentation();
+	bool TryRoutePairPresentation(const FPendingPairPresentationEvent& Event);
+	void FlushPendingPairPresentationEvents();
 	FTimerHandle TableSetupRetryTimer;
 	FTimerHandle RotatedHandsReconcileTimer;
 	int32 RemainingRotatedHandsReconciles = 0;
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<ASHHand>> LocalParticipantSelectionCandidates;
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<ASHPlayerState>> LocalPlayerSelectionCandidates;
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<ASHHand>> LocalGuidedDrawHands;
 	UPROPERTY(Transient)
@@ -153,4 +182,6 @@ private:
 	UPROPERTY(Transient)
 	TObjectPtr<ASHCard> PendingDropCard;
 	int32 PendingDropInsertIndex = INDEX_NONE;
+	UPROPERTY(Transient)
+	TArray<FPendingPairPresentationEvent> PendingPairPresentationEvents;
 };

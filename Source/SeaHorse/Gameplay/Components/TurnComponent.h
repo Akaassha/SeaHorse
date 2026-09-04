@@ -3,12 +3,11 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "SeaHorse/Gameplay/Core/SHGameState.h"
+#include "SeaHorse/Gameplay/SHHand.h"
 #include "TurnComponent.generated.h"
 
 class ASHPlayerState;
-class ASHHand;
 class UCardEffectTask;
-struct FActivatedPair;
 
 UENUM(BlueprintType)
 enum class ETurnPhaseEndReason : uint8
@@ -74,6 +73,14 @@ public:
 	void SetForcedDrawSource(ASHPlayerState* DrawingPlayer, ASHPlayerState* SourcePlayer);
 	void SetForcedDrawSourceHand(ASHPlayerState* DrawingPlayer, ASHHand* SourceHand);
 	void ScheduleSkippedTurn(ASHPlayerState* PlayerState);
+	void RegisterPendingPairSettlement(ASHCard* CardA, ASHCard* CardB);
+	void NotifyPairSettled(ASHCard* CardA, ASHCard* CardB);
+	void NotifyEffectTaskFinished();
+
+	/** Server-side named lock for BP presentation that must finish before the next turn. */
+	void BeginTurnTransitionBlock(FName EffectId);
+	void FinishTurnTransitionBlock(FName EffectId);
+	bool HasNamedTurnTransitionBlocks() const { return !NamedTurnTransitionBlocks.IsEmpty(); }
 
 protected:
 	UFUNCTION(BlueprintNativeEvent, Category = "Turn")
@@ -94,6 +101,8 @@ private:
 	ASHHand* GetFirstForcedDrawSourceHand(const ASHPlayerState* DrawingPlayer) const;
 	ASHGameState* GetSHGameState() const;
 	void CheckServerAuthority() const;
+	bool HasTurnTransitionBlockers() const;
+	void TryCompleteDeferredEndTurn();
 
 	bool bPairingActionUsed = false;
 
@@ -117,4 +126,12 @@ private:
 
 	UPROPERTY(Transient)
 	TMap<TObjectPtr<ASHPlayerState>, int32> PendingSkippedTurns;
+
+	UPROPERTY(Transient)
+	TArray<FActivatedPair> PendingPairSettlements;
+
+	UPROPERTY(Transient)
+	TMap<FName, int32> NamedTurnTransitionBlocks;
+
+	bool bEndTurnRequested = false;
 };

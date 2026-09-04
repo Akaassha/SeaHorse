@@ -93,8 +93,9 @@ public:
 
 protected:
 	bool CanLayoutHandCard(const ASHCard* Card) const;
-	bool GetExternalCardDropPreview(ASHCard*& OutDraggedCard, int32& OutInsertIndex) const;
+	bool GetExternalCardDropPreview(ASHCard*& OutDraggedCard, int32& OutInsertIndex);
 	int32 CalculateDropInsertIndex(const ASHCard* PreviewCard, int32 CurrentCardCount) const;
+	bool IsLocallyDraggedCard(const ASHCard* Card) const;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Cards Layout")
 	float ForwardFocusedOffser = 2.0f;
@@ -113,6 +114,14 @@ protected:
 
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Cards Layout")
 	TObjectPtr<ASHCard> DraggedCard;
+
+	UPROPERTY(Transient)
+	TObjectPtr<ASHCard> PreviewTrackingCard;
+
+	int32 StablePreviewInsertIndex = INDEX_NONE;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Cards Layout", meta=(ClampMin="0.0", Units="cm"))
+	double DropPreviewSwitchHysteresis = 0.35;
 };
 
 UCLASS(Blueprintable, BlueprintType, ClassGroup=(SeaHorse), meta=(BlueprintSpawnableComponent))

@@ -7,8 +7,12 @@
 #include "SeaHorse/Gameplay/Cards/CardDefinition.h"
 #include "SeaHorse/Gameplay/Cards/Fragments/CardEndGameRulesFragment.h"
 #include "SeaHorse/Gameplay/Core/SHPlayerController.h"
+#include "SeaHorse/Gameplay/Core/SHGameState.h"
+#include "SeaHorse/Gameplay/Core/SHGameMode.h"
+#include "SeaHorse/Gameplay/Components/TurnComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "SeaHorse/Gameplay/Core/SHPlayerState.h"
+#include "SeaHorse/Gameplay/Player/SHPlayerRepresentation.h"
 #include "Engine/EngineBaseTypes.h"
 #include "Algo/RandomShuffle.h"
 
@@ -69,6 +73,41 @@ void ASHHand::BeginPlay()
 	Super::BeginPlay();
 	
     LayoutTransform = GetActorTransform();
+	RefreshPlayerPicker();
+}
+
+void ASHHand::SetRepresentedPlayerState(ASHPlayerState* InPlayerState)
+{
+	if (RepresentedPlayerState != InPlayerState || IsValid(RepresentedLogicalHand))
+	{
+		PresentedActivationPairs.Reset();
+		SettledActivationPairs.Reset();
+		PresentedEffectActivations.Reset();
+	}
+	RepresentedPlayerState = InPlayerState;
+	RepresentedLogicalHand = nullptr;
+	RefreshPlayerPicker();
+}
+
+void ASHHand::SetRepresentedHand(ASHHand* InHand)
+{
+	if (RepresentedLogicalHand != InHand || IsValid(RepresentedPlayerState))
+	{
+		PresentedActivationPairs.Reset();
+		SettledActivationPairs.Reset();
+		PresentedEffectActivations.Reset();
+	}
+	RepresentedPlayerState = nullptr;
+	RepresentedLogicalHand = InHand;
+	RefreshPlayerPicker();
+}
+
+void ASHHand::RefreshPlayerPicker()
+{
+	if (IsValid(PlayerPicker))
+	{
+		PlayerPicker->BindToHand(this);
+	}
 }
 
 void ASHHand::SetShowCardFronts(bool bShow)
@@ -79,11 +118,201 @@ void ASHHand::SetShowCardFronts(bool bShow)
 
 void ASHHand::MulticastPairEffectActivated_Implementation(ASHCard* CardA, ASHCard* CardB)
 {
-    if (IsValid(CardA) && IsValid(CardB))
-    {
-        OnPairEffectActivated(CardA, CardB);
-    }
-   
+	if (!IsValid(CardA) || !IsValid(CardB))
+	{
+		return;
+	}
+
+	ASHHand* PresentationHand = this;
+	ASHPlayerController* LocalController = GetWorld()
+		? Cast<ASHPlayerController>(GetWorld()->GetFirstPlayerController())
+		: nullptr;
+	if (IsValid(LocalController) && LocalController->IsLocalController())
+	{
+		if (ASHHand* VisualHand = LocalController->FindVisualHandForLogicalHand(this))
+		{
+			PresentationHand = VisualHand;
+		}
+	}
+
+	PresentationHand->PresentStoredPairActivated(CardA, CardB);
+	if (HasAuthority())
+	{
+		SendPairPresentationToPlayerControllers(CardA, CardB, true);
+	}
+}
+
+void ASHHand::MulticastPairCreated_Implementation(ASHCard* CardA, ASHCard* CardB)
+{
+	if (!IsValid(CardA) || !IsValid(CardB))
+	{
+		return;
+	}
+
+	ASHHand* PresentationHand = this;
+	ASHPlayerController* LocalController = GetWorld()
+		? Cast<ASHPlayerController>(GetWorld()->GetFirstPlayerController())
+		: nullptr;
+	if (IsValid(LocalController) && LocalController->IsLocalController())
+	{
+		if (ASHHand* VisualHand = LocalController->FindVisualHandForLogicalHand(this))
+		{
+			PresentationHand = VisualHand;
+		}
+	}
+
+	PresentationHand->PresentPairCreated(CardA, CardB);
+	if (HasAuthority())
+	{
+		SendPairPresentationToPlayerControllers(CardA, CardB, false);
+	}
+}
+
+void ASHHand::MulticastPairClicked_Implementation(ASHCard* CardA, ASHCard* CardB)
+{
+	if (!IsValid(CardA) || !IsValid(CardB))
+	{
+		return;
+	}
+
+	ASHHand* PresentationHand = this;
+	ASHPlayerController* LocalController = GetWorld()
+		? Cast<ASHPlayerController>(GetWorld()->GetFirstPlayerController()) : nullptr;
+	if (IsValid(LocalController) && LocalController->IsLocalController())
+	{
+		if (ASHHand* VisualHand = LocalController->FindVisualHandForLogicalHand(this))
+		{
+			PresentationHand = VisualHand;
+		}
+	}
+	PresentationHand->OnPairClicked(CardA, CardB);
+}
+
+void ASHHand::MulticastPairReadyForVictory_Implementation(ASHCard* CardA, ASHCard* CardB)
+{
+	if (!IsValid(CardA) || !IsValid(CardB))
+	{
+		return;
+	}
+
+	ASHHand* PresentationHand = this;
+	ASHPlayerController* LocalController = GetWorld()
+		? Cast<ASHPlayerController>(GetWorld()->GetFirstPlayerController()) : nullptr;
+	if (IsValid(LocalController) && LocalController->IsLocalController())
+	{
+		if (ASHHand* VisualHand = LocalController->FindVisualHandForLogicalHand(this))
+		{
+			PresentationHand = VisualHand;
+		}
+	}
+	PresentationHand->OnPairReadyForVictory(CardA, CardB);
+}
+
+void ASHHand::PresentPairCreated(ASHCard* CardA, ASHCard* CardB)
+{
+	const FActivatedPair Pair{CardA, CardB, false};
+	if (!IsValid(CardA) || !IsValid(CardB) || PresentedActivationPairs.Contains(Pair))
+	{
+		return;
+	}
+
+	PresentedActivationPairs.Add(Pair);
+	OnPairCreated(CardA, CardB);
+	// Legacy hook retained for existing BP_Hand implementations.
+	OnPairActivated(CardA, CardB);
+}
+
+void ASHHand::NotifyPairSettled(ASHCard* CardA, ASHCard* CardB)
+{
+	const FActivatedPair Pair{CardA, CardB, false};
+	if (!IsValid(CardA) || !IsValid(CardB) || SettledActivationPairs.Contains(Pair))
+	{
+		return;
+	}
+
+	SettledActivationPairs.Add(Pair);
+	OnPairSettled(CardA, CardB);
+	if (HasAuthority())
+	{
+		ASHGameMode* GameMode = GetWorld()->GetAuthGameMode<ASHGameMode>();
+		if (IsValid(GameMode) && IsValid(GameMode->GetTurnComponent()))
+		{
+			GameMode->GetTurnComponent()->NotifyPairSettled(CardA, CardB);
+		}
+	}
+}
+
+void ASHHand::BeginTurnBlockingEffect(FName EffectId)
+{
+	if (EffectId.IsNone())
+	{
+		return;
+	}
+
+	++LocalPresentationBlocks.FindOrAdd(EffectId);
+	if (HasAuthority())
+	{
+		if (ASHGameMode* GameMode = GetWorld()->GetAuthGameMode<ASHGameMode>())
+		{
+			GameMode->GetTurnComponent()->BeginTurnTransitionBlock(EffectId);
+		}
+	}
+}
+
+void ASHHand::FinishTurnBlockingEffect(FName EffectId)
+{
+	if (int32* Count = LocalPresentationBlocks.Find(EffectId))
+	{
+		if (--(*Count) <= 0)
+		{
+			LocalPresentationBlocks.Remove(EffectId);
+		}
+	}
+
+	if (HasAuthority())
+	{
+		if (ASHGameMode* GameMode = GetWorld()->GetAuthGameMode<ASHGameMode>())
+		{
+			GameMode->GetTurnComponent()->FinishTurnTransitionBlock(EffectId);
+		}
+	}
+}
+
+void ASHHand::PresentStoredPairActivated(ASHCard* CardA, ASHCard* CardB)
+{
+	const FActivatedPair Pair{CardA, CardB, true};
+	if (!IsValid(CardA) || !IsValid(CardB) || PresentedEffectActivations.Contains(Pair))
+	{
+		return;
+	}
+
+	PresentedEffectActivations.Add(Pair);
+	OnStoredPairActivated(CardA, CardB);
+	// Legacy hook retained for existing BP_Hand implementations.
+	OnPairEffectActivated(CardA, CardB);
+}
+
+void ASHHand::SendPairPresentationToPlayerControllers(
+	ASHCard* CardA, ASHCard* CardB, bool bEffectActivation) const
+{
+	const ASHGameState* GameState = GetWorld() ? GetWorld()->GetGameState<ASHGameState>() : nullptr;
+	if (!IsValid(GameState))
+	{
+		return;
+	}
+
+	for (APlayerState* State : GameState->PlayerArray)
+	{
+		const ASHPlayerState* PlayerState = Cast<ASHPlayerState>(State);
+		ASHPlayerController* Controller = IsValid(PlayerState)
+			? Cast<ASHPlayerController>(PlayerState->GetOwner())
+			: nullptr;
+		if (IsValid(Controller))
+		{
+			Controller->ClientNotifyPairPresentation(
+				const_cast<ASHHand*>(this), CardA, CardB, bEffectActivation);
+		}
+	}
 }
 
 void ASHHand::AddActivationPair(ASHCard* CardA, ASHCard* CardB)
@@ -146,6 +375,7 @@ void ASHHand::AddActivationPairToLogicalHand(ASHCard* CardA, ASHCard* CardB)
 
     ForceNetUpdate();
     OnRep_ActivationPairs();
+	MulticastPairCreated(CardA, CardB);
 }
 
 void ASHHand::RefreshActivationPairsPresentation()
@@ -167,11 +397,21 @@ void ASHHand::RefreshActivationPairsPresentation()
 
     for (const FActivatedPair& Pair : PairsToPresent)
     {
-        if (IsValid(Pair.CardA) && IsValid(Pair.CardB))
+        if (IsValid(Pair.CardA) && IsValid(Pair.CardB) &&
+			!PresentedActivationPairs.Contains(Pair))
         {
-            OnPairActivated(Pair.CardA, Pair.CardB);
+			PresentPairCreated(Pair.CardA, Pair.CardB);
         }
     }
+
+	PresentedActivationPairs.Reset(PairsToPresent.Num());
+	for (const FActivatedPair& Pair : PairsToPresent)
+	{
+		if (IsValid(Pair.CardA) && IsValid(Pair.CardB))
+		{
+			PresentedActivationPairs.Add(Pair);
+		}
+	}
 }
 
 // Called every frame
@@ -575,6 +815,23 @@ FActivatedPair* ASHHand::FindActivationPair(ASHCard* Card)
         {
             return Pair.CardA == Card || Pair.CardB == Card;
         });
+}
+
+void ASHHand::SetActivationPairState(ASHCard* CardA, ASHCard* CardB, EActivationPairState NewState)
+{
+	checkf(HasAuthority(), TEXT("Activation pair state can only be changed on the server"));
+	FActivatedPair* Pair = ActivationPairs.FindByPredicate(
+		[CardA, CardB](const FActivatedPair& Candidate)
+		{
+			return (Candidate.CardA == CardA && Candidate.CardB == CardB) ||
+				(Candidate.CardA == CardB && Candidate.CardB == CardA);
+		});
+	if (Pair)
+	{
+		Pair->State = NewState;
+		Pair->bActivated = NewState >= EActivationPairState::AbilityEffect;
+		ForceNetUpdate();
+	}
 }
 
 ASHHand* ASHHand::GetRepresentedHand() const

@@ -108,7 +108,7 @@ void USHHandCardsLayoutComponent::MoveCardsToDesiredPositions(float DeltaTime)
 	for (const TPair<TObjectPtr<ASHCard>, FTransform>& Entry : CardsTransforms)
 	{
 		ASHCard* Card = Entry.Key;
-		if (CanLayoutHandCard(Card) && Card != DraggedCard)
+		if (CanLayoutHandCard(Card) && Card != DraggedCard && !IsLocallyDraggedCard(Card))
 		{
 			Card->SetActorTransform(UKismetMathLibrary::TInterpTo(
 				Card->GetActorTransform(), Entry.Value, DeltaTime, 5.0f));
@@ -199,12 +199,14 @@ void USHHandCardsLayoutComponent::SetDreggedCard(ASHCard* Card)
 	}
 }
 
-bool USHHandCardsLayoutComponent::GetExternalCardDropPreview(ASHCard*& OutDraggedCard, int32& OutInsertIndex) const
+bool USHHandCardsLayoutComponent::GetExternalCardDropPreview(ASHCard*& OutDraggedCard, int32& OutInsertIndex)
 {
 	OutDraggedCard = nullptr;
 	OutInsertIndex = INDEX_NONE;
 	if (!IsValid(OwningHand) || OwningHand->IsNPC() || !IsValid(OwnerSpline))
 	{
+		PreviewTrackingCard = nullptr;
+		StablePreviewInsertIndex = INDEX_NONE;
 		return false;
 	}
 
@@ -219,19 +221,49 @@ bool USHHandCardsLayoutComponent::GetExternalCardDropPreview(ASHCard*& OutDragge
 	ASHHand* TargetLogicalHand = OwningHand->GetRepresentedHand();
 	if (!IsValid(Card) || !IsValid(TargetLogicalHand) || Card->GetCardZone() != ECardZone::Hand)
 	{
+		PreviewTrackingCard = nullptr;
+		StablePreviewInsertIndex = INDEX_NONE;
 		return false;
 	}
 	const bool bOwnCardReorder = Card->GetOwningHand() == TargetLogicalHand;
 	if (bOwnCardReorder && !TargetLogicalHand->HasSeaHorseCard())
 	{
+		PreviewTrackingCard = nullptr;
+		StablePreviewInsertIndex = INDEX_NONE;
 		return false;
 	}
 
 	OutDraggedCard = Card;
-	OutInsertIndex = CalculateDropInsertIndex(Card,
-		TargetLogicalHand->GetCardCount() - (bOwnCardReorder ? 1 : 0));
+	const int32 CurrentCardCount = TargetLogicalHand->GetCardCount() - (bOwnCardReorder ? 1 : 0);
+	const int32 CandidateIndex = CalculateDropInsertIndex(Card, CurrentCardCount);
+	if (PreviewTrackingCard != Card || StablePreviewInsertIndex < 0 ||
+		StablePreviewInsertIndex > CurrentCardCount)
+	{
+		PreviewTrackingCard = Card;
+		StablePreviewInsertIndex = CandidateIndex;
+	}
+	else if (CandidateIndex != StablePreviewInsertIndex)
+	{
+		const double InputKey = OwnerSpline->FindInputKeyClosestToWorldLocation(Card->GetActorLocation());
+		const double DragDistance = OwnerSpline->GetDistanceAlongSplineAtSplineInputKey(InputKey);
+		const double StableDistance = CalculateCardDistanceAtSpline(CurrentCardCount + 1, StablePreviewInsertIndex);
+		const double CandidateDistance = CalculateCardDistanceAtSpline(CurrentCardCount + 1, CandidateIndex);
+		if (FMath::Abs(DragDistance - CandidateDistance) + DropPreviewSwitchHysteresis <
+			FMath::Abs(DragDistance - StableDistance))
+		{
+			StablePreviewInsertIndex = CandidateIndex;
+		}
+	}
+	OutInsertIndex = StablePreviewInsertIndex;
 	PC->UpdateLocalCardDropPreview(Card, OutInsertIndex, bOwnCardReorder);
 	return OutInsertIndex != INDEX_NONE;
+}
+
+bool USHHandCardsLayoutComponent::IsLocallyDraggedCard(const ASHCard* Card) const
+{
+	const ASHPlayerController* PC = GetWorld()
+		? Cast<ASHPlayerController>(GetWorld()->GetFirstPlayerController()) : nullptr;
+	return IsValid(PC) && PC->IsLocalController() && PC->GetLocallyDraggedCard() == Card;
 }
 
 int32 USHHandCardsLayoutComponent::CalculateDropInsertIndex(const ASHCard* PreviewCard, int32 CurrentCardCount) const
@@ -326,7 +358,7 @@ void USHActivatableCardsLayoutComponent::MovePairsToDesiredPositions(float Delta
 	for (const TPair<FActivatedPair, FTransform>& Entry : PairsTransform)
 	{
 		const FActivatedPair& Pair = Entry.Key;
-		if (!IsPairValid(Pair) || !IsValid(OwningHand))
+		if (!IsPairValid(Pair) || !IsValid(OwningHand) || OwningHand->IsPairMovementBlocked())
 		{
 			continue;
 		}
@@ -350,11 +382,16 @@ void USHActivatableCardsLayoutComponent::MovePairsToDesiredPositions(float Delta
 		Pair.CardB->SetActorTransform(UKismetMathLibrary::TInterpTo(
 			Pair.CardB->GetActorTransform(), CardBTarget, DeltaTime, 5.0f));
 
-		if (FVector::Dist(Pair.CardA->GetActorLocation(), Entry.Value.GetLocation()) <= 5.0 &&
-			FVector::Dist(Pair.CardB->GetActorLocation(), Entry.Value.GetLocation()) <= 5.0)
+		if (FVector::Dist(Pair.CardA->GetActorLocation(), CardATarget.GetLocation()) <= 5.0 &&
+			FVector::Dist(Pair.CardB->GetActorLocation(), CardBTarget.GetLocation()) <= 5.0)
 		{
+			// Finish interpolation at an exact transform so presentation code has a
+			// deterministic moment at which card movement is complete on every client.
+			Pair.CardA->SetActorTransform(CardATarget);
+			Pair.CardB->SetActorTransform(CardBTarget);
 			SetCardActivatable(Pair.CardA, true);
 			SetCardActivatable(Pair.CardB, true);
+			OwningHand->NotifyPairSettled(Pair.CardA, Pair.CardB);
 		}
 	}
 }
@@ -374,7 +411,7 @@ void USHActivatableCardsLayoutComponent::SetCardActivatable(ASHCard* Card, bool 
 	{
 		FBoolProperty* Property = *It;
 		if (Property && (Property->GetName() == TEXT("IsActivatable?") ||
-			Property->GetDisplayNameText().ToString() == TEXT("IsActivatable?")))
+			Property->GetAuthoredName() == TEXT("IsActivatable?")))
 		{
 			Property->SetPropertyValue_InContainer(Card, bActivatable);
 			return;

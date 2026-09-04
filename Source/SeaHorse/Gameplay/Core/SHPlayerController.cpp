@@ -12,6 +12,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "SeaHorse/Gameplay/Core/SHGameMode.h"
 #include "SeaHorse/Gameplay/Components/TurnComponent.h"
+#include "SeaHorse/Gameplay/Player/SHPlayerRepresentation.h"
 #include "SeaHorse/Gameplay/Cards/Fragments/CardEffectFragment.h"
 #include "TimerManager.h"
 #include "InputKeyEventArgs.h"
@@ -232,6 +233,32 @@ void ASHPlayerController::ClientRequestPlayerSelection_Implementation(
     const TArray<ASHPlayerState*>& Candidates,
     EPlayerSelectionPurpose Purpose)
 {
+	LocalPlayerSelectionCandidates.Reset();
+	for (ASHPlayerState* Candidate : Candidates)
+	{
+		if (IsValid(Candidate))
+		{
+			LocalPlayerSelectionCandidates.AddUnique(Candidate);
+		}
+	}
+
+	const ASHGameState* GameState = GetWorld()->GetGameState<ASHGameState>();
+	if (IsValid(GameState))
+	{
+		for (ASHHand* LogicalHand : GameState->GetParticipantHands())
+		{
+			ASHHand* VisualHand = FindVisualHandForLogicalHand(LogicalHand);
+			ASHPlayerRepresentation* Picker = IsValid(VisualHand) ? VisualHand->GetPlayerPicker() : nullptr;
+			ASHPlayerState* RepresentedPlayer = IsValid(VisualHand)
+				? VisualHand->GetRepresentedPlayerState()
+				: nullptr;
+			if (IsValid(Picker))
+			{
+				Picker->SetSelectable(LocalPlayerSelectionCandidates.Contains(RepresentedPlayer));
+			}
+		}
+	}
+
     UE_LOG(LogTemp, Warning,
         TEXT("[SH_SELECTION][CLIENT_REQUEST] Controller=%s Purpose=%s CandidateCount=%d"),
         *GetNameSafe(this),
@@ -250,6 +277,34 @@ void ASHPlayerController::ClientRequestPlayerSelection_Implementation(
     }
 
     OnPlayerSelectionRequested(Candidates, Purpose);
+}
+
+bool ASHPlayerController::TrySubmitPlayerSelectionForPicker(ASHPlayerState* SelectedPlayer)
+{
+	if (LocalPlayerSelectionCandidates.IsEmpty())
+	{
+		return false;
+	}
+
+	if (IsValid(SelectedPlayer) && LocalPlayerSelectionCandidates.Contains(SelectedPlayer))
+	{
+		LocalPlayerSelectionCandidates.Reset();
+		const ASHGameState* GameState = GetWorld()->GetGameState<ASHGameState>();
+		if (IsValid(GameState))
+		{
+			for (ASHHand* LogicalHand : GameState->GetParticipantHands())
+			{
+				ASHHand* VisualHand = FindVisualHandForLogicalHand(LogicalHand);
+				if (ASHPlayerRepresentation* Picker = IsValid(VisualHand) ? VisualHand->GetPlayerPicker() : nullptr)
+				{
+					Picker->SetSelectable(false);
+				}
+			}
+		}
+		ServerSubmitPlayerSelection(SelectedPlayer);
+	}
+
+	return true;
 }
 
 void ASHPlayerController::ClientRequestAdditionalCardDraw_Implementation(const TArray<ASHPlayerState*>& ValidSources)
@@ -292,6 +347,57 @@ void ASHPlayerController::ClientReconcileRotatedHands_Implementation()
 		&ASHPlayerController::ReconcileRotatedHandsPresentation,
 		0.1f,
 		true);
+}
+
+void ASHPlayerController::ClientNotifyPairPresentation_Implementation(
+	ASHHand* LogicalHand, ASHCard* CardA, ASHCard* CardB, bool bEffectActivation)
+{
+	FPendingPairPresentationEvent Event;
+	Event.LogicalHand = LogicalHand;
+	Event.CardA = CardA;
+	Event.CardB = CardB;
+	Event.bEffectActivation = bEffectActivation;
+
+	if (!TryRoutePairPresentation(Event))
+	{
+		PendingPairPresentationEvents.Add(Event);
+	}
+}
+
+bool ASHPlayerController::TryRoutePairPresentation(const FPendingPairPresentationEvent& Event)
+{
+	if (!IsValid(Event.LogicalHand) ||
+		!IsValid(Event.CardA) || !IsValid(Event.CardB))
+	{
+		return false;
+	}
+
+	ASHHand* VisualHand = FindVisualHandForLogicalHand(Event.LogicalHand);
+	if (!IsValid(VisualHand))
+	{
+		return false;
+	}
+
+	if (Event.bEffectActivation)
+	{
+		VisualHand->PresentStoredPairActivated(Event.CardA, Event.CardB);
+	}
+	else
+	{
+		VisualHand->PresentPairCreated(Event.CardA, Event.CardB);
+	}
+	return true;
+}
+
+void ASHPlayerController::FlushPendingPairPresentationEvents()
+{
+	for (int32 Index = PendingPairPresentationEvents.Num() - 1; Index >= 0; --Index)
+	{
+		if (TryRoutePairPresentation(PendingPairPresentationEvents[Index]))
+		{
+			PendingPairPresentationEvents.RemoveAt(Index);
+		}
+	}
 }
 
 void ASHPlayerController::ReconcileRotatedHandsPresentation()
@@ -555,7 +661,7 @@ void ASHPlayerController::SetupTableView()
 		}
 	}
 
-    for (APlayerState* CurrentPlayerState : SHGameState->PlayerArray)
+	for (APlayerState* CurrentPlayerState : SHGameState->PlayerArray)
     {
         ASHPlayerState* SHPlayerState = Cast<ASHPlayerState>(CurrentPlayerState);
         ASHHand* LogicalHand = IsValid(SHPlayerState) ? SHPlayerState->GetHand() : nullptr;
@@ -566,6 +672,8 @@ void ASHPlayerController::SetupTableView()
             LogicalStack->RefreshCardsPresentation();
         }
     }
+
+	FlushPendingPairPresentationEvents();
 
 }
 
@@ -660,59 +768,10 @@ void ASHPlayerController::ServerActivateStoredPair_Implementation(ASHCard* Card)
         return;
     }
 
-    if (Card->GetCardZone() != ECardZone::Activation)
-    {
-        return;
-    }
-
-    if (!IsValid(SHPlayerState))
-    {
-        return;
-    }
-
-    ASHHand* Hand = SHPlayerState->GetHand();
-    if (!IsValid(Hand))
-    {
-        return;
-    }
-
-    FActivatedPair* Pair = Hand->FindActivationPair(Card);
-
-    if (!Pair)
-    {
-        return;
-    }
-
-    if (Pair->bActivated)
-    {
-        return;
-    }
-
-    if (!SHGameMode || SHGameMode->IsWaitingForPlayerSelection())
-    {
-        return;
-    }
-
-    UTurnComponent* TurnComponent = SHGameMode->GetTurnComponent();
-    if (!IsValid(TurnComponent) || !TurnComponent->CanActivatePair(SHPlayerState, *Pair))
-    {
-        return;
-    }
-
-    ASHCard* CardA = Pair->CardA;
-    ASHCard* CardB = Pair->CardB;
-
-    if (!IsValid(CardA) || !IsValid(CardB))
-    {
-        return;
-    }
-
-    Pair->bActivated = true;
-    Hand->ForceNetUpdate();
-    Hand->MulticastPairEffectActivated(CardA, CardB);
-
-    SHGameMode->CardActivateEffect(SHPlayerState, CardA, CardB);
-    
+	if (IsValid(SHPlayerState) && IsValid(SHGameMode))
+	{
+		SHGameMode->RequestStoredPairActivation(SHPlayerState, Card);
+	}
 }
 
 void ASHPlayerController::ServerCreatePair_Implementation(ASHCard* CardA, ASHCard* CardB)
@@ -781,6 +840,9 @@ void ASHPlayerController::ServerCreatePair_Implementation(ASHCard* CardA, ASHCar
         return;
     }
 
+	// Register before ActivatePair: adding the pair can synchronously refresh the
+	// listen-server layout and report it settled.
+	TurnComponent->RegisterPendingPairSettlement(CardA, CardB);
     SHGameMode->ActivatePair(SHPlayerState, CardA, CardB);
 
     TurnComponent->MarkPairingActionUsed();

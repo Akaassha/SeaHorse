@@ -18,6 +18,13 @@ enum class EPlayerSelectionPurpose : uint8
     PlayerToSkipTurn,
     CardTransferRecipient
 };
+
+UENUM(BlueprintType)
+enum class ECardEffectPairDisposition : uint8
+{
+	MoveToVictoryStack,
+	KeepOnTable
+};
 /**
  * 
  */
@@ -34,6 +41,11 @@ public:
 
     UFUNCTION(BlueprintCallable)
     void FinishEffect();
+
+	/** Override for card abilities whose activating pair must remain on the table. */
+	UFUNCTION(BlueprintNativeEvent, Category = "Card Effect")
+	ECardEffectPairDisposition GetPairDisposition() const;
+	virtual ECardEffectPairDisposition GetPairDisposition_Implementation() const;
 
     void RequestPlayerSelection(const TArray<ASHPlayerState*>& Candidates, EPlayerSelectionPurpose Purpose);
     void RequestParticipantSelection(const TArray<ASHHand*>& Candidates, EPlayerSelectionPurpose Purpose);

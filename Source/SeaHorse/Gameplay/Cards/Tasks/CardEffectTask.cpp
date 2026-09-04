@@ -37,6 +37,11 @@ void UCardEffectTask::FinishEffect()
     GameMode->FinishEffectTask(this);
 }
 
+ECardEffectPairDisposition UCardEffectTask::GetPairDisposition_Implementation() const
+{
+	return ECardEffectPairDisposition::MoveToVictoryStack;
+}
+
 void UCardEffectTask::RequestPlayerSelection(
     const TArray<ASHPlayerState*>& Candidates,
     EPlayerSelectionPurpose Purpose)

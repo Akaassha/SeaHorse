@@ -254,6 +254,7 @@ void ASHGameMode::MovePairToVictoryStack(ASHPlayerState* PlayerState, ASHCard* C
     }
     VictoryStack->AddPair(CardA, CardB);
     RefreshPlayerScore(PlayerState);
+	CompleteQueuedPairActivation(CardA, CardB);
 }
 
 void ASHGameMode::CardActivateEffect(ASHPlayerState* InActivatingPlayer, ASHCard* CardA, ASHCard* CardB)
@@ -299,8 +300,6 @@ void ASHGameMode::FinishEffectTask(UCardEffectTask* CardEffectTask)
     checkf(IsValid(ActivatingPlayer), TEXT("Invalid activating player"));
     checkf(IsValid(CardA) && IsValid(CardB), TEXT("Invalid effect cards"));
 
-    MovePairToVictoryStack(ActivatingPlayer, CardA, CardB);
-
     for (auto It = PendingPlayerSelections.CreateIterator(); It; ++It)
     {
         if (It.Value().Task == CardEffectTask)
@@ -323,7 +322,221 @@ void ASHGameMode::FinishEffectTask(UCardEffectTask* CardEffectTask)
         }
     }
 
-    ActiveEffectTasks.Remove(CardEffectTask);
+	const ECardEffectPairDisposition PairDisposition = CardEffectTask->GetPairDisposition();
+	ActiveEffectTasks.Remove(CardEffectTask);
+
+	ASHHand* ActivatingHand = ActivatingPlayer->GetHand();
+	if (PairDisposition == ECardEffectPairDisposition::KeepOnTable)
+	{
+		if (IsValid(ActivatingHand))
+		{
+			ActivatingHand->SetActivationPairState(CardA, CardB, EActivationPairState::Ready);
+		}
+		if (IsValid(TurnComponent) && TurnComponent->HasNamedTurnTransitionBlocks())
+		{
+			FCompletedEffectPair& PendingCompletion =
+				CompletedEffectPairsWaitingForPresentation.AddDefaulted_GetRef();
+			PendingCompletion.ActivatingPlayer = ActivatingPlayer;
+			PendingCompletion.CardA = CardA;
+			PendingCompletion.CardB = CardB;
+			PendingCompletion.bMoveToVictoryStack = false;
+		}
+		else
+		{
+			CompleteQueuedPairActivation(CardA, CardB);
+		}
+	}
+	else
+	{
+		if (IsValid(ActivatingHand))
+		{
+			ActivatingHand->SetActivationPairState(CardA, CardB, EActivationPairState::VictoryPresentation);
+			ActivatingHand->MulticastPairReadyForVictory(CardA, CardB);
+		}
+
+		if (IsValid(TurnComponent) && TurnComponent->HasNamedTurnTransitionBlocks())
+		{
+			FCompletedEffectPair& PendingMove = CompletedEffectPairsWaitingForPresentation.AddDefaulted_GetRef();
+			PendingMove.ActivatingPlayer = ActivatingPlayer;
+			PendingMove.CardA = CardA;
+			PendingMove.CardB = CardB;
+		}
+		else
+		{
+			MovePairToVictoryStack(ActivatingPlayer, CardA, CardB);
+		}
+	}
+
+	if (IsValid(TurnComponent))
+	{
+		TurnComponent->NotifyEffectTaskFinished();
+	}
+}
+
+void ASHGameMode::RequestStoredPairActivation(ASHPlayerState* ActivatingPlayer, ASHCard* SelectedCard)
+{
+	if (!HasAuthority() || !IsValid(ActivatingPlayer) || !IsValid(SelectedCard) ||
+		SelectedCard->GetCardZone() != ECardZone::Activation)
+	{
+		return;
+	}
+
+	ASHHand* Hand = ActivatingPlayer->GetHand();
+	FActivatedPair* Pair = IsValid(Hand) ? Hand->FindActivationPair(SelectedCard) : nullptr;
+	if (!Pair || Pair->bActivated || Pair->State >= EActivationPairState::AbilityEffect)
+	{
+		return;
+	}
+	if (!IsValid(TurnComponent) || !TurnComponent->CanActivatePair(ActivatingPlayer, *Pair))
+	{
+		return;
+	}
+
+	const bool bAlreadyQueued = PendingPairActivations.ContainsByPredicate(
+		[Pair](const FPendingPairActivation& Pending)
+		{
+			return (Pending.CardA == Pair->CardA && Pending.CardB == Pair->CardB) ||
+				(Pending.CardA == Pair->CardB && Pending.CardB == Pair->CardA);
+		});
+	if (!bAlreadyQueued)
+	{
+		FPendingPairActivation& Pending = PendingPairActivations.AddDefaulted_GetRef();
+		Pending.ActivatingPlayer = ActivatingPlayer;
+		Pending.CardA = Pair->CardA;
+		Pending.CardB = Pair->CardB;
+	}
+
+	TryProcessQueuedPairActivations();
+}
+
+void ASHGameMode::NotifyActivationPairSettled(ASHCard* CardA, ASHCard* CardB)
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	ASHGameState* SHGameState = GetGameState<ASHGameState>();
+	if (IsValid(SHGameState))
+	{
+		for (APlayerState* State : SHGameState->PlayerArray)
+		{
+			ASHPlayerState* PlayerState = Cast<ASHPlayerState>(State);
+			ASHHand* Hand = IsValid(PlayerState) ? PlayerState->GetHand() : nullptr;
+			if (IsValid(Hand) && Hand->FindActivationPair(CardA))
+			{
+				Hand->SetActivationPairState(CardA, CardB, EActivationPairState::Ready);
+				break;
+			}
+		}
+	}
+	TryProcessQueuedPairActivations();
+}
+
+void ASHGameMode::TryProcessQueuedPairActivations()
+{
+	if (!HasAuthority() || !IsValid(TurnComponent))
+	{
+		return;
+	}
+
+	while (!PendingPairActivations.IsEmpty())
+	{
+		FPendingPairActivation& Pending = PendingPairActivations[0];
+		ASHHand* Hand = IsValid(Pending.ActivatingPlayer) ? Pending.ActivatingPlayer->GetHand() : nullptr;
+		FActivatedPair* Pair = IsValid(Hand) ? Hand->FindActivationPair(Pending.CardA) : nullptr;
+		if (!Pair)
+		{
+			PendingPairActivations.RemoveAt(0);
+			continue;
+		}
+		if (TurnComponent->HasNamedTurnTransitionBlocks())
+		{
+			return;
+		}
+
+		if (!Pending.bClickPresentationStarted)
+		{
+			if (Pair->State != EActivationPairState::Ready)
+			{
+				continue;
+			}
+			Pending.bClickPresentationStarted = true;
+			Hand->SetActivationPairState(Pending.CardA, Pending.CardB,
+				EActivationPairState::ClickPresentation);
+			Hand->MulticastPairClicked(Pending.CardA, Pending.CardB);
+			if (TurnComponent->HasNamedTurnTransitionBlocks())
+			{
+				return;
+			}
+		}
+
+		if (!Pending.bAbilityStarted)
+		{
+			Pending.bAbilityStarted = true;
+			const FPendingPairActivation ActivationToStart = Pending;
+			StartQueuedPairAbility(ActivationToStart);
+			// The task may finish synchronously and mutate the queue.
+			return;
+		}
+
+		// The first pair owns the queue until its task and final presentation finish.
+		return;
+	}
+}
+
+void ASHGameMode::StartQueuedPairAbility(const FPendingPairActivation& PendingActivation)
+{
+	ASHHand* Hand = IsValid(PendingActivation.ActivatingPlayer)
+		? PendingActivation.ActivatingPlayer->GetHand() : nullptr;
+	FActivatedPair* Pair = IsValid(Hand) ? Hand->FindActivationPair(PendingActivation.CardA) : nullptr;
+	if (!Pair)
+	{
+		return;
+	}
+
+	Hand->SetActivationPairState(PendingActivation.CardA, PendingActivation.CardB,
+		EActivationPairState::AbilityEffect);
+	Hand->MulticastPairEffectActivated(PendingActivation.CardA, PendingActivation.CardB);
+	CardActivateEffect(PendingActivation.ActivatingPlayer,
+		PendingActivation.CardA, PendingActivation.CardB);
+}
+
+void ASHGameMode::FlushCompletedEffectPairs()
+{
+	if (!HasAuthority() || (IsValid(TurnComponent) && TurnComponent->HasNamedTurnTransitionBlocks()))
+	{
+		return;
+	}
+
+	const TArray<FCompletedEffectPair> MovesToApply = MoveTemp(CompletedEffectPairsWaitingForPresentation);
+	CompletedEffectPairsWaitingForPresentation.Reset();
+	for (const FCompletedEffectPair& Move : MovesToApply)
+	{
+		if (Move.bMoveToVictoryStack)
+		{
+			MovePairToVictoryStack(Move.ActivatingPlayer, Move.CardA, Move.CardB);
+		}
+		else
+		{
+			CompleteQueuedPairActivation(Move.CardA, Move.CardB);
+		}
+	}
+}
+
+void ASHGameMode::CompleteQueuedPairActivation(ASHCard* CardA, ASHCard* CardB)
+{
+	const int32 PendingIndex = PendingPairActivations.IndexOfByPredicate(
+		[CardA, CardB](const FPendingPairActivation& Pending)
+		{
+			return (Pending.CardA == CardA && Pending.CardB == CardB) ||
+				(Pending.CardA == CardB && Pending.CardB == CardA);
+		});
+	if (PendingIndex != INDEX_NONE)
+	{
+		PendingPairActivations.RemoveAt(PendingIndex);
+	}
+	TryProcessQueuedPairActivations();
 }
 
 void ASHGameMode::PassHandsToLeft()

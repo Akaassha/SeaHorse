@@ -244,6 +244,7 @@ void UTurnComponent::FinishAdditionalDraw()
 	AdditionalDrawEffectTask = nullptr;
 	bWaitingForAdditionalDraw = false;
 	EnterTurnPhase(ETurnPhase::SecondPairing);
+	TryCompleteDeferredEndTurn();
 }
 
 void UTurnComponent::BeginWaitingForAdditionalDraw()
@@ -387,6 +388,18 @@ ASHPlayerState* UTurnComponent::ChooseNextPlayer_Implementation(ASHPlayerState* 
 void UTurnComponent::EndTurn()
 {
 	checkf(!bWaitingForAdditionalDraw, TEXT("Cannot end turn while an additional draw is pending"));
+	if (HasTurnTransitionBlockers())
+	{
+		bEndTurnRequested = true;
+		const ASHGameMode* BlockingGameMode = GetWorld()->GetAuthGameMode<ASHGameMode>();
+		UE_LOG(LogTemp, Log,
+			TEXT("[SH_TURN_QUEUE] Deferring end turn: pairs=%d named=%d activeTasks=%d"),
+			PendingPairSettlements.Num(), NamedTurnTransitionBlocks.Num(),
+			IsValid(BlockingGameMode) && BlockingGameMode->HasActiveEffectTasks());
+		return;
+	}
+	bEndTurnRequested = false;
+
 	ASHGameMode* GameMode = GetWorld()->GetAuthGameMode<ASHGameMode>();
 	if (IsValid(GameMode) && GameMode->TryFinishGame())
 	{
@@ -420,6 +433,75 @@ void UTurnComponent::EndTurn()
 	GameState->SetCurrentPlayer(NextPlayer);
 	bPairingActionUsed = false;
 	GameState->SetTurnPhase(ETurnPhase::FirstPairing);
+}
+
+void UTurnComponent::RegisterPendingPairSettlement(ASHCard* CardA, ASHCard* CardB)
+{
+	CheckServerAuthority();
+	if (GetNetMode() == NM_DedicatedServer || !IsValid(CardA) || !IsValid(CardB))
+	{
+		return;
+	}
+	PendingPairSettlements.AddUnique(FActivatedPair{CardA, CardB, false});
+}
+
+void UTurnComponent::NotifyPairSettled(ASHCard* CardA, ASHCard* CardB)
+{
+	CheckServerAuthority();
+	PendingPairSettlements.Remove(FActivatedPair{CardA, CardB, false});
+	if (ASHGameMode* GameMode = GetWorld()->GetAuthGameMode<ASHGameMode>())
+	{
+		GameMode->NotifyActivationPairSettled(CardA, CardB);
+	}
+	TryCompleteDeferredEndTurn();
+}
+
+void UTurnComponent::NotifyEffectTaskFinished()
+{
+	CheckServerAuthority();
+	TryCompleteDeferredEndTurn();
+}
+
+void UTurnComponent::BeginTurnTransitionBlock(FName EffectId)
+{
+	CheckServerAuthority();
+	if (!EffectId.IsNone())
+	{
+		++NamedTurnTransitionBlocks.FindOrAdd(EffectId);
+	}
+}
+
+void UTurnComponent::FinishTurnTransitionBlock(FName EffectId)
+{
+	CheckServerAuthority();
+	if (int32* Count = NamedTurnTransitionBlocks.Find(EffectId))
+	{
+		if (--(*Count) <= 0)
+		{
+			NamedTurnTransitionBlocks.Remove(EffectId);
+		}
+	}
+	if (ASHGameMode* GameMode = GetWorld()->GetAuthGameMode<ASHGameMode>())
+	{
+		GameMode->TryProcessQueuedPairActivations();
+		GameMode->FlushCompletedEffectPairs();
+	}
+	TryCompleteDeferredEndTurn();
+}
+
+bool UTurnComponent::HasTurnTransitionBlockers() const
+{
+	const ASHGameMode* GameMode = GetWorld()->GetAuthGameMode<ASHGameMode>();
+	return bWaitingForAdditionalDraw || !PendingPairSettlements.IsEmpty() || !NamedTurnTransitionBlocks.IsEmpty() ||
+		(IsValid(GameMode) && GameMode->HasActiveEffectTasks());
+}
+
+void UTurnComponent::TryCompleteDeferredEndTurn()
+{
+	if (bEndTurnRequested && !HasTurnTransitionBlockers())
+	{
+		EndTurn();
+	}
 }
 
 void UTurnComponent::EnterTurnPhase(ETurnPhase NewPhase)

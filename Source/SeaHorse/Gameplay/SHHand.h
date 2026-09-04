@@ -9,8 +9,20 @@
 class ASHCard;
 class AVictoryStack;
 class ASHPlayerState;
+class ASHPlayerRepresentation;
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnNPCStackShuffled);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnHandCardsChanged, int32, CardCount);
+
+UENUM(BlueprintType)
+enum class EActivationPairState : uint8
+{
+	Creating,
+	Ready,
+	ClickPresentation,
+	AbilityEffect,
+	VictoryPresentation,
+	Completed
+};
 
 USTRUCT(BlueprintType)
 struct FActivatedPair
@@ -26,6 +38,9 @@ public:
 
 	UPROPERTY(BlueprintReadWrite, EditAnywhere)
 	bool bActivated = false;
+
+	UPROPERTY(BlueprintReadOnly, VisibleAnywhere)
+	EActivationPairState State = EActivationPairState::Creating;
 
 	bool operator==(const FActivatedPair& Other) const
 	{
@@ -57,16 +72,57 @@ public:
 	UFUNCTION(NetMulticast, Reliable)
 	void MulticastPairEffectActivated(ASHCard* CardA, ASHCard* CardB);
 
+	UFUNCTION(NetMulticast, Reliable)
+	void MulticastPairCreated(ASHCard* CardA, ASHCard* CardB);
+
+	UFUNCTION(NetMulticast, Reliable)
+	void MulticastPairClicked(ASHCard* CardA, ASHCard* CardB);
+
+	UFUNCTION(NetMulticast, Reliable)
+	void MulticastPairReadyForVictory(ASHCard* CardA, ASHCard* CardB);
+
 	UFUNCTION(BlueprintImplementableEvent)
 	void OnPairEffectActivated(ASHCard* CardA, ASHCard* CardB);
 
 	UFUNCTION(BlueprintImplementableEvent)
 	void OnPairActivated(ASHCard* CardA, ASHCard* CardB);
 
+	/** Presentation hook fired once when this visual hand receives a newly created pair. */
+	UFUNCTION(BlueprintImplementableEvent, Category = "Cards|Activation")
+	void OnPairCreated(ASHCard* CardA, ASHCard* CardB);
+
+	/** Presentation hook fired when the stored pair's gameplay effect is activated. */
+	UFUNCTION(BlueprintImplementableEvent, Category = "Cards|Activation")
+	void OnStoredPairActivated(ASHCard* CardA, ASHCard* CardB);
+
+	/** Presentation hook fired locally after both cards reach their final table transforms. */
+	UFUNCTION(BlueprintImplementableEvent, Category = "Cards|Activation")
+	void OnPairSettled(ASHCard* CardA, ASHCard* CardB);
+
+	UFUNCTION(BlueprintImplementableEvent, Category = "Cards|Activation")
+	void OnPairClicked(ASHCard* CardA, ASHCard* CardB);
+
+	UFUNCTION(BlueprintImplementableEvent, Category = "Cards|Activation")
+	void OnPairReadyForVictory(ASHCard* CardA, ASHCard* CardB);
+
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Cards|Activation")
 	virtual void AddActivationPair(ASHCard* CardA, ASHCard* CardB);
 	void AddActivationPairToLogicalHand(ASHCard* CardA, ASHCard* CardB);
 	void RefreshActivationPairsPresentation();
+	void NotifyPairSettled(ASHCard* CardA, ASHCard* CardB);
+	void PresentPairCreated(ASHCard* CardA, ASHCard* CardB);
+	void PresentStoredPairActivated(ASHCard* CardA, ASHCard* CardB);
+
+	/** Call on the authoritative BP instance before starting an asynchronous presentation. */
+	UFUNCTION(BlueprintCallable, Category = "Cards|Presentation")
+	void BeginTurnBlockingEffect(FName EffectId);
+
+	/** Releases a matching presentation lock and allows a deferred turn to finish. */
+	UFUNCTION(BlueprintCallable, Category = "Cards|Presentation")
+	void FinishTurnBlockingEffect(FName EffectId);
+
+	/** Local presentation gate used by the activation-pair layout. */
+	bool IsPairMovementBlocked() const { return !LocalPresentationBlocks.IsEmpty(); }
 
 	bool RemoveActivationPair(ASHCard* CardA, ASHCard* CardB);
 
@@ -160,23 +216,19 @@ public:
 	bool ContainsCard(ASHCard* CardB);
 
 	FActivatedPair* FindActivationPair(ASHCard* Card);
+	void SetActivationPairState(ASHCard* CardA, ASHCard* CardB, EActivationPairState NewState);
 
 	AVictoryStack* GetVictoryStack() const
 	{
 		return VictoryStack;
 	}
 
-	void SetRepresentedPlayerState(ASHPlayerState* InPlayerState)
-	{
-		RepresentedPlayerState = InPlayerState;
-		RepresentedLogicalHand = nullptr;
-	}
+	UFUNCTION(BlueprintPure, Category = "Player Area")
+	ASHPlayerRepresentation* GetPlayerPicker() const { return PlayerPicker; }
 
-	void SetRepresentedHand(ASHHand* InHand)
-	{
-		RepresentedPlayerState = nullptr;
-		RepresentedLogicalHand = InHand;
-	}
+	void SetRepresentedPlayerState(ASHPlayerState* InPlayerState);
+
+	void SetRepresentedHand(ASHHand* InHand);
 
 	UFUNCTION(BlueprintCallable, BlueprintPure)
 	ASHPlayerState* GetRepresentedPlayerState() const;
@@ -190,13 +242,35 @@ public:
 	FOnHandCardsChanged OnHandCardsChanged;
 
 private:
+	void SendPairPresentationToPlayerControllers(ASHCard* CardA, ASHCard* CardB,
+		bool bEffectActivation) const;
+	void RefreshPlayerPicker();
 	void RefreshLocalCardsPresentation();
+
+	/** World-space player representation/picker placed on the level for this visual hand slot. */
+	UPROPERTY(EditInstanceOnly, BlueprintReadOnly, Category = "Player Area", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<ASHPlayerRepresentation> PlayerPicker;
 
 	UPROPERTY(Transient)
 	TObjectPtr<ASHPlayerState> RepresentedPlayerState;
 
 	UPROPERTY(Transient)
 	TObjectPtr<ASHHand> RepresentedLogicalHand;
+
+	/** Local presentation cache; prevents replication/layout refreshes from replaying pair-created effects. */
+	UPROPERTY(Transient)
+	TArray<FActivatedPair> PresentedActivationPairs;
+
+	/** Local cache ensuring the layout completion hook is emitted once per pair. */
+	UPROPERTY(Transient)
+	TArray<FActivatedPair> SettledActivationPairs;
+
+	/** Prevents multicast and owner RPC delivery from replaying an activation presentation. */
+	UPROPERTY(Transient)
+	TArray<FActivatedPair> PresentedEffectActivations;
+
+	/** Exists on every instance so client-side BP animations can pause local card movement. */
+	TMap<FName, int32> LocalPresentationBlocks;
 	
 	FTransform LayoutTransform;
 
