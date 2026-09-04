@@ -69,6 +69,9 @@ public:
 	void ServerSetCardDropPreview(ASHCard* Card, int32 InsertIndex);
 
 	UFUNCTION(Server, Reliable)
+	void ServerSetCardDropDecision(ASHCard* Card, bool bCommitDraw, int32 InsertIndex);
+
+	UFUNCTION(Server, Reliable)
 	void ServerReorderOwnCard(ASHCard* Card, int32 InsertIndex);
 
 	UFUNCTION(BlueprintCallable, Server, Reliable, Category = "Card Effects")
@@ -161,6 +164,7 @@ protected:
 
 private:
 	ASHHand* FindVisualHandForPlayer(const ASHPlayerState* PlayerState) const;
+	ASHHand* FindNearestDropHand(const ASHCard* DraggedCard) const;
 	void ReconcileRotatedHandsPresentation();
 	bool TryRoutePairPresentation(const FPendingPairPresentationEvent& Event);
 	void FlushPendingPairPresentationEvents();

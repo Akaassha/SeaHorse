@@ -199,6 +199,16 @@ void USHHandCardsLayoutComponent::SetDreggedCard(ASHCard* Card)
 	}
 }
 
+double USHHandCardsLayoutComponent::GetDistanceToLayout(const FVector& WorldLocation) const
+{
+	if (!IsValid(OwnerSpline))
+	{
+		return TNumericLimits<double>::Max();
+	}
+	return FVector::Dist(WorldLocation,
+		OwnerSpline->FindLocationClosestToWorldLocation(WorldLocation, ESplineCoordinateSpace::World));
+}
+
 bool USHHandCardsLayoutComponent::GetExternalCardDropPreview(ASHCard*& OutDraggedCard, int32& OutInsertIndex)
 {
 	OutDraggedCard = nullptr;

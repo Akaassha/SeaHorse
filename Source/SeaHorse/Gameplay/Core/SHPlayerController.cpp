@@ -12,6 +12,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "SeaHorse/Gameplay/Core/SHGameMode.h"
 #include "SeaHorse/Gameplay/Components/TurnComponent.h"
+#include "SeaHorse/Gameplay/Components/CardsLayoutComponent.h"
 #include "SeaHorse/Gameplay/Player/SHPlayerRepresentation.h"
 #include "SeaHorse/Gameplay/Cards/Fragments/CardEffectFragment.h"
 #include "TimerManager.h"
@@ -483,6 +484,7 @@ bool ASHPlayerController::TrySubmitParticipantSelectionForCard(const ASHCard* Ca
             const ASHHand* TargetHand = IsValid(LocalPlayerState) ? LocalPlayerState->GetHand() : nullptr;
             const int32 InsertIndex = IsValid(TargetHand) ? TargetHand->GetCardCount() : 0;
             LocalGuidedDrawHands.Reset();
+			ServerSetCardDropDecision(const_cast<ASHCard*>(Card), true, InsertIndex);
             ServerTakeCard(const_cast<ASHCard*>(Card), InsertIndex);
         }
         return true;
@@ -871,14 +873,129 @@ void ASHPlayerController::EndLocalCardDrag(ASHCard* Card)
     {
         return;
     }
-    if (bLastPreviewIsOwnHandReorder && LastPreviewCard == Card && LastPreviewInsertIndex != INDEX_NONE)
+	const bool bOwnCardReorder = bLastPreviewIsOwnHandReorder && LastPreviewCard == Card &&
+		LastPreviewInsertIndex != INDEX_NONE;
+    if (bOwnCardReorder)
     {
         ServerReorderOwnCard(Card, LastPreviewInsertIndex);
     }
+	else if (IsValid(Card))
+	{
+		ASHPlayerState* LocalPlayerState = GetPlayerState<ASHPlayerState>();
+		ASHHand* TargetLogicalHand = IsValid(LocalPlayerState) ? LocalPlayerState->GetHand() : nullptr;
+		ASHHand* NearestLogicalHand = FindNearestDropHand(Card);
+		const bool bHasPreview = LastPreviewCard == Card && LastPreviewInsertIndex != INDEX_NONE;
+		const bool bCommitDraw = bHasPreview && IsValid(TargetLogicalHand) &&
+			NearestLogicalHand == TargetLogicalHand;
+
+		UE_LOG(LogTemp, Log,
+			TEXT("[SH_DROP] Card=%s Commit=%d NearestHand=%s TargetHand=%s Index=%d"),
+			*GetNameSafe(Card), bCommitDraw, *GetNameSafe(NearestLogicalHand),
+			*GetNameSafe(TargetLogicalHand), LastPreviewInsertIndex);
+		ServerSetCardDropDecision(Card, bCommitDraw, LastPreviewInsertIndex);
+		if (bCommitDraw)
+		{
+			ServerTakeCard(Card, LastPreviewInsertIndex);
+		}
+	}
     LocallyDraggedCard = nullptr;
     LastPreviewCard = nullptr;
     LastPreviewInsertIndex = INDEX_NONE;
 	bLastPreviewIsOwnHandReorder = false;
+}
+
+ASHHand* ASHPlayerController::FindNearestDropHand(const ASHCard* DraggedCard) const
+{
+	const ASHGameState* GameState = GetWorld() ? GetWorld()->GetGameState<ASHGameState>() : nullptr;
+	if (!IsValid(GameState) || !IsValid(DraggedCard))
+	{
+		return nullptr;
+	}
+
+	ASHHand* NearestLogicalHand = nullptr;
+	double NearestDistanceSquared = TNumericLimits<double>::Max();
+
+	// Read the actual release point instead of the dragged actor transform. The
+	// Blueprint presentation may already start snapping the card to a preview
+	// slot before SetDreggedCard(nullptr) reaches EndLocalCardDrag.
+	FVector DropLocation = DraggedCard->GetActorLocation();
+	FVector CursorWorldOrigin;
+	FVector CursorWorldDirection;
+	if (DeprojectMousePositionToWorld(CursorWorldOrigin, CursorWorldDirection))
+	{
+		FHitResult CursorHit;
+		FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(CardDropHand), true);
+		QueryParams.AddIgnoredActor(DraggedCard);
+		const FVector TraceEnd = CursorWorldOrigin + CursorWorldDirection * HALF_WORLD_MAX;
+		if (GetWorld()->LineTraceSingleByChannel(
+			CursorHit, CursorWorldOrigin, TraceEnd, ECC_Visibility, QueryParams))
+		{
+			DropLocation = CursorHit.ImpactPoint;
+			if (const ASHCard* CardUnderCursor = Cast<ASHCard>(CursorHit.GetActor()))
+			{
+				ASHHand* HitCardHand = CardUnderCursor->GetOwningHand();
+				if (GameState->GetParticipantHands().Contains(HitCardHand))
+				{
+					return HitCardHand;
+				}
+			}
+		}
+	}
+	for (ASHHand* LogicalHand : GameState->GetParticipantHands())
+	{
+		ASHHand* VisualHand = FindVisualHandForLogicalHand(LogicalHand);
+		if (!IsValid(LogicalHand) || !IsValid(VisualHand))
+		{
+			continue;
+		}
+
+		double HandDistanceSquared = TNumericLimits<double>::Max();
+		if (const USHHandCardsLayoutComponent* Layout =
+			VisualHand->FindComponentByClass<USHHandCardsLayoutComponent>())
+		{
+			const double LayoutDistance = Layout->GetDistanceToLayout(DropLocation);
+			HandDistanceSquared = LayoutDistance * LayoutDistance;
+		}
+		for (const ASHCard* CandidateCard : LogicalHand->GetCards())
+		{
+			if (IsValid(CandidateCard) && CandidateCard != DraggedCard)
+			{
+				HandDistanceSquared = FMath::Min(HandDistanceSquared,
+					FVector::DistSquared(DropLocation, CandidateCard->GetActorLocation()));
+			}
+		}
+
+		if (HandDistanceSquared < NearestDistanceSquared)
+		{
+			NearestDistanceSquared = HandDistanceSquared;
+			NearestLogicalHand = LogicalHand;
+		}
+	}
+	return NearestLogicalHand;
+}
+
+void ASHPlayerController::ServerSetCardDropDecision_Implementation(
+	ASHCard* Card, bool bCommitDraw, int32 InsertIndex)
+{
+	PendingDropCard = nullptr;
+	PendingDropInsertIndex = INDEX_NONE;
+	if (!IsValid(Card))
+	{
+		return;
+	}
+	if (!bCommitDraw)
+	{
+		return;
+	}
+
+	ASHPlayerState* SHPlayerState = GetPlayerState<ASHPlayerState>();
+	ASHHand* TargetHand = IsValid(SHPlayerState) ? SHPlayerState->GetHand() : nullptr;
+	if (IsValid(TargetHand) && Card->GetOwningHand() != TargetHand &&
+		InsertIndex >= 0 && InsertIndex <= TargetHand->GetCardCount())
+	{
+		PendingDropCard = Card;
+		PendingDropInsertIndex = InsertIndex;
+	}
 }
 
 void ASHPlayerController::UpdateLocalCardDropPreview(ASHCard* Card, int32 InsertIndex, bool bOwnHandReorder)
@@ -928,10 +1045,18 @@ void ASHPlayerController::ServerTakeCard_Implementation(ASHCard* Card, int32 Ins
         return;
     }
 
-    if (PendingDropCard == Card && PendingDropInsertIndex != INDEX_NONE)
-    {
-        InsertIndex = PendingDropInsertIndex;
-    }
+	// BP_Hand still has a legacy unconditional ServerTakeCard call. It can be
+	// sent before EndLocalCardDrag and used to bypass the local drop decision.
+	// Only a draw explicitly approved by ServerSetCardDropDecision is valid.
+	if (PendingDropCard != Card || PendingDropInsertIndex == INDEX_NONE)
+	{
+		UE_LOG(LogTemp, Log,
+			TEXT("[SH_DROP][REJECT_UNAPPROVED] Ignoring legacy/premature draw for %s"),
+			*GetNameSafe(Card));
+		return;
+	}
+
+	InsertIndex = PendingDropInsertIndex;
     PendingDropCard = nullptr;
     PendingDropInsertIndex = INDEX_NONE;
 
