@@ -25,6 +25,8 @@ class SEAHORSE_API ASHGameMode : public AGameMode
 	GENERATED_BODY()
 	
 public:
+	virtual void InitGame(const FString& MapName, const FString& Options, FString& ErrorMessage) override;
+	virtual void PreLogin(const FString& Options, const FString& Address, const FUniqueNetIdRepl& UniqueId, FString& ErrorMessage) override;
 	//Begin AGameMode Interface
 	virtual void HandleStartingNewPlayer_Implementation(APlayerController* NewPlayer) override;
 	//End AGameMode Interface
@@ -74,7 +76,7 @@ protected:
 	TSubclassOf<UDeckComponent> DeckComponentClass;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Players", meta = (ClampMin = "2", ClampMax = "4"))
-	int32 ExpectedPlayerCount = 3;
+	int32 ExpectedPlayerCount = 2;
 
 private:
 	void SetPairTargetSelectionPresentation(UCardEffectTask* Task,

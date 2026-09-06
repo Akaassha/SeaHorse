@@ -16,6 +16,35 @@
 #include "SeaHorse/Gameplay/Components/TurnComponent.h"
 #include "EngineUtils.h"
 #include "Kismet/GameplayStatics.h"
+#include "GameFramework/GameSession.h"
+#include "Engine/GameInstance.h"
+#include "Online/SHSessionSubsystem.h"
+
+void ASHGameMode::InitGame(const FString& MapName, const FString& Options, FString& ErrorMessage)
+{
+    Super::InitGame(MapName, Options, ErrorMessage);
+    // Supplied by the authoritative lobby's ServerTravel, never by an individual login URL.
+    if (UGameplayStatics::HasOption(Options, TEXT("SHExpectedPlayers")))
+    {
+        const int32 LobbyPlayerCount = UGameplayStatics::GetIntOption(Options, TEXT("SHExpectedPlayers"), 0);
+        if (LobbyPlayerCount < 2 || LobbyPlayerCount > TotalSeatCount)
+        {
+            ErrorMessage = TEXT("Invalid lobby player count.");
+            return;
+        }
+        ExpectedPlayerCount = LobbyPlayerCount;
+    }
+    if (GameSession) { GameSession->MaxPlayers = ExpectedPlayerCount; }
+}
+
+void ASHGameMode::PreLogin(const FString& Options, const FString& Address, const FUniqueNetIdRepl& UniqueId, FString& ErrorMessage)
+{
+    Super::PreLogin(Options, Address, UniqueId, ErrorMessage);
+    if (ErrorMessage.IsEmpty() && (bGameStarted || GetNumPlayers() >= ExpectedPlayerCount))
+    {
+        ErrorMessage = TEXT("This match is full or has already started.");
+    }
+}
 
 // ***** Begin Player setup *****
 void ASHGameMode::HandleStartingNewPlayer_Implementation(APlayerController* NewPlayer)
@@ -32,6 +61,9 @@ void ASHGameMode::HandleStartingNewPlayer_Implementation(APlayerController* NewP
 
     Hand->SetOwner(NewPlayer);
     SHPlayerState->SetHand(Hand);
+
+    UE_LOG(LogTemp, Log, TEXT("[SH_INIT] Participant initialized: %s, hand=%s, expected=%d"),
+        *GetNameSafe(NewPlayer), *GetNameSafe(Hand), ExpectedPlayerCount);
 
     TryStartGame();
 }
@@ -221,6 +253,10 @@ void ASHGameMode::StartGame()
     TurnComponent->InitializeTurns(StartingPlayer);
 
     SHGameState->SetMatchReady(true);
+    if (USHSessionSubsystem* Sessions = GetGameInstance()->GetSubsystem<USHSessionSubsystem>())
+    {
+        Sessions->NotifyMatchReady(GetWorld());
+    }
 }
 // ***** End Match Startup *****
 

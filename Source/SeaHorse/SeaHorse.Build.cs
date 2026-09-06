@@ -7,14 +7,17 @@ public class SeaHorse : ModuleRules
 	public SeaHorse(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
+		PublicIncludePaths.Add(ModuleDirectory);
 	
-		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput", "UMG" });
+		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput", "UMG", "CommonUI", "CommonInput", "GameplayTags", "DeveloperSettings", "SlateCore", "PropertyPath", "OnlineSubsystem" });
 
-		PrivateDependencyModuleNames.AddRange(new string[] { "OnlineSubsystem", "OnlineSubsystemUtils" });
+		PrivateDependencyModuleNames.AddRange(new string[] { "OnlineSubsystemUtils", "Slate", "PreLoadScreen" });
 		DynamicallyLoadedModuleNames.Add("OnlineSubsystemSteam");
 
-		// Uncomment if you are using Slate UI
-		// PrivateDependencyModuleNames.AddRange(new string[] { "Slate", "SlateCore" });
+		if (Target.bBuildEditor)
+		{
+			PrivateDependencyModuleNames.Add("UMGEditor");
+		}
 		
 		// OnlineSubsystemSteam is enabled in SeaHorse.uproject and loaded dynamically above.
 	}
