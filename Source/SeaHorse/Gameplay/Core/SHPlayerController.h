@@ -97,6 +97,7 @@ public:
 	void ClientRequestPlayerSelection(const TArray<ASHPlayerState*>& Candidates,
 		EPlayerSelectionPurpose Purpose);
 
+	/** Legacy card-based selector hook; native player-picker requests no longer dispatch it. */
 	UFUNCTION(BlueprintImplementableEvent, Category = "Card Effects")
 	void OnPlayerSelectionRequested(const TArray<ASHPlayerState*>& Candidates, EPlayerSelectionPurpose Purpose);
 
@@ -169,6 +170,12 @@ protected:
 	bool bTableViewInitialized = false;
 
 private:
+#if WITH_DEV_AUTOMATION_TESTS
+	friend class FSHGameplayEffectInputTest;
+#endif
+	bool TryHandleEffectSelectionClick(AActor* HitActor);
+	bool bConsumeEffectSelectionRelease = false;
+	bool bAwaitingPlayerSelectionResponse = false;
 	UFUNCTION()
 	void HandleTurnStateChanged(ASHPlayerState* CurrentPlayer, ETurnPhase TurnPhase);
 	void KeepDraggedCardAboveOtherCards();

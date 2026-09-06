@@ -340,6 +340,8 @@ void UTurnComponent::ScheduleSkippedTurn(ASHPlayerState* PlayerState)
 	checkf(IsValid(PlayerState), TEXT("Cannot skip a turn for an invalid player"));
 
 	++PendingSkippedTurns.FindOrAdd(PlayerState);
+	UE_LOG(LogTemp, Log, TEXT("[SH_SKIP_TURN] Scheduled one skip for %s; pending=%d"),
+		*GetNameSafe(PlayerState), PendingSkippedTurns.FindChecked(PlayerState));
 }
 
 ETurnPhase UTurnComponent::GetNextTurnPhase_Implementation(

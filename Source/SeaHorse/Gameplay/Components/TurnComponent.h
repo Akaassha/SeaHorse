@@ -95,6 +95,9 @@ protected:
 	virtual ASHPlayerState* ChooseNextPlayer_Implementation(ASHPlayerState* CurrentPlayer) const;
 
 private:
+#if WITH_DEV_AUTOMATION_TESTS
+	friend class FSHDrawRulesTest;
+#endif
 	void EndTurn();
 	void EnterTurnPhase(ETurnPhase NewPhase);
 	void FinishAdditionalDraw();

@@ -349,28 +349,47 @@ void ASHPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 
 bool ASHPlayerController::InputKey(const FInputKeyEventArgs& Params)
 {
-	if (IsLocalController() && Params.Key == EKeys::LeftMouseButton && Params.Event == IE_Pressed &&
-		(!LocalParticipantSelectionCandidates.IsEmpty() || !LocalGuidedDrawHands.IsEmpty()))
+	if (IsLocalController() && Params.Key == EKeys::LeftMouseButton &&
+		Params.Event == IE_Released && bConsumeEffectSelectionRelease)
 	{
+		bConsumeEffectSelectionRelease = false;
+		return true;
+	}
+	if (IsLocalController() && Params.Key == EKeys::LeftMouseButton && Params.Event == IE_Pressed &&
+		(!LocalPlayerSelectionCandidates.IsEmpty() || !LocalParticipantSelectionCandidates.IsEmpty() ||
+			bAwaitingPlayerSelectionResponse))
+	{
+		// Own the whole gesture, including release. A listen-server selection can
+		// synchronously open the next step before this press finishes dispatching.
+		bConsumeEffectSelectionRelease = true;
 		FHitResult HitResult;
 		GetHitResultUnderCursor(ECC_Visibility, true, HitResult);
-		ASHCard* HitCard = Cast<ASHCard>(HitResult.GetActor());
-
-		UE_LOG(LogTemp, Warning,
-			TEXT("[SH_PARTICIPANT_SELECTION][INPUT] Controller=%s HitActor=%s HitCard=%s"),
-			*GetNameSafe(this), *GetNameSafe(HitResult.GetActor()), *GetNameSafe(HitCard));
-
-		if (IsValid(HitCard))
-		{
-			TrySubmitParticipantSelectionForCard(HitCard);
-		}
-
-		// Do not let BP_SHPlayerController interpret the same press as a normal
-		// card draw/drag while an effect target or guided draw is pending.
+		TryHandleEffectSelectionClick(HitResult.GetActor());
 		return true;
 	}
 
 	return Super::InputKey(Params);
+}
+
+bool ASHPlayerController::TryHandleEffectSelectionClick(AActor* HitActor)
+{
+	if (bAwaitingPlayerSelectionResponse)
+	{
+		return true;
+	}
+	if (!LocalPlayerSelectionCandidates.IsEmpty())
+	{
+		// Match ResolveTargetingCursor: player choices use the represented player,
+		// not a card-only BP lookup which returns None for a player picker.
+		const ASHPlayerRepresentation* Picker = Cast<ASHPlayerRepresentation>(HitActor);
+		return TrySubmitPlayerSelectionForPicker(IsValid(Picker) ? Picker->GetRepresentedPlayerState() : nullptr);
+	}
+	if (!LocalParticipantSelectionCandidates.IsEmpty())
+	{
+		TrySubmitParticipantSelectionForCard(Cast<ASHCard>(HitActor));
+		return true;
+	}
+	return false;
 }
 
 void ASHPlayerController::TrySetupTableView()
@@ -546,6 +565,7 @@ void ASHPlayerController::ClientRequestPlayerSelection_Implementation(
     const TArray<ASHPlayerState*>& Candidates,
     EPlayerSelectionPurpose Purpose)
 {
+	bAwaitingPlayerSelectionResponse = false;
 	ClearLocalPlayerSelection();
 	for (ASHPlayerState* Candidate : Candidates)
 	{
@@ -589,7 +609,9 @@ void ASHPlayerController::ClientRequestPlayerSelection_Implementation(
             IsValid(CandidateHand) ? CandidateHand->GetCardCount() : INDEX_NONE);
     }
 
-    OnPlayerSelectionRequested(Candidates, Purpose);
+    // Native world-space pickers own this interaction. The legacy BP event arms
+    // a second, card-based selector (IsSelectingPlayer), which submits None for
+    // picker clicks and can remain armed after the native selector completes.
 }
 
 bool ASHPlayerController::TrySubmitPlayerSelectionForPicker(ASHPlayerState* SelectedPlayer)
@@ -602,6 +624,7 @@ bool ASHPlayerController::TrySubmitPlayerSelectionForPicker(ASHPlayerState* Sele
 	if (IsValid(SelectedPlayer) && LocalPlayerSelectionCandidates.Contains(SelectedPlayer))
 	{
 		ClearLocalPlayerSelection();
+		bAwaitingPlayerSelectionResponse = true;
 		ServerSubmitPlayerSelection(SelectedPlayer);
 	}
 
@@ -630,6 +653,7 @@ void ASHPlayerController::ClearLocalPlayerSelection()
 
 void ASHPlayerController::ClearLocalEffectSelectionState()
 {
+	bAwaitingPlayerSelectionResponse = false;
 	ClearLocalPlayerSelection();
 	LocalParticipantSelectionCandidates.Reset();
 	LocalActivationPairSelectionCandidates.Reset();
@@ -800,22 +824,9 @@ bool ASHPlayerController::TrySubmitParticipantSelectionForCard(const ASHCard* Ca
 {
     if (LocalParticipantSelectionCandidates.IsEmpty())
     {
-        if (LocalGuidedDrawHands.IsEmpty())
-        {
-            return false;
-        }
-
-        ASHHand* SourceHand = IsValid(Card) ? Card->GetOwningHand() : nullptr;
-        if (IsValid(SourceHand) && LocalGuidedDrawHands.Contains(SourceHand))
-        {
-            const ASHPlayerState* LocalPlayerState = GetPlayerState<ASHPlayerState>();
-            const ASHHand* TargetHand = IsValid(LocalPlayerState) ? LocalPlayerState->GetHand() : nullptr;
-            const int32 InsertIndex = IsValid(TargetHand) ? TargetHand->GetCardCount() : 0;
-            LocalGuidedDrawHands.Reset();
-			ServerSetCardDropDecision(const_cast<ASHCard*>(Card), true, InsertIndex);
-            ServerTakeCard(const_cast<ASHCard*>(Card), InsertIndex);
-        }
-        return true;
+        // A forced/additional draw only restricts the source. It still uses the
+        // ordinary drag preview, release decision and authoritative draw checks.
+        return false;
     }
 
     ASHHand* SelectedHand = IsValid(Card) ? Card->GetOwningHand() : nullptr;
