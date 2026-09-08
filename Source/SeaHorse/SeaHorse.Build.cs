@@ -13,6 +13,9 @@ public class SeaHorse : ModuleRules
 
 		PrivateDependencyModuleNames.AddRange(new string[] { "OnlineSubsystemUtils", "Slate", "PreLoadScreen" });
 		DynamicallyLoadedModuleNames.Add("OnlineSubsystemSteam");
+		bool bSteamAvatars = Target.Platform == UnrealTargetPlatform.Win64 || Target.Platform == UnrealTargetPlatform.Linux || Target.Platform == UnrealTargetPlatform.Mac;
+		PublicDefinitions.Add("SH_WITH_STEAM_AVATARS=" + (bSteamAvatars ? "1" : "0"));
+		if (bSteamAvatars) { AddEngineThirdPartyPrivateStaticDependencies(Target, "Steamworks"); }
 
 		if (Target.bBuildEditor)
 		{

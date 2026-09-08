@@ -166,7 +166,9 @@ void USHSessionSubsystem::CreateMatch(const FString& ServerName, int32 MaxPlayer
 	SessionSettings.NumPublicConnections = MaxPlayers;
 	SessionSettings.bIsLANMatch = bLAN;
 	SessionSettings.bShouldAdvertise = true;
-	SessionSettings.bAllowJoinInProgress = false;
+	// Steam also uses this flag to keep the waiting lobby joinable and visible in searches.
+	// Disable it in HandleStart once the match starts; GameMode rejects late arrivals too.
+	SessionSettings.bAllowJoinInProgress = true;
 	SessionSettings.bAllowInvites = false; // Invite acceptance is not part of this API.
 	SessionSettings.bUsesPresence = !bLAN;
 	SessionSettings.bAllowJoinViaPresence = !bLAN;
@@ -384,6 +386,7 @@ void USHSessionSubsystem::HandleStart(FName Name, bool bSuccess)
 	if (FOnlineSessionSettings* Settings = Sessions->GetSessionSettings(NAME_GameSession))
 	{
 		Settings->bShouldAdvertise = false;
+		Settings->bAllowJoinInProgress = false;
 		Settings->bAllowJoinViaPresence = false;
 		Sessions->UpdateSession(NAME_GameSession, *Settings, true);
 	}
