@@ -214,9 +214,9 @@ void UTurnComponent::HandleCardDrawnFromHand(ASHPlayerState* DrawingPlayer, ASHH
 		}
 	}
 
+	FirstDrawSourceHand = SourceHand;
 	if (DrawingPlayer == AdditionalDrawPlayer)
 	{
-		FirstDrawSourceHand = SourceHand;
 		BeginWaitingForAdditionalDraw();
 		return;
 	}
@@ -227,6 +227,7 @@ void UTurnComponent::HandleCardDrawnFromHand(ASHPlayerState* DrawingPlayer, ASHH
 
 void UTurnComponent::FinishAdditionalDraw()
 {
+	ClearDrawGuidance(AdditionalDrawPlayer);
 	UCardEffectTask* CompletedEffectTask = AdditionalDrawEffectTask;
 	if (IsValid(CompletedEffectTask))
 	{
@@ -245,7 +246,7 @@ void UTurnComponent::FinishAdditionalDraw()
 	}
 
 	AdditionalDrawPlayer = nullptr;
-	FirstDrawSourceHand = nullptr;
+	// Keep the original draw source until turn end: another queued pair may start after its animation.
 	AdditionalDrawEffectTask = nullptr;
 	bWaitingForAdditionalDraw = false;
 	EnterTurnPhase(ETurnPhase::SecondPairing);
@@ -309,6 +310,16 @@ void UTurnComponent::ScheduleAdditionalDraw(
 		AdditionalDrawPlayer = PlayerState;
 		AdditionalDrawEffectTask = EffectTask;
 		AdditionalDrawSourceRule = SourceRule;
+		if (IsValid(FirstDrawSourceHand))
+		{
+			EnterTurnPhase(ETurnPhase::DrawCard);
+			BeginWaitingForAdditionalDraw();
+		}
+		else if (GetSHGameState()->GetTurnPhase() == ETurnPhase::SecondPairing)
+		{
+			// No initial draw happened this turn, so there is no source to repeat or exclude.
+			FinishAdditionalDraw();
+		}
 		return;
 	}
 
@@ -437,6 +448,7 @@ void UTurnComponent::EndTurn()
 		checkf(IsValid(NextPlayer), TEXT("ChooseNextPlayer returned an invalid player while skipping turns"));
 	}
 
+	FirstDrawSourceHand = nullptr;
 	GameState->SetCurrentPlayer(NextPlayer);
 	bPairingActionUsed = false;
 	GameState->SetTurnPhase(ETurnPhase::FirstPairing);

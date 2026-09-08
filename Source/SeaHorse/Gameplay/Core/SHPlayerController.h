@@ -10,6 +10,7 @@
 
 class ASHHand;
 class ASHPlayerState;
+class ASHGameState;
 class ASHCard;
 class UCardDefinition;
 
@@ -57,6 +58,10 @@ public:
 	UFUNCTION(BlueprintCallable)
 	void TrySetupTableView();
 
+	/** Called once on the local controller after its PlayerState and the match GameState are ready. */
+	UFUNCTION(BlueprintImplementableEvent, Category = "Match|UI")
+	void OnLocalMatchUIReady(ASHPlayerState* LocalPlayerState, ASHGameState* MatchGameState);
+
 	/** Local drag preview used by hand layout components. Gameplay remains server authoritative. */
 	void BeginLocalCardDrag(ASHCard* Card);
 	void EndLocalCardDrag(ASHCard* Card);
@@ -88,6 +93,7 @@ public:
 
 	/** Called by a world-space player picker. Returns true when the click was consumed. */
 	bool TrySubmitPlayerSelectionForPicker(ASHPlayerState* SelectedPlayer);
+	bool TrySubmitParticipantSelectionForHand(ASHHand* SelectedHand);
 
 	UFUNCTION(Server, Reliable)
 	void ServerSubmitParticipantSelection(ASHHand* SelectedHand);
@@ -176,10 +182,12 @@ protected:
 
 protected:
 	bool bTableViewInitialized = false;
+	bool bLocalMatchUIInitialized = false;
 
 private:
 #if WITH_DEV_AUTOMATION_TESTS
 	friend class FSHGameplayEffectInputTest;
+	friend class FSHLocalMatchUIReadinessTest;
 #endif
 	bool TryHandleEffectSelectionClick(AActor* HitActor);
 	bool bConsumeEffectSelectionRelease = false;

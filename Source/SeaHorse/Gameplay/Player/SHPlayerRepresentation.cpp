@@ -13,13 +13,14 @@ ASHPlayerRepresentation::ASHPlayerRepresentation()
 
 void ASHPlayerRepresentation::NotifyActorOnClicked(FKey ButtonPressed)
 {
-	if (bSelectable && IsValid(RepresentedPlayerState))
+	if (bSelectable && IsValid(GetRepresentedHand()))
 	{
 		ASHPlayerController* LocalController = GetWorld()
 			? Cast<ASHPlayerController>(GetWorld()->GetFirstPlayerController())
 			: nullptr;
 		if (IsValid(LocalController) && LocalController->IsLocalController() &&
-			LocalController->TrySubmitPlayerSelectionForPicker(RepresentedPlayerState))
+			(LocalController->TrySubmitParticipantSelectionForHand(GetRepresentedHand()) ||
+			 LocalController->TrySubmitPlayerSelectionForPicker(RepresentedPlayerState)))
 		{
 			return;
 		}
@@ -32,6 +33,11 @@ void ASHPlayerRepresentation::BindToHand(ASHHand* InVisualHand)
 {
 	VisualHand = InVisualHand;
 	RefreshFromHand();
+}
+
+ASHHand* ASHPlayerRepresentation::GetRepresentedHand() const
+{
+	return IsValid(VisualHand) ? VisualHand->GetRepresentedHand() : nullptr;
 }
 
 void ASHPlayerRepresentation::RefreshFromHand()
@@ -50,7 +56,7 @@ void ASHPlayerRepresentation::RefreshFromHand()
 
 void ASHPlayerRepresentation::SetSelectable(bool bInSelectable)
 {
-	const bool bNewSelectable = bInSelectable && IsValid(RepresentedPlayerState);
+	const bool bNewSelectable = bInSelectable && IsValid(GetRepresentedHand());
 	if (bSelectable == bNewSelectable)
 	{
 		return;

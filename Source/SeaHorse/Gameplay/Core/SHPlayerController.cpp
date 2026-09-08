@@ -180,12 +180,16 @@ bool ASHPlayerController::ResolveTargetingCursor(FVector& OutLocation, bool& bOu
 		AActor* HitActor = HitResult.GetActor();
 		if (const ASHPlayerRepresentation* Picker = Cast<ASHPlayerRepresentation>(HitActor))
 		{
-			bOutValidTarget = LocalPlayerSelectionCandidates.Contains(Picker->GetRepresentedPlayerState());
+			ASHPlayerState* RepresentedPlayer = Picker->GetRepresentedPlayerState();
+			bOutValidTarget =
+				(IsValid(RepresentedPlayer) && LocalPlayerSelectionCandidates.Contains(RepresentedPlayer)) ||
+				LocalParticipantSelectionCandidates.Contains(Picker->GetRepresentedHand());
 		}
 		else if (const ASHCard* Card = Cast<ASHCard>(HitActor))
 		{
 			bOutValidTarget = LocalActivationPairSelectionCandidates.Contains(Card) ||
-				LocalParticipantSelectionCandidates.Contains(Card->GetOwningHand());
+				(IsValid(Card->GetOwningHand()) && Card->GetOwningHand()->IsLogicalNPC() &&
+				 LocalParticipantSelectionCandidates.Contains(Card->GetOwningHand()));
 		}
 		if (bOutValidTarget)
 		{
@@ -386,6 +390,10 @@ bool ASHPlayerController::TryHandleEffectSelectionClick(AActor* HitActor)
 	}
 	if (!LocalParticipantSelectionCandidates.IsEmpty())
 	{
+		if (const ASHPlayerRepresentation* Picker = Cast<ASHPlayerRepresentation>(HitActor))
+		{
+			return TrySubmitParticipantSelectionForHand(Picker->GetRepresentedHand());
+		}
 		TrySubmitParticipantSelectionForCard(Cast<ASHCard>(HitActor));
 		return true;
 	}
@@ -530,6 +538,12 @@ void ASHPlayerController::TrySetupTableView()
 
     SetupTableView();
     bTableViewInitialized = true;
+	// Initialize UI only after the retry loop has resolved the local player and table references.
+	if (!bLocalMatchUIInitialized)
+	{
+		bLocalMatchUIInitialized = true;
+		OnLocalMatchUIReady(LocalPlayerState, SHGameState);
+	}
 	GetWorldTimerManager().ClearTimer(TableSetupRetryTimer);
 
     UE_LOG(LogTemp, Warning,
@@ -641,6 +655,10 @@ void ASHPlayerController::ClientRequestPlayerSelection_Implementation(
 
 bool ASHPlayerController::TrySubmitPlayerSelectionForPicker(ASHPlayerState* SelectedPlayer)
 {
+	if (!LocalParticipantSelectionCandidates.IsEmpty())
+	{
+		return TrySubmitParticipantSelectionForHand(IsValid(SelectedPlayer) ? SelectedPlayer->GetHand() : nullptr);
+	}
 	if (LocalPlayerSelectionCandidates.IsEmpty())
 	{
 		return false;
@@ -830,12 +848,26 @@ void ASHPlayerController::ClientRequestParticipantSelection_Implementation(
     const TArray<ASHHand*>& Candidates,
     EPlayerSelectionPurpose Purpose)
 {
+    ClearLocalEffectSelectionState();
     LocalParticipantSelectionCandidates.Reset();
     for (ASHHand* Candidate : Candidates)
     {
         if (IsValid(Candidate))
         {
             LocalParticipantSelectionCandidates.AddUnique(Candidate);
+        }
+    }
+
+    if (const ASHGameState* State = GetWorld()->GetGameState<ASHGameState>())
+    {
+        for (ASHHand* LogicalHand : State->GetParticipantHands())
+        {
+            ASHHand* VisualHand = FindVisualHandForLogicalHand(LogicalHand);
+            ASHPlayerRepresentation* Picker = IsValid(VisualHand) ? VisualHand->GetPlayerPicker() : nullptr;
+            if (IsValid(Picker))
+            {
+                Picker->SetSelectable(LocalParticipantSelectionCandidates.Contains(LogicalHand));
+            }
         }
     }
 
@@ -855,14 +887,23 @@ bool ASHPlayerController::TrySubmitParticipantSelectionForCard(const ASHCard* Ca
     }
 
     ASHHand* SelectedHand = IsValid(Card) ? Card->GetOwningHand() : nullptr;
-    const bool bValidCandidate = IsValid(SelectedHand) &&
-        LocalParticipantSelectionCandidates.Contains(SelectedHand);
+    return TrySubmitParticipantSelectionForHand(
+        IsValid(SelectedHand) && SelectedHand->IsLogicalNPC() ? SelectedHand : nullptr);
+}
 
-    // While selection is pending, consume every card click so it cannot also
-    // become a normal draw/pair action through the Blueprint click handler.
-    if (bValidCandidate)
+bool ASHPlayerController::TrySubmitParticipantSelectionForHand(ASHHand* SelectedHand)
+{
+    if (LocalParticipantSelectionCandidates.IsEmpty())
+    {
+        return false;
+    }
+
+    // Consume invalid targets as well; the authoritative candidate list determines eligibility.
+    if (IsValid(SelectedHand) && LocalParticipantSelectionCandidates.Contains(SelectedHand))
     {
         LocalParticipantSelectionCandidates.Reset();
+        ClearLocalPlayerSelection();
+        bAwaitingPlayerSelectionResponse = true;
         ServerSubmitParticipantSelection(SelectedHand);
     }
     return true;

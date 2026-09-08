@@ -33,6 +33,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Player Representation")
 	ASHHand* GetVisualHand() const { return VisualHand; }
 
+	/** Logical participant represented at this seat, including NPCs without a PlayerState. */
+	UFUNCTION(BlueprintPure, Category = "Player Representation")
+	ASHHand* GetRepresentedHand() const;
+
 	UFUNCTION(BlueprintPure, Category = "Player Representation")
 	ASHPlayerState* GetRepresentedPlayerState() const { return RepresentedPlayerState; }
 

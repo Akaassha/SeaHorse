@@ -5,6 +5,8 @@
 #include "Gameplay/Core/SHGameState.h"
 #include "Gameplay/Core/SHPlayerState.h"
 #include "Gameplay/Core/SHPlayerController.h"
+#include "Gameplay/Core/SHGameMode.h"
+#include "Gameplay/Cards/Tasks/AdditionalDrawEffectTask.h"
 #include "Gameplay/Player/SHPlayerRepresentation.h"
 #include "Gameplay/Cards/SHCard.h"
 #include "Gameplay/Components/TurnComponent.h"
@@ -109,7 +111,32 @@ bool FSHGameplayEffectInputTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("A click does not consume draw guidance"), PC->LocalGuidedDrawHands.Num(), 1);
 	PC->LocalParticipantSelectionCandidates.Add(T.HandB);
 	TestTrue(TEXT("Actual participant selection still consumes card clicks"), PC->TryHandleEffectSelectionClick(Card));
-	TestTrue(TEXT("Participant choice clears after a valid click"), PC->LocalParticipantSelectionCandidates.IsEmpty());
+	TestFalse(TEXT("Human cards do not select the transfer recipient"), PC->LocalParticipantSelectionCandidates.IsEmpty());
+	TestTrue(TEXT("Human recipient can be chosen using their representation"), PC->TryHandleEffectSelectionClick(Picker));
+	TestTrue(TEXT("Representation click completes the participant choice"), PC->LocalParticipantSelectionCandidates.IsEmpty());
+	PC->ClearLocalEffectSelectionState();
+	T.ThirdHand->SetIsNPC(true);
+	Card->SetOwner(T.ThirdHand);
+	PC->LocalParticipantSelectionCandidates.Add(T.ThirdHand);
+	TestTrue(TEXT("NPC stack still accepts a card click"), PC->TryHandleEffectSelectionClick(Card));
+	TestTrue(TEXT("NPC selection clears the candidate list"), PC->LocalParticipantSelectionCandidates.IsEmpty());
+	PC->ClearLocalEffectSelectionState();
+	// The client can display an NPC at a different physical seat; no PlayerState or cards are required.
+	T.HandB->SetRepresentedHand(T.ThirdHand);
+	Picker->BindToHand(T.HandB);
+	const FObjectProperty* PickerProperty = FindFProperty<FObjectProperty>(ASHHand::StaticClass(), TEXT("PlayerPicker"));
+	if (!TestNotNull(TEXT("Hand exposes its representation reference"), PickerProperty)) { return false; }
+	PickerProperty->SetObjectPropertyValue_InContainer(T.HandB, Picker);
+	PC->ClientRequestParticipantSelection_Implementation({T.ThirdHand}, EPlayerSelectionPurpose::CardTransferRecipient);
+	TestNull(TEXT("NPC representation has no human PlayerState"), Picker->GetRepresentedPlayerState());
+	TestEqual(TEXT("NPC representation resolves the logical hand, not the visual seat"), Picker->GetRepresentedHand(), T.ThirdHand);
+	TestTrue(TEXT("Empty NPC representation is enabled as an eligible recipient"), Picker->IsPlayerSelectionEnabled());
+	TestTrue(TEXT("NPC representation click is consumed"), PC->TryHandleEffectSelectionClick(Picker));
+	TestTrue(TEXT("NPC representation completes the participant choice"), PC->LocalParticipantSelectionCandidates.IsEmpty());
+	TestFalse(TEXT("Participant choice clears NPC highlighting"), Picker->IsPlayerSelectionEnabled());
+	PC->ClientRequestPlayerSelection_Implementation({T.A}, EPlayerSelectionPurpose::PlayerToSkipTurn);
+	TestTrue(TEXT("Human-only selection consumes an NPC click without choosing it"), PC->TryHandleEffectSelectionClick(Picker));
+	TestEqual(TEXT("NPC does not bypass a human-only effect's candidate list"), PC->LocalPlayerSelectionCandidates.Num(), 1);
 	return true;
 }
 
@@ -136,6 +163,48 @@ bool FSHDrawRulesTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("Additional different-source draw rejects the original source"), T.Turns->CanDrawCardFromHand(T.A, T.HandB));
 	TestTrue(TEXT("Additional different-source draw permits another source"), T.Turns->CanDrawCardFromHand(T.A, T.ThirdHand));
 	TestFalse(TEXT("Another player cannot perform the additional draw"), T.Turns->CanDrawCardFromHand(T.B, T.ThirdHand));
+
+	for (bool bDifferentFirst : {false, true})
+	{
+		for (bool bDelayedSecondEffect : {false, true})
+		{
+			FEffectTestWorld Q;
+			ASHGameMode* Mode = Q.World->SpawnActor<ASHGameMode>();
+			UCardEffectTask* Same = NewObject<UDrawAgainFromSamePlayerEffectTask>(Mode);
+			UCardEffectTask* Different = NewObject<UDrawAgainFromDifferentPlayerEffectTask>(Mode);
+			const auto FirstRule = bDifferentFirst ? EAdditionalDrawSourceRule::DifferentPlayer : EAdditionalDrawSourceRule::SamePlayer;
+			const auto SecondRule = bDifferentFirst ? EAdditionalDrawSourceRule::SamePlayer : EAdditionalDrawSourceRule::DifferentPlayer;
+			Q.HandB->AddCard(Q.World->SpawnActor<ASHCard>(), 0);
+			Q.HandB->AddCard(Q.World->SpawnActor<ASHCard>(), 1);
+			Q.Turns->ScheduleAdditionalDraw(bDifferentFirst ? Different : Same, Q.A, FirstRule);
+			if (!bDelayedSecondEffect) Q.Turns->ScheduleAdditionalDraw(bDifferentFirst ? Same : Different, Q.A, SecondRule);
+			ASHCard* InitialCard = Q.HandB->GetCards()[0];
+			Q.HandB->RemoveCard(InitialCard);
+			Q.HandA->AddCard(InitialCard, 0);
+			Q.Turns->HandleCardDrawnFromHand(Q.A, Q.HandB);
+			if (bDelayedSecondEffect && !bDifferentFirst)
+			{
+				TestTrue(TEXT("Same-source effect permits the remaining card"), Q.Turns->CanDrawCardFromHand(Q.A, Q.HandB));
+				ASHCard* Extra = Q.HandB->GetCards()[0];
+				Q.HandB->RemoveCard(Extra);
+				Q.HandA->AddCard(Extra, 1);
+				Q.Turns->HandleCardDrawnFromHand(Q.A, Q.HandB);
+			}
+			if (bDelayedSecondEffect) Q.Turns->ScheduleAdditionalDraw(bDifferentFirst ? Same : Different, Q.A, SecondRule);
+			if (Q.HandB->GetCardCount() > 0)
+			{
+				TestTrue(TEXT("Queued same-source effect permits the last card even after SecondPairing"), Q.Turns->CanDrawCardFromHand(Q.A, Q.HandB));
+				ASHCard* Extra = Q.HandB->GetCards()[0];
+				Q.HandB->RemoveCard(Extra);
+				Q.HandA->AddCard(Extra, 1);
+				Q.Turns->HandleCardDrawnFromHand(Q.A, Q.HandB);
+			}
+			TestFalse(TEXT("Impossible different-source effect leaves no pending draw"), Q.Turns->bWaitingForAdditionalDraw);
+			TestNull(TEXT("Both effects release the additional-draw owner"), Q.Turns->AdditionalDrawPlayer.Get());
+			TestTrue(TEXT("Additional-draw queue is drained"), Q.Turns->PendingAdditionalDraws.IsEmpty());
+			TestEqual(TEXT("Turn continues with second pairing"), Q.State->GetTurnPhase(), ETurnPhase::SecondPairing);
+		}
+	}
 	return true;
 }
 
