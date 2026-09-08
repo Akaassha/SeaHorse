@@ -101,6 +101,7 @@ public:
 	bool IsGameEnded() const { return FinishedMatch.bFinished; }
 
 	UFUNCTION(BlueprintPure, Category = "Match")
+	// Winners first, then descending points; automatic losses last. Equal ranks retain their order.
 	const TArray<FSHMatchResult>& GetMatchResults() const { return FinishedMatch.Results; }
 
 	UFUNCTION(BlueprintPure, Category = "Match")

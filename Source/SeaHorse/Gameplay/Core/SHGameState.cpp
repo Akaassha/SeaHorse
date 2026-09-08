@@ -74,6 +74,20 @@ void ASHGameState::FinishGame(const TArray<FSHMatchResult>& Results, const TArra
     }
 
     FinishedMatch.Results = Results;
+    FinishedMatch.Results.StableSort([](const FSHMatchResult& A, const FSHMatchResult& B)
+    {
+        if (A.bAutomaticallyLost != B.bAutomaticallyLost)
+        {
+            return !A.bAutomaticallyLost;
+        }
+
+        if (A.bIsWinner != B.bIsWinner)
+        {
+            return A.bIsWinner;
+        }
+
+        return A.Points > B.Points;
+    });
     FinishedMatch.AutomaticallyLosingNPCs = AutomaticallyLosingNPCs;
     FinishedMatch.bFinished = true;
     CurrentTurnPhase = ETurnPhase::None;

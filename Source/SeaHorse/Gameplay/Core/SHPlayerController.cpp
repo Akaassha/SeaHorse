@@ -537,6 +537,31 @@ void ASHPlayerController::TrySetupTableView()
         GetWorld()->GetTimeSeconds());
 }
 
+bool ASHPlayerController::IsMatchHost() const
+{
+    return HasAuthority() && IsLocalController();
+}
+
+void ASHPlayerController::ServerRestartMatch_Implementation()
+{
+    if (!IsMatchHost())
+    {
+        return;
+    }
+
+    ASHGameState* SHGameState = GetWorld()->GetGameState<ASHGameState>();
+    ASHPlayerState* SHPlayerState = GetPlayerState<ASHPlayerState>();
+    ASHGameMode* SHGameMode = GetWorld()->GetAuthGameMode<ASHGameMode>();
+    if (!IsValid(SHGameMode) || !IsValid(SHGameState) || !SHGameState->IsGameEnded() ||
+        !IsValid(SHPlayerState) || !SHGameState->PlayerArray.Contains(SHPlayerState))
+    {
+        return;
+    }
+
+    // RestartGame performs server travel and ignores duplicate requests while leaving the map.
+    SHGameMode->RestartGame();
+}
+
 void ASHPlayerController::ServerSkipCurrentPhase_Implementation()
 {
     ASHPlayerState* SHPlayerState = GetPlayerState<ASHPlayerState>();

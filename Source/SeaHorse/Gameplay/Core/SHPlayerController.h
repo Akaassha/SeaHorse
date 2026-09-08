@@ -66,6 +66,14 @@ public:
 	UFUNCTION(BlueprintCallable, Server, Reliable)
 	void ServerSkipCurrentPhase();
 
+	/** True only for the local player hosting the server (also true in standalone). */
+	UFUNCTION(BlueprintPure, Category = "Match")
+	bool IsMatchHost() const;
+
+	/** Requests a fresh match for all players. Only accepted from the host after game end. */
+	UFUNCTION(BlueprintCallable, Server, Reliable, Category = "Match")
+	void ServerRestartMatch();
+
 	UFUNCTION(Server, Reliable)
 	void ServerSetCardDropPreview(ASHCard* Card, int32 InsertIndex);
 
