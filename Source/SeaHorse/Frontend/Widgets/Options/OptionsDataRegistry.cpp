@@ -117,7 +117,8 @@ void UOptionsDataRegistry::InitGameplayCollectionTab()
 		Languages->SetDataDisplayName(GET_DESCRIPTION("_language"));
 		Languages->SetDescriptionRichText(FText::FromString(TEXT("Choose from the available game languages.")));
 
-		for (const FString Culture : AvailableCultureNames)
+		for (const FString& Culture : AvailableCultureNames)
+
 		{
 			FString DisplayNameString = UKismetInternationalizationLibrary::GetCultureDisplayName(Culture, false);
 
