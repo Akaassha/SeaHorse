@@ -27,9 +27,12 @@ UAsyncActionBasePushConfirmScreen* UAsyncActionBasePushConfirmScreen::PushConfir
 
 void UAsyncActionBasePushConfirmScreen::Activate()
 {
+    if (bActivated) { return; }
+    bActivated = true;
     UFrontendSubsystem* Subsystem = UFrontendSubsystem::Get(CachedOwningWorld.Get());
     if (!Subsystem)
     {
+        bCompleted = true;
         OnButtonClicked.Broadcast(EConfirmScreenButtonType::Canceled);
         SetReadyToDestroy();
         return;
@@ -38,11 +41,13 @@ void UAsyncActionBasePushConfirmScreen::Activate()
         CachedScreenType,
         CachedScreenTitle,
         CachedScreenMessege,
-        [this](EConfirmScreenButtonType ClickedButtonType) 
+        [WeakThis = TWeakObjectPtr<ThisClass>(this)](EConfirmScreenButtonType ClickedButtonType)
         {
-            OnButtonClicked.Broadcast(ClickedButtonType);
-
-            SetReadyToDestroy();
+            ThisClass* Node = WeakThis.Get();
+            if (!Node || Node->bCompleted) { return; }
+            Node->bCompleted = true;
+            Node->OnButtonClicked.Broadcast(Node->CachedOwningWorld.IsValid() ? ClickedButtonType : EConfirmScreenButtonType::Canceled);
+            Node->SetReadyToDestroy();
         }
     );
 

@@ -15,6 +15,9 @@
 #include "SeaHorse/Gameplay/Player/SHPlayerRepresentation.h"
 #include "Engine/EngineBaseTypes.h"
 #include "Algo/RandomShuffle.h"
+#include "NiagaraFunctionLibrary.h"
+#include "NiagaraSystem.h"
+#include "TimerManager.h"
 
 // Sets default values
 ASHHand::ASHHand()
@@ -298,6 +301,57 @@ void ASHHand::PresentStoredPairActivated(ASHCard* CardA, ASHCard* CardB)
 	OnPairEffectActivated(CardA, CardB);
 }
 
+void ASHHand::MulticastPairActivationCancelled_Implementation(ASHCard* CardA, ASHCard* CardB)
+{
+	ASHHand* VisualHand = this;
+	if (ASHPlayerController* PC = Cast<ASHPlayerController>(GetWorld()->GetFirstPlayerController());
+		IsValid(PC) && PC->IsLocalController())
+	{
+		if (ASHHand* Mapped = PC->FindVisualHandForLogicalHand(this)) { VisualHand = Mapped; }
+	}
+	const FActivatedPair Pair{CardA, CardB, true};
+	VisualHand->PresentedEffectActivations.Remove(Pair);
+	VisualHand->PresentedActivationVFX.Remove(Pair);
+	VisualHand->OnPairActivationCancelled(CardA, CardB);
+	VisualHand->UpdateCardPositions();
+	VisualHand->RefreshPairActivationAvailability();
+}
+
+void ASHHand::MulticastPlayActivationVFX_Implementation(
+	ASHCard* CardA, ASHCard* CardB, UNiagaraSystem* System, float Duration)
+{
+	if (!IsValid(CardA) || !IsValid(CardB) || !IsValid(System)) { return; }
+	const FActivatedPair Pair{CardA, CardB, true};
+	if (PresentedActivationVFX.Contains(Pair)) { return; }
+	PresentedActivationVFX.Add(Pair);
+
+	ASHHand* VisualHand = this;
+	ASHPlayerController* LocalPC = Cast<ASHPlayerController>(GetWorld()->GetFirstPlayerController());
+	if (IsValid(LocalPC) && LocalPC->IsLocalController())
+	{
+		if (ASHHand* MappedHand = LocalPC->FindVisualHandForLogicalHand(this)) { VisualHand = MappedHand; }
+	}
+
+	// Lock on the authoritative instance before a synchronous task can move its pair to the victory stack.
+	// Completion uses a timer, so gameplay does not depend on GPU visibility or Niagara scalability.
+	if (FMath::IsFinite(Duration) && Duration > 0.0f)
+	{
+		const FName BlockId(*FString::Printf(TEXT("ActivationVFX_%s_%s"), *CardA->GetName(), *CardB->GetName()));
+		VisualHand->BeginTurnBlockingEffect(BlockId);
+		FTimerHandle Timer;
+		GetWorldTimerManager().SetTimer(Timer, FTimerDelegate::CreateWeakLambda(VisualHand, [VisualHand, BlockId]()
+		{
+			VisualHand->FinishTurnBlockingEffect(BlockId);
+		}), Duration, false);
+	}
+	if (GetNetMode() != NM_DedicatedServer && FApp::CanEverRender())
+	{
+		// One circle per pair, above its first card; NS_MagicCircle already contains the vertical offset.
+		UNiagaraFunctionLibrary::SpawnSystemAtLocation(this, System, CardA->GetActorLocation(),
+			FRotator::ZeroRotator, FVector::OneVector, true, true, ENCPoolMethod::None, false);
+	}
+}
+
 void ASHHand::SendPairPresentationToPlayerControllers(
 	ASHCard* CardA, ASHCard* CardB, bool bEffectActivation) const
 {
@@ -516,7 +570,7 @@ void ASHHand::PresentPairTargetSelection(ASHCard* CardA, ASHCard* CardB,
 	OnPairEffectTargetSelectionChanged(CardA, CardB, bSelectingTarget, EffectPresentationId);
 }
 
-void ASHHand::RefreshPairActivationAvailability()
+void ASHHand::RefreshPairActivationAvailability(bool bForceNotify)
 {
 	const ASHHand* LogicalHand = GetRepresentedHand();
 	TArray<FActivatedPair> NewActivatablePairs;
@@ -549,7 +603,7 @@ void ASHHand::RefreshPairActivationAvailability()
 	}
 	for (const FActivatedPair& NewPair : NewActivatablePairs)
 	{
-		if (!LocallyActivatablePairs.Contains(NewPair))
+		if (bForceNotify || !LocallyActivatablePairs.Contains(NewPair))
 		{
 			OnPairActivationAvailabilityChanged(NewPair.CardA, NewPair.CardB, true);
 		}
@@ -974,6 +1028,33 @@ void ASHHand::SetActivationPairState(ASHCard* CardA, ASHCard* CardB, EActivation
 		Pair->State = NewState;
 		Pair->bActivated = NewState >= EActivationPairState::AbilityEffect;
 		ForceNetUpdate();
+		RefreshLocalPairActivationAvailability();
+	}
+}
+
+void ASHHand::SetActivationPairQueued(ASHCard* CardA, ASHCard* CardB, bool bQueued)
+{
+	checkf(HasAuthority(), TEXT("Activation queue state can only be changed on the server"));
+	FActivatedPair* Pair = FindActivationPair(CardA);
+	if (Pair && (Pair->CardA == CardB || Pair->CardB == CardB))
+	{
+		Pair->bActivationQueued = bQueued;
+		ForceNetUpdate();
+		RefreshLocalPairActivationAvailability();
+	}
+}
+
+void ASHHand::RefreshLocalPairActivationAvailability()
+{
+	// RepNotify handles clients; a listen host must refresh immediately after its own mutation.
+	ASHPlayerController* LocalPC = GetWorld()
+		? Cast<ASHPlayerController>(GetWorld()->GetFirstPlayerController()) : nullptr;
+	if (IsValid(LocalPC) && LocalPC->IsLocalController())
+	{
+		if (ASHHand* VisualHand = LocalPC->FindVisualHandForLogicalHand(this))
+		{
+			VisualHand->RefreshPairActivationAvailability();
+		}
 	}
 }
 

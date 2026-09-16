@@ -54,6 +54,7 @@ void UFrontendSubsystem::PushSoftWidgetToStackAsync(const FGameplayTag& InWidget
 				UClass* LoadedWidgetClass = InSoftWidgetClass.Get();
 
 				if (!WeakThis.IsValid() || !RequestedLayout.IsValid() ||
+					RequestedLayout->GetWorld() != WeakThis->GetWorld() ||
 					WeakThis->CreatedPrimaryLayout != RequestedLayout.Get() || !LoadedWidgetClass ||
 					LoadedWidgetClass->HasAnyClassFlags(CLASS_Abstract))
 				{

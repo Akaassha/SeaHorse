@@ -56,6 +56,7 @@ public:
 	void OnRep_RevealedCardDefinition();
 
 	void SetCardZone(ECardZone NewZone);
+	void ClearInteractionHighlight();
 
 	UFUNCTION(BlueprintPure)
 	ECardZone GetCardZone() const;

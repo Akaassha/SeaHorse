@@ -16,6 +16,10 @@ void UListDataObjectBase::AddEditCondition(const FOptionsDataEditConditionDescri
 
 void UListDataObjectBase::AddEditDependencyData(UListDataObjectBase* InDependencyData)
 {
+	if (!IsValid(InDependencyData) || InDependencyData == this)
+	{
+		return;
+	}
 	if (!InDependencyData->OnListDataModified.IsBoundToObject(this))
 	{
 		InDependencyData->OnListDataModified.AddUObject(this, &ThisClass::OnEditDependencyDataModified);
@@ -25,6 +29,7 @@ void UListDataObjectBase::AddEditDependencyData(UListDataObjectBase* InDependenc
 bool UListDataObjectBase::IsDataCurrentlyEditable()
 {
 	bool bIsEditable = true;
+	SetDisabledRichText(FText::GetEmpty());
 
 	if (EditConditionTestArray.IsEmpty())
 	{

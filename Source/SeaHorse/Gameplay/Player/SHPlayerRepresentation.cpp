@@ -50,8 +50,30 @@ void ASHPlayerRepresentation::RefreshFromHand()
 		return;
 	}
 
+	if (IsValid(RepresentedPlayerState))
+	{
+		RepresentedPlayerState->OnPlayerDisplayNameChanged.RemoveDynamic(this, &ThisClass::HandlePlayerDisplayNameChanged);
+	}
 	RepresentedPlayerState = NewPlayerState;
+	if (IsValid(RepresentedPlayerState))
+	{
+		RepresentedPlayerState->OnPlayerDisplayNameChanged.AddUniqueDynamic(this, &ThisClass::HandlePlayerDisplayNameChanged);
+	}
 	OnRepresentationChanged.Broadcast(RepresentedPlayerState);
+}
+
+void ASHPlayerRepresentation::HandlePlayerDisplayNameChanged()
+{
+	OnRepresentationChanged.Broadcast(RepresentedPlayerState);
+}
+
+void ASHPlayerRepresentation::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	if (IsValid(RepresentedPlayerState))
+	{
+		RepresentedPlayerState->OnPlayerDisplayNameChanged.RemoveDynamic(this, &ThisClass::HandlePlayerDisplayNameChanged);
+	}
+	Super::EndPlay(EndPlayReason);
 }
 
 void ASHPlayerRepresentation::SetSelectable(bool bInSelectable)

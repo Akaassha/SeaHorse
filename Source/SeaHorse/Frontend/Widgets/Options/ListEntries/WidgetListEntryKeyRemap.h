@@ -23,6 +23,7 @@ protected:
 	// 
 	//Begin UWidgetListEntryBase Interface
 	virtual void OnOwningListDataObjectSet(UListDataObjectBase* InOwninigListDataObject) override;
+	virtual void OnOwningListDataObjectReleased() override;
 	virtual void OnOwningListDataObjectModified(UListDataObjectBase* OwningModifiedData, EOptionsListDataModifyReason ModifyReason) override;
 	//End UWidgetListEntryBase Interface
 
@@ -30,7 +31,6 @@ private:
 	void OnRemapKeyButtonClicked();
 	void OnResetKeyBindingButtonClicked();
 
-	void OnKeyToRemapPressed(const FKey& PressedKey);
 	void OnKeyRemapCanceled(const FString& CanceledReason);
 
 	//***** Bound Widgets *****//

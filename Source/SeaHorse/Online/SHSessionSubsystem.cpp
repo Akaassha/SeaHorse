@@ -285,13 +285,25 @@ void USHSessionSubsystem::TravelTo(const FString& URL, bool bServer)
 	TravelOrigin = Operation;
 	ClearOnlineDelegates();
 	BeginOperation(ESHSessionOperation::Travel);
+	UWorld* World = GetWorld();
+	if (!IsValid(World))
+	{
+		HandleConnectionFailure(TEXT("The session world is no longer available."));
+		return;
+	}
 	if (bServer)
 	{
-		if (!GetWorld()->ServerTravel(URL, true)) { HandleConnectionFailure(TEXT("Server travel was rejected.")); }
+		if (!World->ServerTravel(URL, true)) { HandleConnectionFailure(TEXT("Server travel was rejected.")); }
 	}
 	else
 	{
-		GetGameInstance()->GetFirstLocalPlayerController()->ClientTravel(URL, TRAVEL_Absolute);
+		APlayerController* Controller = GetGameInstance()->GetFirstLocalPlayerController();
+		if (!IsValid(Controller))
+		{
+			HandleConnectionFailure(TEXT("The local player is no longer available."));
+			return;
+		}
+		Controller->ClientTravel(URL, TRAVEL_Absolute);
 	}
 }
 
@@ -375,7 +387,8 @@ void USHSessionSubsystem::HandleStart(FName Name, bool bSuccess)
 {
 	if (Name != NAME_GameSession || Operation != ESHSessionOperation::Start) { return; }
 	if (!bSuccess) { Finish(false, TEXT("Online service could not start the match.")); return; }
-	const auto* Lobby = GetWorld()->GetAuthGameMode<ASHLobbyGameMode>();
+	const UWorld* World = GetWorld();
+	const auto* Lobby = IsValid(World) ? World->GetAuthGameMode<ASHLobbyGameMode>() : nullptr;
 	if (!Lobby || !Lobby->IsStartingRosterValid(StartingPlayerCount))
 	{
 		// The backend has already started; disconnect rather than strand a partial roster in a match.

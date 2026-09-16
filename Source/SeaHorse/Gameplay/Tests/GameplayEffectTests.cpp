@@ -144,6 +144,21 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSHDrawRulesTest, "SeaHorse.Gameplay.Effects.Dr
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FSHDrawRulesTest::RunTest(const FString& Parameters)
 {
+	{
+		FEffectTestWorld EmptySource;
+		ASHCard* LastCard = EmptySource.World->SpawnActor<ASHCard>();
+		EmptySource.HandB->AddCard(LastCard, 0);
+		EmptySource.ThirdHand->AddCard(EmptySource.World->SpawnActor<ASHCard>(), 0);
+		EmptySource.Turns->SetForcedDrawSourceHand(EmptySource.A, EmptySource.HandB);
+		EmptySource.Turns->SetForcedDrawSourceHand(EmptySource.A, EmptySource.ThirdHand);
+		TestFalse(TEXT("Nonempty forced source blocks alternatives"), EmptySource.Turns->CanDrawCardFromHand(EmptySource.A, EmptySource.ThirdHand));
+		EmptySource.HandB->RemoveCard(LastCard);
+		TestTrue(TEXT("Empty forced source allows another participant"), EmptySource.Turns->CanDrawCardFromHand(EmptySource.A, EmptySource.ThirdHand));
+		TestFalse(TEXT("Empty source itself stays invalid"), EmptySource.Turns->CanDrawCardFromHand(EmptySource.A, EmptySource.HandB));
+		TestEqual(TEXT("Removing a card does not consume queued effects before the draw notification"), EmptySource.Turns->ForcedDrawSources.FindChecked(EmptySource.A).Sources.Num(), 2);
+		EmptySource.Turns->HandleCardDrawnFromHand(EmptySource.A, EmptySource.ThirdHand);
+		TestEqual(TEXT("Fallback draw consumes exactly one forced-source effect"), EmptySource.Turns->ForcedDrawSources.FindChecked(EmptySource.A).Sources.Num(), 1);
+	}
 	FEffectTestWorld T;
 	T.HandB->AddCard(T.World->SpawnActor<ASHCard>(), 0);
 	T.ThirdHand->AddCard(T.World->SpawnActor<ASHCard>(), 0);

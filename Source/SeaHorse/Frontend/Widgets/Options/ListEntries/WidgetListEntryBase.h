@@ -41,6 +41,7 @@ protected:
 	//~Begin UUserWidget Interface
 
 	virtual void OnOwningListDataObjectSet(UListDataObjectBase* InOwninigListDataObject);
+	virtual void OnOwningListDataObjectReleased();
 
 	virtual void OnOwningListDataObjectModified(UListDataObjectBase* OwningModifiedData, EOptionsListDataModifyReason ModifyReason);
 

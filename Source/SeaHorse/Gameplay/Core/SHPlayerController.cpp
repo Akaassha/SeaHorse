@@ -18,6 +18,8 @@
 #include "TimerManager.h"
 #include "InputKeyEventArgs.h"
 #include "EngineUtils.h"
+#include "Components/MeshComponent.h"
+#include "Components/WidgetComponent.h"
 
 ASHPlayerController::ASHPlayerController()
 {
@@ -82,6 +84,11 @@ void ASHPlayerController::StartPairTargetingIndicator(
 void ASHPlayerController::StopPairTargetingIndicator()
 {
 	SetCurrentValidEffectTarget(nullptr);
+	RestoreEffectTargetOutlines();
+	// The snapshot can predate activation availability changing during selection.
+	// Never restore the source pair's old "ready to activate" glow after using it.
+	if (IsValid(TargetingSourceCardA)) { TargetingSourceCardA->ClearInteractionHighlight(); }
+	if (IsValid(TargetingSourceCardB)) { TargetingSourceCardB->ClearInteractionHighlight(); }
 	if (IsValid(PairTargetingIndicator))
 	{
 		PairTargetingIndicator->Destroy();
@@ -137,6 +144,7 @@ void ASHPlayerController::SetCardHoverSuppressedForTargeting(bool bSuppressed)
 			}
 		}
 		Hand->UpdateCardPositions();
+		if (!bSuppressed) { Hand->RefreshPairActivationAvailability(true); }
 	}
 }
 
@@ -168,6 +176,114 @@ void ASHPlayerController::SetCurrentValidEffectTarget(AActor* NewTarget)
 	}
 }
 
+bool ASHPlayerController::IsValidEffectTarget(const AActor* Actor) const
+{
+	if (!IsValid(Actor)) { return false; }
+	if (const ASHPlayerRepresentation* Picker = Cast<ASHPlayerRepresentation>(Actor))
+	{
+		return (IsValid(Picker->GetRepresentedPlayerState()) &&
+			LocalPlayerSelectionCandidates.Contains(Picker->GetRepresentedPlayerState())) ||
+			(IsValid(Picker->GetRepresentedHand()) &&
+			LocalParticipantSelectionCandidates.Contains(Picker->GetRepresentedHand()));
+	}
+	if (const ASHCard* Card = Cast<ASHCard>(Actor))
+	{
+		return LocalActivationPairSelectionCandidates.Contains(Card) ||
+			(IsValid(Card->GetOwningHand()) && Card->GetOwningHand()->IsLogicalNPC() &&
+			LocalParticipantSelectionCandidates.Contains(Card->GetOwningHand()));
+	}
+	return false;
+}
+
+bool ASHPlayerController::CancelEffectTargeting()
+{
+	if (!IsLocalController() || !IsValid(TargetingSourceCardA) || !IsValid(TargetingSourceCardB))
+	{
+		UE_LOG(LogTemp, Log, TEXT("[SH_CANCEL_TARGET] No local targeting session: PC=%s Local=%d A=%s B=%s"),
+			*GetName(), IsLocalController(), *GetNameSafe(TargetingSourceCardA), *GetNameSafe(TargetingSourceCardB));
+		return false;
+	}
+	UE_LOG(LogTemp, Log, TEXT("[SH_CANCEL_TARGET] Request: PC=%s A=%s B=%s"),
+		*GetName(), *GetNameSafe(TargetingSourceCardA), *GetNameSafe(TargetingSourceCardB));
+	ServerCancelEffectTargeting(TargetingSourceCardA, TargetingSourceCardB);
+	return true;
+}
+
+void ASHPlayerController::ServerCancelEffectTargeting_Implementation(ASHCard* CardA, ASHCard* CardB)
+{
+	if (ASHGameMode* Mode = GetWorld()->GetAuthGameMode<ASHGameMode>())
+	{
+		const bool bCancelled = Mode->CancelEffectTargetSelection(GetPlayerState<ASHPlayerState>(), CardA, CardB);
+		UE_LOG(LogTemp, Log, TEXT("[SH_CANCEL_TARGET] Server result: PC=%s Cancelled=%d A=%s B=%s"),
+			*GetName(), bCancelled, *GetNameSafe(CardA), *GetNameSafe(CardB));
+	}
+}
+
+void ASHPlayerController::RestoreEffectTargetOutlines()
+{
+	for (const auto& Entry : EffectOutlineMeshes)
+	{
+		if (UMeshComponent* Mesh = Entry.Key.Get())
+		{
+			Mesh->SetCustomDepthStencilValue(Entry.Value.StencilValue);
+			Mesh->SetCustomDepthStencilWriteMask(Entry.Value.WriteMask);
+			Mesh->SetRenderCustomDepth(Entry.Value.bRenderCustomDepth);
+			Mesh->SetCustomPrimitiveDataFloat(20, Entry.Value.CardHighlightState);
+		}
+	}
+	EffectOutlineMeshes.Reset();
+}
+
+void ASHPlayerController::UpdateEffectTargetOutlines(AActor* HoveredActor)
+{
+	// These reserved stencil IDs are decoded by PP_SoftOutline. All state is local
+	// presentation; the candidate lists and accepted selection still come from the server.
+	TSet<TWeakObjectPtr<UMeshComponent>> CurrentMeshes;
+	auto ApplyActor = [&](AActor* Actor)
+	{
+		const bool bValidTarget = IsValidEffectTarget(Actor);
+		const int32 Stencil = Actor == HoveredActor ? (bValidTarget ? 251 : 252) : 250;
+		TInlineComponentArray<UMeshComponent*> Meshes(Actor);
+		for (UMeshComponent* Mesh : Meshes)
+		{
+			// Widget quads and collision shapes are not the visible target silhouette.
+			if (!IsValid(Mesh) || Mesh->IsA<UWidgetComponent>()) { continue; }
+			CurrentMeshes.Add(Mesh);
+			if (!EffectOutlineMeshes.Contains(Mesh))
+			{
+				EffectOutlineMeshes.Add(Mesh, {Mesh->bRenderCustomDepth != 0,
+					Mesh->CustomDepthStencilValue, Mesh->CustomDepthStencilWriteMask,
+					Mesh->GetCustomPrimitiveData().Data.IsValidIndex(20) ? Mesh->GetCustomPrimitiveData().Data[20] : 0.0f});
+			}
+			Mesh->SetCustomDepthStencilWriteMask(ERendererStencilMask::ERSM_Default);
+			Mesh->SetCustomDepthStencilValue(Stencil);
+			Mesh->SetRenderCustomDepth(bValidTarget || Actor == HoveredActor);
+			// M_Card reads slot 20 without replacing its Blueprint-owned dynamic
+			// material (card textures and ordinary hover continue to update normally).
+			// 0=ordinary, 1=suppressed, 2=white, 3=green hover, 4=red hover.
+			Mesh->SetCustomPrimitiveDataFloat(20,
+				Actor == HoveredActor ? (bValidTarget ? 3.0f : 4.0f) : (bValidTarget ? 2.0f : 1.0f));
+		}
+	};
+	// Also suppress ordinary interaction outlines on invalid targets during selection.
+	for (TActorIterator<ASHCard> It(GetWorld()); It; ++It) { ApplyActor(*It); }
+	for (TActorIterator<ASHPlayerRepresentation> It(GetWorld()); It; ++It) { ApplyActor(*It); }
+	for (auto It = EffectOutlineMeshes.CreateIterator(); It; ++It)
+	{
+		if (!CurrentMeshes.Contains(It.Key()))
+		{
+			if (UMeshComponent* Mesh = It.Key().Get())
+			{
+				Mesh->SetCustomDepthStencilValue(It.Value().StencilValue);
+				Mesh->SetCustomDepthStencilWriteMask(It.Value().WriteMask);
+				Mesh->SetRenderCustomDepth(It.Value().bRenderCustomDepth);
+				Mesh->SetCustomPrimitiveDataFloat(20, It.Value().CardHighlightState);
+			}
+			It.RemoveCurrent();
+		}
+	}
+}
+
 bool ASHPlayerController::ResolveTargetingCursor(FVector& OutLocation, bool& bOutValidTarget,
 	AActor*& OutValidTargetActor) const
 {
@@ -178,23 +294,8 @@ bool ASHPlayerController::ResolveTargetingCursor(FVector& OutLocation, bool& bOu
 	{
 		OutLocation = HitResult.ImpactPoint;
 		AActor* HitActor = HitResult.GetActor();
-		if (const ASHPlayerRepresentation* Picker = Cast<ASHPlayerRepresentation>(HitActor))
-		{
-			ASHPlayerState* RepresentedPlayer = Picker->GetRepresentedPlayerState();
-			bOutValidTarget =
-				(IsValid(RepresentedPlayer) && LocalPlayerSelectionCandidates.Contains(RepresentedPlayer)) ||
-				LocalParticipantSelectionCandidates.Contains(Picker->GetRepresentedHand());
-		}
-		else if (const ASHCard* Card = Cast<ASHCard>(HitActor))
-		{
-			bOutValidTarget = LocalActivationPairSelectionCandidates.Contains(Card) ||
-				(IsValid(Card->GetOwningHand()) && Card->GetOwningHand()->IsLogicalNPC() &&
-				 LocalParticipantSelectionCandidates.Contains(Card->GetOwningHand()));
-		}
-		if (bOutValidTarget)
-		{
-			OutValidTargetActor = HitActor;
-		}
+		bOutValidTarget = IsValidEffectTarget(HitActor);
+		OutValidTargetActor = HitActor;
 
 		if (IsValid(HitActor))
 		{
@@ -238,9 +339,11 @@ void ASHPlayerController::UpdatePairTargetingIndicator()
 	if (!ResolveTargetingCursor(End, bValidTarget, ValidTargetActor))
 	{
 		SetCurrentValidEffectTarget(nullptr);
+		UpdateEffectTargetOutlines(nullptr);
 		return;
 	}
-	SetCurrentValidEffectTarget(ValidTargetActor);
+	SetCurrentValidEffectTarget(bValidTarget ? ValidTargetActor : nullptr);
+	UpdateEffectTargetOutlines(ValidTargetActor);
 	const FVector Start = (TargetingSourceCardA->GetActorLocation() +
 		TargetingSourceCardB->GetActorLocation()) * 0.5f;
 	PairTargetingIndicator->UpdateIndicator(Start, End, bValidTarget);
@@ -353,6 +456,10 @@ void ASHPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 
 bool ASHPlayerController::InputKey(const FInputKeyEventArgs& Params)
 {
+	if (IsLocalController() && Params.Key == EKeys::Escape && Params.Event == IE_Pressed && CancelEffectTargeting())
+	{
+		return true;
+	}
 	if (IsLocalController() && Params.Key == EKeys::LeftMouseButton &&
 		Params.Event == IE_Released && bConsumeEffectSelectionRelease)
 	{
@@ -457,9 +564,9 @@ void ASHPlayerController::TrySetupTableView()
     }
 
 	const TArray<ASHHand*> ParticipantHands = SHGameState->GetParticipantHands();
-	if (ParticipantHands.Num() != 4)
+	if (ParticipantHands.Num() < 2 || ParticipantHands.Num() > 6)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[SH_INIT] -> WAIT: expected 4 participant hands, received %d"),
+		UE_LOG(LogTemp, Warning, TEXT("[SH_INIT] -> WAIT: expected 2-6 participant hands, received %d"),
 			ParticipantHands.Num());
 		return;
 	}

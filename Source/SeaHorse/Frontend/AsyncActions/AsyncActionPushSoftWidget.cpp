@@ -30,6 +30,8 @@ UAsyncActionPushSoftWidget* UAsyncActionPushSoftWidget::PushSoftWidget(const UOb
 
 void UAsyncActionPushSoftWidget::Activate()
 {
+	if (bActivated) { return; }
+	bActivated = true;
 	UFrontendSubsystem* FrontendSubsystem = UFrontendSubsystem::Get(CachedOwningWorld.Get());
 
 	
@@ -37,30 +39,41 @@ void UAsyncActionPushSoftWidget::Activate()
 	if (!FrontendSubsystem || !CachedOwningPlayerController.IsValid() ||
 		!CachedOwningPlayerController->IsLocalController())
 	{
+		bCompleted = true;
 		AfterPush.Broadcast(nullptr);
 		SetReadyToDestroy();
 		return;
 	}
 	FrontendSubsystem->PushSoftWidgetToStackAsync(CachedWidgetStackTag, CachedSoftWidgetClass, 
-		[this](EAsyncPushWdgetState InPushState, UWidgetActivatableBase* PushedWidget)
+		[WeakThis = TWeakObjectPtr<ThisClass>(this)](EAsyncPushWdgetState InPushState, UWidgetActivatableBase* PushedWidget)
 		{
+			ThisClass* Node = WeakThis.Get();
+			if (!Node || Node->bCompleted) { return; }
+			if (!Node->CachedOwningWorld.IsValid() || !Node->CachedOwningPlayerController.IsValid() ||
+				Node->CachedOwningPlayerController->GetWorld() != Node->CachedOwningWorld.Get())
+			{
+				Node->bCompleted = true;
+				Node->AfterPush.Broadcast(nullptr);
+				Node->SetReadyToDestroy();
+				return;
+			}
 			switch (InPushState)
 			{
 			case EAsyncPushWdgetState::Failed:
-				AfterPush.Broadcast(nullptr);
-				SetReadyToDestroy();
+				Node->bCompleted = true;
+				Node->AfterPush.Broadcast(nullptr);
+				Node->SetReadyToDestroy();
 				break;
 			case EAsyncPushWdgetState::OnCreatedBeforePush:
 
-				PushedWidget->SetOwningPlayer(CachedOwningPlayerController.Get());
-				OnWidgetCreatedBedorePush.Broadcast(PushedWidget);
+				PushedWidget->SetOwningPlayer(Node->CachedOwningPlayerController.Get());
+				Node->OnWidgetCreatedBedorePush.Broadcast(PushedWidget);
 
 				break;
 			case EAsyncPushWdgetState::AfterPush:
 
-				AfterPush.Broadcast(PushedWidget);
-
-				if (bCachedFocusOnNewlyPushedWidget)
+				Node->bCompleted = true;
+				if (Node->bCachedFocusOnNewlyPushedWidget)
 				{
 					if (UWidget* WidgetToFocus = PushedWidget->GetDesiredFocusTarget())
 					{
@@ -68,7 +81,8 @@ void UAsyncActionPushSoftWidget::Activate()
 					}
 				}
 
-				SetReadyToDestroy();
+				Node->AfterPush.Broadcast(PushedWidget);
+				Node->SetReadyToDestroy();
 
 				break;
 			default:

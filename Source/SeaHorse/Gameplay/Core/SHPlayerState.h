@@ -9,6 +9,7 @@
 class ASHHand;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnVictoryPointsChanged, int32, NewVictoryPoints);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnPlayerDisplayNameChanged);
 /**
  * 
  */
@@ -19,6 +20,10 @@ class SEAHORSE_API ASHPlayerState : public APlayerState
 
 public:
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+	virtual void OnRep_PlayerName() override;
+
+	UPROPERTY(BlueprintAssignable, Category = "Player")
+	FOnPlayerDisplayNameChanged OnPlayerDisplayNameChanged;
 
 	void SetHand(ASHHand* NewHand);
 	ASHHand* GetHand() const;

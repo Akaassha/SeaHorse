@@ -39,9 +39,20 @@ void UWidgetListEntryBase::NativeOnItemSelectionChanged(bool bIsSelected)
 
 void UWidgetListEntryBase::NativeOnEntryReleased()
 {
+	OnOwningListDataObjectReleased();
 	IUserObjectListEntry::NativeOnEntryReleased();
 
 	NativeOnListEntryHovered(false);
+}
+
+void UWidgetListEntryBase::OnOwningListDataObjectReleased()
+{
+	if (IsValid(CachedOwningDataObject))
+	{
+		CachedOwningDataObject->OnListDataModified.RemoveAll(this);
+		CachedOwningDataObject->OnDependencyDataModified.RemoveAll(this);
+	}
+	CachedOwningDataObject = nullptr;
 }
 
 FReply UWidgetListEntryBase::NativeOnFocusReceived(const FGeometry& InGeometry, const FFocusEvent& InFocusEvent)
@@ -64,6 +75,8 @@ FReply UWidgetListEntryBase::NativeOnFocusReceived(const FGeometry& InGeometry, 
 
 void UWidgetListEntryBase::OnOwningListDataObjectSet(UListDataObjectBase* InOwninigListDataObject)
 {
+	OnOwningListDataObjectReleased();
+	CachedOwningDataObject = InOwninigListDataObject;
 	if (CommonText_SettingDisplayName)
 	{
 		CommonText_SettingDisplayName->SetText(InOwninigListDataObject->GetDataDisplayName());
@@ -81,7 +94,6 @@ void UWidgetListEntryBase::OnOwningListDataObjectSet(UListDataObjectBase* InOwni
 
 	OnToggleEditableState(InOwninigListDataObject->IsDataCurrentlyEditable());
 
-	CachedOwningDataObject = InOwninigListDataObject;
 }
 
 void UWidgetListEntryBase::OnOwningListDataObjectModified(UListDataObjectBase* ModifiedData, EOptionsListDataModifyReason ModifyReason)
@@ -108,5 +120,8 @@ void UWidgetListEntryBase::OnToggleEditableState(bool bIsEditable)
 
 void UWidgetListEntryBase::SelectThisEntryWidget()
 {
-	CastChecked<UListView>(GetOwningListView())->SetSelectedItem(GetListItem());
+	if (UListView* List = Cast<UListView>(GetOwningListView()); List && GetListItem())
+	{
+		List->SetSelectedItem(GetListItem());
+	}
 }

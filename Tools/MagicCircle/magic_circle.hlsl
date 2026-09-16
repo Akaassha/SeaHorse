@@ -1,0 +1,30 @@
+// Texture-free mask: concentric rings, orbiting diamonds, radial sigils and an inner star.
+float t = saturate(lerp(PreviewAge, Age, UseParticleAge));
+float fade = smoothstep(0.0, 0.12, t) * (1.0 - smoothstep(0.72, 1.0, t));
+float2 p = (UV - 0.5) * 2.0;
+float r = length(p);
+float a = atan2(p.y, p.x);
+float aa = max(fwidth(r), 0.0015);
+float spin = t * 1.5 * RotationSpeed;
+float ring = 1.0 - smoothstep(0.004, 0.004 + aa, abs(r - 0.91));
+ring += 0.6 * (1.0 - smoothstep(0.0025, 0.0025 + aa, abs(r - 0.87)));
+ring += 0.8 * (1.0 - smoothstep(0.003, 0.003 + aa, abs(r - 0.66)));
+float b = a - spin;
+float segment = abs(frac(b / 6.2831853 * 24.0 + 0.5) - 0.5);
+float ticks = (1.0 - smoothstep(0.018, 0.04, segment)) * smoothstep(0.72, 0.74, r) * (1.0 - smoothstep(0.81, 0.83, r));
+float2 q = float2((frac(b / 6.2831853 * 12.0 + 0.5) - 0.5) * 0.40, r - 0.765);
+// Alternating fork / chevron sigils. Each cell is distinct from the thin tick marks.
+float glyph = min(abs(q.x), abs(abs(q.x) - (q.y + 0.025) * 0.8));
+glyph = (1.0 - smoothstep(0.004, 0.008, glyph)) * (1.0 - smoothstep(0.033, 0.045, abs(q.y))) * (1.0 - smoothstep(0.038, 0.05, abs(q.x)));
+float c = a + spin * 0.65;
+float starRadius = 0.42 + 0.105 * cos(c * 6.0);
+float star = 1.0 - smoothstep(0.004, 0.004 + aa * 2.0, abs(r - starRadius));
+float inner = 1.0 - smoothstep(0.003, 0.003 + aa, abs(r - 0.29));
+float2 d = float2((frac((a + spin * 0.35) / 6.2831853 * 4.0 + 0.5) - 0.5) * 1.4, r - 0.575);
+float diamonds = 1.0 - smoothstep(0.004, 0.004 + aa, abs(abs(d.x) + abs(d.y) - 0.034));
+diamonds *= 1.0 - smoothstep(0.07, 0.09, abs(d.x));
+float primaryMask = saturate(ring + ticks + glyph);
+float accentMask = saturate(star + inner + diamonds);
+float mask = saturate(primaryMask + accentMask);
+float3 color = (Primary.rgb * primaryMask + Accent.rgb * accentMask) / max(mask, 0.001);
+return float4(color * Intensity, mask * fade);

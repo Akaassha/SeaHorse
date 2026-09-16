@@ -118,14 +118,14 @@ bool ULoadingScreenSubsystem::ShouldShowLoadingScreen()
 
 	GetGameInstance()->GetGameViewportClient()->bDisableWorldRendering = false;
 
-	const float CurrentTime = FPlatformTime::Seconds();
+	const double CurrentTime = FPlatformTime::Seconds();
 
 	if (HoldLoadingScreenStartUpTime < 0.f)
 	{
 		HoldLoadingScreenStartUpTime = CurrentTime;
 	}
 
-	const float ElapsedTime = CurrentTime - HoldLoadingScreenStartUpTime;
+	const double ElapsedTime = CurrentTime - HoldLoadingScreenStartUpTime;
 
 	if (ElapsedTime < LoadingScreenSettings->HoldLoadingScreenExtraSeconds)
 	{

@@ -7,6 +7,8 @@
 #include "SeaHorse/Gameplay/Core/SHPlayerController.h"
 #include "Blueprint/UserWidget.h"
 #include "Net/UnrealNetwork.h"
+#include "Components/MeshComponent.h"
+#include "Materials/MaterialInstanceDynamic.h"
 
 ASHCard::ASHCard()
 {
@@ -210,5 +212,24 @@ void ASHCard::NotifyActorOnClicked(FKey ButtonPressed)
 
 void ASHCard::OnCardZoneChanged()
 {
+	if (CardZone == ECardZone::Victory) { ClearInteractionHighlight(); }
+}
+
+void ASHCard::ClearInteractionHighlight()
+{
+	TInlineComponentArray<UMeshComponent*> Meshes(this);
+	for (UMeshComponent* Mesh : Meshes)
+	{
+		Mesh->SetRenderCustomDepth(false);
+		Mesh->SetCustomPrimitiveDataFloat(20, 0.0f);
+		for (int32 Index = 0; Index < Mesh->GetNumMaterials(); ++Index)
+		{
+			if (UMaterialInstanceDynamic* Material = Cast<UMaterialInstanceDynamic>(Mesh->GetMaterial(Index)))
+			{
+				Material->SetScalarParameterValue(TEXT("Activatable"), 0.0f);
+				Material->SetScalarParameterValue(TEXT("HooverIntensity"), 1.0f);
+			}
+		}
+	}
 }
 

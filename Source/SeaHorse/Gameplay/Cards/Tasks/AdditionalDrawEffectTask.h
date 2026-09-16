@@ -12,6 +12,7 @@ class SEAHORSE_API UAdditionalDrawEffectTask : public UCardEffectTask
 
 public:
 	virtual void StartEffect_Implementation() override;
+	virtual bool BlocksNextPairActivation() const override { return false; }
 
 protected:
 	EAdditionalDrawSourceRule SourceRule = EAdditionalDrawSourceRule::SamePlayer;

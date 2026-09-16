@@ -14,7 +14,7 @@ void UWidgetListEntryString::NativeOnInitialized()
 	CommonButton_PreviousOption->OnClicked().AddUObject(this, &ThisClass::OnPreviousOptionButtonCliced);
 	CommonButton_NextOption->OnClicked().AddUObject(this, &ThisClass::OnNextOptionButtonCliced);
 
-	CommonRotator_AvailableOptions->OnClicked().AddLambda([this]() {
+	CommonRotator_AvailableOptions->OnClicked().AddWeakLambda(this, [this]() {
 		SelectThisEntryWidget();
 	});
 
@@ -37,6 +37,12 @@ void UWidgetListEntryString::OnOwningListDataObjectModified(UListDataObjectBase*
 	{
 		CommonRotator_AvailableOptions->SetSelectedOptionsByText(CachedOwninigDataObject->GetCurrentDisplayText());
 	}
+}
+
+void UWidgetListEntryString::OnOwningListDataObjectReleased()
+{
+	CachedOwninigDataObject = nullptr;
+	Super::OnOwningListDataObjectReleased();
 }
 
 void UWidgetListEntryString::OnToggleEditableState(bool bIsEditable)

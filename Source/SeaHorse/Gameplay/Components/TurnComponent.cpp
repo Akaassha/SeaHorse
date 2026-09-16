@@ -70,7 +70,7 @@ bool UTurnComponent::CanActivatePairForState(const ASHGameState* GameState,
 	const ASHPlayerState* RequestingPlayer, const FActivatedPair& ActivatedPair)
 {
 	if (!IsValid(RequestingPlayer) || !IsValid(ActivatedPair.CardA) ||
-		!IsValid(ActivatedPair.CardB) || ActivatedPair.bActivated)
+		!IsValid(ActivatedPair.CardB) || ActivatedPair.bActivated || ActivatedPair.bActivationQueued)
 	{
 		return false;
 	}
@@ -342,6 +342,7 @@ void UTurnComponent::SetForcedDrawSourceHand(ASHPlayerState* DrawingPlayer, ASHH
 		TEXT("Invalid forced draw participants"));
 
 	ForcedDrawSources.FindOrAdd(DrawingPlayer).Sources.Add(SourceHand);
+	SourceHand->OnHandCardsChanged.AddUniqueDynamic(this, &ThisClass::HandleForcedSourceCardsChanged);
 	UpdateForcedDrawGuidance(DrawingPlayer);
 }
 
@@ -594,12 +595,29 @@ void UTurnComponent::UpdateForcedDrawGuidance(ASHPlayerState* DrawingPlayer)
 	}
 }
 
+void UTurnComponent::HandleForcedSourceCardsChanged(int32 CardCount)
+{
+	if (!ForcedDrawSources.IsEmpty())
+	{
+		ASHPlayerState* CurrentPlayer = GetSHGameState()->GetCurrentPlayer();
+		if (ForcedDrawSources.Contains(CurrentPlayer) && !GetFirstForcedDrawSourceHand(CurrentPlayer))
+		{
+			// Do not consume the queue here: RemoveCard broadcasts before the draw
+			// notification, which must consume exactly one queued effect.
+			ClearDrawGuidance(CurrentPlayer);
+		}
+		else if (ForcedDrawSources.Contains(CurrentPlayer))
+		{
+			UpdateForcedDrawGuidance(CurrentPlayer);
+		}
+	}
+}
+
 ASHHand* UTurnComponent::GetFirstForcedDrawSourceHand(const ASHPlayerState* DrawingPlayer) const
 {
 	const FForcedDrawSourceQueue* ForcedQueue = ForcedDrawSources.Find(DrawingPlayer);
-	return ForcedQueue && !ForcedQueue->Sources.IsEmpty()
-		? ForcedQueue->Sources[0].Get()
-		: nullptr;
+	ASHHand* Source = ForcedQueue && !ForcedQueue->Sources.IsEmpty() ? ForcedQueue->Sources[0].Get() : nullptr;
+	return IsValid(Source) && Source->GetCardCount() > 0 ? Source : nullptr;
 }
 
 void UTurnComponent::ClearDrawGuidance(ASHPlayerState* DrawingPlayer)

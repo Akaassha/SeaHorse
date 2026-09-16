@@ -10,6 +10,7 @@ class ASHCard;
 class AVictoryStack;
 class ASHPlayerState;
 class ASHPlayerRepresentation;
+class UNiagaraSystem;
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnNPCStackShuffled);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnHandCardsChanged, int32, CardCount);
 
@@ -42,6 +43,10 @@ public:
 	UPROPERTY(BlueprintReadOnly, VisibleAnywhere)
 	EActivationPairState State = EActivationPairState::Creating;
 
+	/** Accepted by the server, including while another pair still owns the effect queue. */
+	UPROPERTY(BlueprintReadOnly, VisibleAnywhere)
+	bool bActivationQueued = false;
+
 	bool operator==(const FActivatedPair& Other) const
 	{
 		return CardA == Other.CardA && CardB == Other.CardB;
@@ -57,6 +62,13 @@ UCLASS()
 class SEAHORSE_API ASHHand : public AActor
 {
 	GENERATED_BODY()
+
+#if WITH_DEV_AUTOMATION_TESTS
+	friend class FSHActivationQueueReadinessTest;
+	friend class FSHStandardEffectPresentationTest;
+	friend class FSHBulkVictoryPresentationTest;
+	friend class FSHTargetedActivationPresentationTest;
+#endif
 	
 public:	
 	// Sets default values for this actor's properties
@@ -80,6 +92,16 @@ public:
 
 	UFUNCTION(NetMulticast, Reliable)
 	void MulticastPairReadyForVictory(ASHCard* CardA, ASHCard* CardB);
+
+	/** Server supplies the public VFX asset; clients never inspect another player's card definition. */
+	UFUNCTION(NetMulticast, Reliable)
+	void MulticastPlayActivationVFX(ASHCard* CardA, ASHCard* CardB, UNiagaraSystem* System, float Duration);
+
+	UFUNCTION(NetMulticast, Reliable)
+	void MulticastPairActivationCancelled(ASHCard* CardA, ASHCard* CardB);
+
+	UFUNCTION(BlueprintImplementableEvent, Category = "Cards|Activation")
+	void OnPairActivationCancelled(ASHCard* CardA, ASHCard* CardB);
 
 	UFUNCTION(BlueprintImplementableEvent)
 	void OnPairEffectActivated(ASHCard* CardA, ASHCard* CardB);
@@ -130,7 +152,7 @@ public:
 	virtual void AddActivationPair(ASHCard* CardA, ASHCard* CardB);
 	void AddActivationPairToLogicalHand(ASHCard* CardA, ASHCard* CardB);
 	void RefreshActivationPairsPresentation();
-	void RefreshPairActivationAvailability();
+	void RefreshPairActivationAvailability(bool bForceNotify = false);
 	void NotifyPairSettled(ASHCard* CardA, ASHCard* CardB);
 	void PresentPairCreated(ASHCard* CardA, ASHCard* CardB);
 	void PresentStoredPairActivated(ASHCard* CardA, ASHCard* CardB);
@@ -239,6 +261,8 @@ public:
 
 	FActivatedPair* FindActivationPair(ASHCard* Card);
 	void SetActivationPairState(ASHCard* CardA, ASHCard* CardB, EActivationPairState NewState);
+	void SetActivationPairQueued(ASHCard* CardA, ASHCard* CardB, bool bQueued);
+	void RefreshLocalPairActivationAvailability();
 
 	AVictoryStack* GetVictoryStack() const
 	{
@@ -301,6 +325,9 @@ private:
 
 	/** Exists on every instance so client-side BP animations can pause local card movement. */
 	TMap<FName, int32> LocalPresentationBlocks;
+
+	UPROPERTY(Transient)
+	TArray<FActivatedPair> PresentedActivationVFX;
 	
 	FTransform LayoutTransform;
 

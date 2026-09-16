@@ -42,6 +42,7 @@ public:
 	void CardActivateEffect(ASHPlayerState* InActivatingPlayer, ASHCard* CardA, ASHCard* CardB);
 
 	void FinishEffectTask(UCardEffectTask* CardEffectTask);
+	bool CancelEffectTargetSelection(ASHPlayerState* SelectingPlayer, ASHCard* CardA, ASHCard* CardB);
 	void FlushCompletedEffectPairs();
 	void RequestStoredPairActivation(ASHPlayerState* ActivatingPlayer, ASHCard* SelectedCard);
 	void NotifyActivationPairSettled(ASHCard* CardA, ASHCard* CardB);
@@ -75,10 +76,18 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Systems")
 	TSubclassOf<UDeckComponent> DeckComponentClass;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Players", meta = (ClampMin = "2", ClampMax = "4"))
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Players", meta = (ClampMin = "2", ClampMax = "6"))
 	int32 ExpectedPlayerCount = 2;
 
 private:
+#if WITH_DEV_AUTOMATION_TESTS
+	friend class FSHActivationQueueReadinessTest;
+	friend class FSHBulkVictoryPresentationTest;
+	friend class FSHTargetedActivationPresentationTest;
+	friend class FSHRotationPresentationTest;
+	friend class FSHDeferredDrawActivationTest;
+	friend class FSHSixPlayerSeatsTest;
+#endif
 	void SetPairTargetSelectionPresentation(UCardEffectTask* Task,
 		ASHPlayerState* SelectingPlayer, bool bSelectingTarget);
 	bool HasPendingSelection(UCardEffectTask* Task, ASHPlayerState* SelectingPlayer) const;
@@ -124,6 +133,7 @@ private:
 	};
 
 	TArray<FPendingPairActivation> PendingPairActivations;
+	bool bProcessingPairActivations = false;
 	void StartQueuedPairAbility(const FPendingPairActivation& PendingActivation);
 	void CompleteQueuedPairActivation(ASHCard* CardA, ASHCard* CardB);
 
@@ -156,5 +166,6 @@ private:
 	UPROPERTY(Transient)
 	TMap<TObjectPtr<ASHPlayerState>, TObjectPtr<UCardEffectTask>> ActiveTargetPresentations;
 
-	static constexpr int32 TotalSeatCount = 4;
+	bool DiscoverTableSeats(FString& ErrorMessage);
+	int32 TotalSeatCount = 0;
 };

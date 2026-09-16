@@ -13,6 +13,15 @@ class ASHPlayerState;
 class ASHGameState;
 class ASHCard;
 class UCardDefinition;
+class UMeshComponent;
+
+struct FEffectOutlineMeshState
+{
+	bool bRenderCustomDepth = false;
+	int32 StencilValue = 0;
+	ERendererStencilMask WriteMask = ERendererStencilMask::ERSM_Default;
+	float CardHighlightState = 0.0f;
+};
 
 USTRUCT()
 struct FPendingPairPresentationEvent
@@ -90,6 +99,13 @@ public:
 
 	UFUNCTION(BlueprintCallable, Server, Reliable, Category = "Card Effects")
 	void ServerSubmitPlayerSelection(ASHPlayerState* SelectedPlayer);
+
+	/** Requests server cancellation of the current target selection. Bind ESC to this later. */
+	UFUNCTION(BlueprintCallable, Category = "Card Effects")
+	bool CancelEffectTargeting();
+
+	UFUNCTION(Server, Reliable)
+	void ServerCancelEffectTargeting(ASHCard* CardA, ASHCard* CardB);
 
 	/** Called by a world-space player picker. Returns true when the click was consumed. */
 	bool TrySubmitPlayerSelectionForPicker(ASHPlayerState* SelectedPlayer);
@@ -188,6 +204,7 @@ private:
 #if WITH_DEV_AUTOMATION_TESTS
 	friend class FSHGameplayEffectInputTest;
 	friend class FSHLocalMatchUIReadinessTest;
+	friend class FSHEffectTargetOutlineTest;
 #endif
 	bool TryHandleEffectSelectionClick(AActor* HitActor);
 	bool bConsumeEffectSelectionRelease = false;
@@ -203,6 +220,10 @@ private:
 		AActor*& OutValidTargetActor) const;
 	void SetCardHoverSuppressedForTargeting(bool bSuppressed);
 	void SetCurrentValidEffectTarget(AActor* NewTarget);
+	bool IsValidEffectTarget(const AActor* Actor) const;
+	void UpdateEffectTargetOutlines(AActor* HoveredActor);
+	void RestoreEffectTargetOutlines();
+	TMap<TWeakObjectPtr<UMeshComponent>, FEffectOutlineMeshState> EffectOutlineMeshes;
 	void ClearLocalPlayerSelection();
 	void ClearLocalEffectSelectionState();
 	ASHHand* FindVisualHandForPlayer(const ASHPlayerState* PlayerState) const;

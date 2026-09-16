@@ -96,13 +96,19 @@ protected:
 
 private:
 #if WITH_DEV_AUTOMATION_TESTS
+	friend class FSHSixPlayerSeatsTest;
+#endif
+#if WITH_DEV_AUTOMATION_TESTS
 	friend class FSHDrawRulesTest;
+	friend class FSHTargetedActivationPresentationTest;
 #endif
 	void EndTurn();
 	void EnterTurnPhase(ETurnPhase NewPhase);
 	void FinishAdditionalDraw();
 	void BeginWaitingForAdditionalDraw();
 	void UpdateForcedDrawGuidance(ASHPlayerState* DrawingPlayer);
+	UFUNCTION()
+	void HandleForcedSourceCardsChanged(int32 CardCount);
 	void ClearDrawGuidance(ASHPlayerState* DrawingPlayer);
 	ASHHand* GetFirstForcedDrawSourceHand(const ASHPlayerState* DrawingPlayer) const;
 	ASHGameState* GetSHGameState() const;

@@ -61,6 +61,13 @@ public:
     ASHCard* GetCardB() const { return CardB; }
     FName GetEffectPresentationId() const { return EffectPresentationId; }
 	bool IsFinished() const { return bFinished; }
+	/** Only targeting before gameplay resolution can be cancelled without rollback. */
+	bool CancelPendingTargetSelection();
+	virtual bool RequiresTargetSelection() const { return false; }
+	/** Deferred draw rules stay active for turn completion without owning the pair activation queue. */
+	virtual bool BlocksNextPairActivation() const { return true; }
+	/** Called at activation for immediate effects, or after the final accepted target. */
+	void PlayActivationVFX();
 
 protected:
     UPROPERTY()
@@ -74,4 +81,5 @@ protected:
 
     FName EffectPresentationId;
 	bool bFinished = false;
+	bool bActivationVFXStarted = false;
 };

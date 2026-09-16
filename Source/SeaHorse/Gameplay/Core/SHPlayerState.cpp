@@ -29,6 +29,12 @@ void ASHPlayerState::SetVictoryPoints(int32 NewVictoryPoints)
 	ForceNetUpdate();
 }
 
+void ASHPlayerState::OnRep_PlayerName()
+{
+	Super::OnRep_PlayerName();
+	OnPlayerDisplayNameChanged.Broadcast();
+}
+
 void ASHPlayerState::OnRep_VictoryPoints()
 {
 	OnVictoryPointsChanged.Broadcast(VictoryPoints);

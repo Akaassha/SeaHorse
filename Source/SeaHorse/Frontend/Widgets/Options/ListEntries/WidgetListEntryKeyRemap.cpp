@@ -38,22 +38,27 @@ void UWidgetListEntryKeyRemap::OnOwningListDataObjectModified(UListDataObjectBas
 void UWidgetListEntryKeyRemap::OnRemapKeyButtonClicked()
 {
 	SelectThisEntryWidget();
+	UFrontendSubsystem* Frontend = UFrontendSubsystem::Get(this);
+	if (!Frontend || !IsValid(CachedOwningKeyRemapDataObject)) { return; }
+	TWeakObjectPtr<UListDataObjectKeyRemap> RequestedData(CachedOwningKeyRemapDataObject);
+	TWeakObjectPtr<ThisClass> WeakThis(this);
 
-	UFrontendSubsystem::UFrontendSubsystem::Get(this)->PushSoftWidgetToStackAsync(
+	Frontend->PushSoftWidgetToStackAsync(
 		FrontendGameplayTags::Frontend_WidgetStack_Modal,
 		UFrontendFunctionLibrary::GetFrontendSoftWidgetClassByTag(FrontendGameplayTags::Frontend_Widget_KeyRemapScreen),
-		[this](EAsyncPushWdgetState PushState, UWidgetActivatableBase* PushedWidget) 
+		[WeakThis, RequestedData](EAsyncPushWdgetState PushState, UWidgetActivatableBase* PushedWidget)
 		{
-			if (PushState == EAsyncPushWdgetState::OnCreatedBeforePush)
+			if (PushState == EAsyncPushWdgetState::OnCreatedBeforePush && RequestedData.IsValid())
 			{
-				UWidgetKeyRemapScreen* CreatedKeyRemapScreen = CastChecked<UWidgetKeyRemapScreen>(PushedWidget);
-				CreatedKeyRemapScreen->OnKeyRemapScreenKeyPressed.BindUObject(this, &ThisClass::OnKeyToRemapPressed);
-				CreatedKeyRemapScreen->OnKeyRemapScreenKeyCanceled.BindUObject(this, &ThisClass::OnKeyRemapCanceled);
-
-				if (CachedOwningKeyRemapDataObject)
+				UWidgetKeyRemapScreen* CreatedKeyRemapScreen = Cast<UWidgetKeyRemapScreen>(PushedWidget);
+				if (!CreatedKeyRemapScreen) { return; }
+				CreatedKeyRemapScreen->OnKeyRemapScreenKeyPressed.BindWeakLambda(RequestedData.Get(),
+					[RequestedData](const FKey& Key) { RequestedData->BindNewInputKey(Key); });
+				if (WeakThis.IsValid())
 				{
-					CreatedKeyRemapScreen->SetDesiredInputTypeToFilter(CachedOwningKeyRemapDataObject->GetDesiredInputKeyType());
+					CreatedKeyRemapScreen->OnKeyRemapScreenKeyCanceled.BindUObject(WeakThis.Get(), &ThisClass::OnKeyRemapCanceled);
 				}
+				CreatedKeyRemapScreen->SetDesiredInputTypeToFilter(RequestedData->GetDesiredInputKeyType());
 				
 			}
 		}
@@ -63,15 +68,16 @@ void UWidgetListEntryKeyRemap::OnRemapKeyButtonClicked()
 void UWidgetListEntryKeyRemap::OnResetKeyBindingButtonClicked()
 {
 	SelectThisEntryWidget();
+	UFrontendSubsystem* Frontend = UFrontendSubsystem::Get(this);
 
-	if (!CachedOwningKeyRemapDataObject)
+	if (!Frontend || !IsValid(CachedOwningKeyRemapDataObject))
 	{
 		return;
 	}
 
 	if (!CachedOwningKeyRemapDataObject->CanResetBackToDefaultValue())
 	{
-		UFrontendSubsystem::Get(this)->PushConfirmScreenToModalStackAsync(
+		Frontend->PushConfirmScreenToModalStackAsync(
 			EConfirmScreenType::Ok,
 			FText::FromString(TEXT("Reset Key Mapping")),
 			FText::FromString(TEXT("The key binding for ") + CachedOwningKeyRemapDataObject->GetDataDisplayName().ToString() + TEXT(" is already set to default")),
@@ -83,32 +89,33 @@ void UWidgetListEntryKeyRemap::OnResetKeyBindingButtonClicked()
 		return;
 	};
 
-	UFrontendSubsystem::Get(this)->PushConfirmScreenToModalStackAsync(
+	TWeakObjectPtr<UListDataObjectKeyRemap> RequestedData(CachedOwningKeyRemapDataObject);
+	Frontend->PushConfirmScreenToModalStackAsync(
 		EConfirmScreenType::YesNo,
 		FText::FromString(TEXT("Reset Key Mapping")),
 		FText::FromString(TEXT("Are you sure you wat to reset the key binding for ") + CachedOwningKeyRemapDataObject->GetDataDisplayName().ToString() + TEXT("?")),
-		[this](EConfirmScreenButtonType ClickedButton) {
+		[RequestedData](EConfirmScreenButtonType ClickedButton) {
 
-			if (ClickedButton == EConfirmScreenButtonType::Confirmed)
+			if (ClickedButton == EConfirmScreenButtonType::Confirmed && RequestedData.IsValid())
 			{
-				CachedOwningKeyRemapDataObject->TryResetBackToDefaultValue();
+				RequestedData->TryResetBackToDefaultValue();
 			}
 		}
 	);
 
 }
 
-void UWidgetListEntryKeyRemap::OnKeyToRemapPressed(const FKey& PressedKey)
+void UWidgetListEntryKeyRemap::OnOwningListDataObjectReleased()
 {
-	if (CachedOwningKeyRemapDataObject)
-	{
-		CachedOwningKeyRemapDataObject->BindNewInputKey(PressedKey);
-	}
+	CachedOwningKeyRemapDataObject = nullptr;
+	Super::OnOwningListDataObjectReleased();
 }
 
 void UWidgetListEntryKeyRemap::OnKeyRemapCanceled(const FString& CanceledReason)
 {
-	UFrontendSubsystem::Get(this)->PushConfirmScreenToModalStackAsync(
+	UFrontendSubsystem* Frontend = UFrontendSubsystem::Get(this);
+	if (!Frontend) { return; }
+	Frontend->PushConfirmScreenToModalStackAsync(
 		EConfirmScreenType::Ok,
 		FText::FromString(TEXT("Key Remap")),
 		FText::FromString(CanceledReason),

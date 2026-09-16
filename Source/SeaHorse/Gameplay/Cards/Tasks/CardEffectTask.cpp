@@ -6,11 +6,14 @@
 #include "SeaHorse/Gameplay/Core/SHPlayerState.h"
 #include "SeaHorse/Gameplay/Core/SHGameMode.h"
 #include "SeaHorse/Gameplay/SHHand.h"
+#include "SeaHorse/Gameplay/Cards/CardDefinition.h"
+#include "SeaHorse/Gameplay/Cards/Fragments/CardEffectFragment.h"
 
 void UCardEffectTask::Initialize(ASHPlayerState* InActivatingPlayer, ASHCard* InCardA, ASHCard* InCardB,
     FName InEffectPresentationId)
 {
 	bFinished = false;
+	bActivationVFXStarted = false;
     ActivatingPlayer = InActivatingPlayer;
     CardA = InCardA;
     CardB = InCardB;
@@ -48,6 +51,24 @@ void UCardEffectTask::FinishEffect()
     checkf(IsValid(GameMode), TEXT("CardEffectTask has no valid GameMode"));
 
     GameMode->FinishEffectTask(this);
+}
+
+void UCardEffectTask::PlayActivationVFX()
+{
+    if (bFinished || bActivationVFXStarted || !IsValid(ActivatingPlayer) || !IsValid(CardA) || !IsValid(CardB)) { return; }
+    ASHHand* Hand = ActivatingPlayer->GetHand();
+    const UCardEffectFragment* Fragment = Cast<UCardEffectFragment>(
+        UCardDefinition::FindFragmentByClass(CardA->GetCardDefinition(), UCardEffectFragment::StaticClass()));
+    if (!IsValid(Hand) || !Hand->HasAuthority() || !IsValid(Fragment) || !Fragment->ActivationVFX) { return; }
+    bActivationVFXStarted = true;
+    Hand->MulticastPlayActivationVFX(CardA, CardB, Fragment->ActivationVFX, Fragment->ActivationVFXDuration);
+}
+
+bool UCardEffectTask::CancelPendingTargetSelection()
+{
+	if (bFinished || bActivationVFXStarted || !RequiresTargetSelection()) { return false; }
+	bFinished = true;
+	return true;
 }
 
 ECardEffectPairDisposition UCardEffectTask::GetPairDisposition_Implementation() const

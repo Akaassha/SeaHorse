@@ -7,6 +7,7 @@
 #include "CardEffectFragment.generated.h"
 
 class UCardEffectTask;
+class UNiagaraSystem;
 /**
  * 
  */
@@ -22,6 +23,14 @@ public:
 	/** Identifier used by Blueprint to choose a visual representation for this card effect. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Presentation")
 	FName EffectPresentationId;
+
+	/** Optional one-shot presentation; targeted tasks start it after their final accepted target. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Presentation")
+	TObjectPtr<UNiagaraSystem> ActivationVFX;
+
+	/** Holds pair/turn presentation until the one-shot animation has finished. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Presentation", meta = (ClampMin = "0.0", Units = "s"))
+	float ActivationVFXDuration = 1.5f;
 };
 
 UCLASS(BlueprintType, EditInlineNew)

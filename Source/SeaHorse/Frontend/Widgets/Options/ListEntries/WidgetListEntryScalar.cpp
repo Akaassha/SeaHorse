@@ -15,6 +15,7 @@ void UWidgetListEntryScalar::NativeOnInitialized()
 
 void UWidgetListEntryScalar::OnOwningListDataObjectSet(UListDataObjectBase* InOwninigListDataObject)
 {
+	TGuardValue<bool> UpdatingGuard(bUpdatingSliderFromData, true);
 	Super::OnOwningListDataObjectSet(InOwninigListDataObject);
 
 	CachedOwningScalarDataObject = CastChecked<UListDataObjectScalar>(InOwninigListDataObject);
@@ -31,6 +32,7 @@ void UWidgetListEntryScalar::OnOwningListDataObjectSet(UListDataObjectBase* InOw
 
 void UWidgetListEntryScalar::OnOwningListDataObjectModified(UListDataObjectBase* ModifiedData, EOptionsListDataModifyReason ModifyReason)
 {
+	TGuardValue<bool> UpdatingGuard(bUpdatingSliderFromData, true);
 	if (CachedOwningScalarDataObject)
 	{
 		CommonNumericSettingValue->SetCurrentValue(CachedOwningScalarDataObject->GetCurrentValue());
@@ -40,10 +42,16 @@ void UWidgetListEntryScalar::OnOwningListDataObjectModified(UListDataObjectBase*
 
 void UWidgetListEntryScalar::OnSliderValueChanged(float Value)
 {
-	if (CachedOwningScalarDataObject)
+	if (!bUpdatingSliderFromData && CachedOwningScalarDataObject)
 	{
 		CachedOwningScalarDataObject->SetCurrentValueFromSlider(Value);
 	}
+}
+
+void UWidgetListEntryScalar::OnOwningListDataObjectReleased()
+{
+	CachedOwningScalarDataObject = nullptr;
+	Super::OnOwningListDataObjectReleased();
 }
 
 void UWidgetListEntryScalar::OnSliderMouseCaptureBegin()

@@ -55,7 +55,7 @@ private:
 
 	bool bIsCurrentlyLoadingMap = false;
 
-	float HoldLoadingScreenStartUpTime = -1.f;
+	double HoldLoadingScreenStartUpTime = -1.0;
 
 	FString CurrentLoadingReason;
 

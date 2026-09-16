@@ -23,11 +23,13 @@ protected:
 	//~End UUserWidget Interface
 
 		//~Begin UWidgetListEntryBase Interface
-	virtual void OnOwningListDataObjectSet(UListDataObjectBase* InOwninigListDataObject);
+	virtual void OnOwningListDataObjectSet(UListDataObjectBase* InOwninigListDataObject) override;
+	virtual void OnOwningListDataObjectReleased() override;
 	virtual void OnOwningListDataObjectModified(UListDataObjectBase* ModifiedData, EOptionsListDataModifyReason ModifyReason) override;
 	//~End UWidgetListEntryBase Interface
 
 private:
+	bool bUpdatingSliderFromData = false;
 
 	UFUNCTION()
 	void OnSliderValueChanged(float Value);

@@ -56,5 +56,8 @@ protected:
 	virtual ASHPlayerState* ChooseFirstDealtPlayer_Implementation();
 
 private:
+#if WITH_DEV_AUTOMATION_TESTS
+	friend class FSHSixPlayerSeatsTest;
+#endif
 	int32 InitialDeckSize = 0;
 };

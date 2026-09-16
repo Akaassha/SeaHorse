@@ -23,7 +23,8 @@ protected:
 	//~End UUserWidget Interface
 
 	//~Begin UWidgetListEntryBase Interface
-	virtual void OnOwningListDataObjectSet(UListDataObjectBase* InOwninigListDataObject);
+	virtual void OnOwningListDataObjectSet(UListDataObjectBase* InOwninigListDataObject) override;
+	virtual void OnOwningListDataObjectReleased() override;
 	virtual void OnOwningListDataObjectModified(UListDataObjectBase* ModifiedData, EOptionsListDataModifyReason ModifyReason) override;
 	virtual void OnToggleEditableState(bool bIsEditable) override;
 	//~End UWidgetListEntryBase Interface

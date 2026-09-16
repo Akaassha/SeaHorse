@@ -8,11 +8,22 @@
 #include "SeaHorse/Gameplay/Core/SHGameState.h"
 #include "SeaHorse/Gameplay/Core/SHPlayerState.h"
 #include "SeaHorse/Gameplay/SHHand.h"
+#include "TimerManager.h"
 
 void URotateHandsLeftEffectTask::StartEffect_Implementation()
 {
 	ASHGameMode* GameMode = GetTypedOuter<ASHGameMode>();
 	checkf(IsValid(GameMode), TEXT("RotateHandsLeftEffectTask has no valid GameMode"));
+	if (IsValid(GameMode->GetTurnComponent()) && GameMode->GetTurnComponent()->HasNamedTurnTransitionBlocks())
+	{
+		// Keep the task active until presentation releases its authoritative lock.
+		FTimerHandle Retry;
+		GetWorld()->GetTimerManager().SetTimer(Retry, FTimerDelegate::CreateWeakLambda(this, [this]()
+		{
+			if (!IsFinished()) { StartEffect_Implementation(); }
+		}), 0.02f, false);
+		return;
+	}
 	GameMode->PassHandsToLeft();
 	FinishEffect();
 }
@@ -41,6 +52,7 @@ void USkipSelectedPlayerTurnEffectTask::HandlePlayerSelected(ASHPlayerState* Sel
 	UTurnComponent* TurnComponent = GameMode->GetTurnComponent();
 	checkf(IsValid(TurnComponent), TEXT("GameMode has no TurnComponent"));
 
+	PlayActivationVFX();
 	TurnComponent->ScheduleSkippedTurn(SelectedPlayer);
 	FinishEffect();
 }
@@ -114,6 +126,7 @@ void UTransferSpecifiedCardEffectTask::HandleParticipantSelected(ASHHand* Select
 	ASHGameMode* GameMode = GetTypedOuter<ASHGameMode>();
 	if (IsValid(GameMode) && IsValid(Fragment))
 	{
+		PlayActivationVFX();
 		GameMode->TransferCardToHand(
 			GetActivatingPlayer()->GetHand(),
 			SelectedHand,
@@ -166,6 +179,7 @@ void UCollectSelectedActivationPairEffectTask::HandleActivationPairSelected(
 	ASHGameMode* GameMode = GetTypedOuter<ASHGameMode>();
 	if (IsValid(GameMode) && IsValid(PairOwner))
 	{
+		PlayActivationVFX();
 		// MovePairToVictoryStack deliberately does not run the selected pair's effect.
 		GameMode->MovePairToVictoryStack(PairOwner, SelectedCardA, SelectedCardB);
 	}

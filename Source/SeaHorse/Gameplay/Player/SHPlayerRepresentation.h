@@ -25,6 +25,7 @@ public:
 	ASHPlayerRepresentation();
 
 	virtual void NotifyActorOnClicked(FKey ButtonPressed = EKeys::LeftMouseButton) override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 	void BindToHand(ASHHand* InVisualHand);
 	void RefreshFromHand();
@@ -74,6 +75,9 @@ protected:
 	virtual UTexture2D* ResolvePlayerAvatar_Implementation(ASHPlayerState* PlayerState) const;
 
 private:
+	UFUNCTION()
+	void HandlePlayerDisplayNameChanged();
+
 	UPROPERTY(Transient)
 	TObjectPtr<ASHHand> VisualHand;
 

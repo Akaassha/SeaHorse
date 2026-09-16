@@ -17,6 +17,7 @@ class SEAHORSE_API USkipSelectedPlayerTurnEffectTask : public UCardEffectTask
 {
 	GENERATED_BODY()
 public:
+	virtual bool RequiresTargetSelection() const override { return true; }
 	virtual void StartEffect_Implementation() override;
 	virtual void HandlePlayerSelected(ASHPlayerState* SelectedPlayer) override;
 };
@@ -34,6 +35,7 @@ class SEAHORSE_API UTransferSpecifiedCardEffectTask : public UCardEffectTask
 {
 	GENERATED_BODY()
 public:
+	virtual bool RequiresTargetSelection() const override { return true; }
 	virtual void StartEffect_Implementation() override;
 	virtual void HandleParticipantSelected(ASHHand* SelectedHand) override;
 };
@@ -43,6 +45,7 @@ class SEAHORSE_API UCollectSelectedActivationPairEffectTask : public UCardEffect
 {
 	GENERATED_BODY()
 public:
+	virtual bool RequiresTargetSelection() const override { return true; }
 	virtual void StartEffect_Implementation() override;
 	virtual void HandleActivationPairSelected(
 		ASHPlayerState* PairOwner, ASHCard* SelectedCardA, ASHCard* SelectedCardB) override;

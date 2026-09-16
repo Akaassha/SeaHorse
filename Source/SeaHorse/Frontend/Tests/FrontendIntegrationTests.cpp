@@ -73,4 +73,26 @@ bool FSHFrontendMissingLayoutTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSHFrontendEditConditionsTest, "SeaHorse.Frontend.EditConditionsRefresh",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FSHFrontendEditConditionsTest::RunTest(const FString& Parameters)
+{
+	UListDataObjectCollection* Data = NewObject<UListDataObjectCollection>();
+	bool bCanEdit = false;
+	FOptionsDataEditConditionDescriptor Condition;
+	Condition.SetEditConditionFunc([&bCanEdit]() { return bCanEdit; });
+	Condition.SetDisabledRichReason(TEXT("Unavailable while another setting is enabled."));
+	Data->AddEditCondition(Condition);
+	TestFalse(TEXT("Unmet condition disables the setting"), Data->IsDataCurrentlyEditable());
+	TestFalse(TEXT("Disabled setting explains why"), Data->GetDisabledRichText().IsEmpty());
+	bCanEdit = true;
+	TestTrue(TEXT("Changed condition enables the setting"), Data->IsDataCurrentlyEditable());
+	TestTrue(TEXT("Enabled setting clears the stale disabled reason"), Data->GetDisabledRichText().IsEmpty());
+	Data->AddEditDependencyData(nullptr);
+	Data->AddEditDependencyData(Data);
+	TestFalse(TEXT("A setting cannot subscribe to itself"), Data->OnListDataModified.IsBoundToObject(Data));
+	return true;
+}
+
 #endif

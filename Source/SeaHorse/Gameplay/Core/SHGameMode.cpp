@@ -19,10 +19,14 @@
 #include "GameFramework/GameSession.h"
 #include "Engine/GameInstance.h"
 #include "Online/SHSessionSubsystem.h"
+#if WITH_EDITOR
+#include "Settings/LevelEditorPlaySettings.h"
+#endif
 
 void ASHGameMode::InitGame(const FString& MapName, const FString& Options, FString& ErrorMessage)
 {
     Super::InitGame(MapName, Options, ErrorMessage);
+    if (!ErrorMessage.IsEmpty() || !DiscoverTableSeats(ErrorMessage)) return;
     // Supplied by the authoritative lobby's ServerTravel, never by an individual login URL.
     if (UGameplayStatics::HasOption(Options, TEXT("SHExpectedPlayers")))
     {
@@ -34,7 +38,54 @@ void ASHGameMode::InitGame(const FString& MapName, const FString& Options, FStri
         }
         ExpectedPlayerCount = LobbyPlayerCount;
     }
+#if WITH_EDITOR
+    else if (GetWorld()->IsPlayInEditor())
+    {
+        // Direct PIE tests use the editor's roster; lobby travel always wins.
+        int32 PIEPlayers = ExpectedPlayerCount;
+        GetDefault<ULevelEditorPlaySettings>()->GetPlayNumberOfClients(PIEPlayers);
+        ExpectedPlayerCount = PIEPlayers;
+    }
+#endif
+    if (ExpectedPlayerCount < 2 || ExpectedPlayerCount > TotalSeatCount)
+    {
+        ErrorMessage = FString::Printf(TEXT("Expected %d players, but this map supports 2-%d."),
+            ExpectedPlayerCount, TotalSeatCount);
+        return;
+    }
+    UE_LOG(LogTemp, Log, TEXT("[SH_INIT] Table seats=%d, expected humans=%d"), TotalSeatCount, ExpectedPlayerCount);
     if (GameSession) { GameSession->MaxPlayers = ExpectedPlayerCount; }
+}
+
+bool ASHGameMode::DiscoverTableSeats(FString& ErrorMessage)
+{
+    TSet<int32> Seats;
+    for (TActorIterator<ASHHand> It(GetWorld()); It; ++It)
+    {
+        const int32 Seat = It->GetLayoutSeatIndex();
+        if (Seat == INDEX_NONE) continue;
+        if (Seat < 0 || Seat >= 6 || Seats.Contains(Seat))
+        {
+            ErrorMessage = FString::Printf(TEXT("Invalid or duplicate table seat %d on %s."), Seat, *It->GetName());
+            return false;
+        }
+        Seats.Add(Seat);
+    }
+    for (int32 Seat = 0; Seat < Seats.Num(); ++Seat)
+    {
+        if (!Seats.Contains(Seat))
+        {
+            ErrorMessage = TEXT("Table seat indices must be consecutive, starting at zero.");
+            return false;
+        }
+    }
+    if (Seats.Num() < 2)
+    {
+        ErrorMessage = TEXT("Map requires at least two table seats.");
+        return false;
+    }
+    TotalSeatCount = Seats.Num();
+    return true;
 }
 
 void ASHGameMode::PreLogin(const FString& Options, const FString& Address, const FUniqueNetIdRepl& UniqueId, FString& ErrorMessage)
@@ -336,6 +387,29 @@ void ASHGameMode::MovePairToVictoryStack(ASHPlayerState* PlayerState, ASHCard* C
         return;
     }
 
+    // Bulk collection (Gnushor) also reaches this function before its task finishes.
+    // Keep cards on the table until all active presentation blocks have ended.
+    if (IsValid(TurnComponent) && TurnComponent->HasNamedTurnTransitionBlocks())
+    {
+        if (!Hand->FindActivationPair(CardA)) { return; }
+        FCompletedEffectPair* Pending = CompletedEffectPairsWaitingForPresentation.FindByPredicate(
+            [CardA, CardB](const FCompletedEffectPair& Entry)
+            {
+                return (Entry.CardA == CardA && Entry.CardB == CardB) ||
+                    (Entry.CardA == CardB && Entry.CardB == CardA);
+            });
+        if (!Pending)
+        {
+            Pending = &CompletedEffectPairsWaitingForPresentation.AddDefaulted_GetRef();
+        }
+        Pending->ActivatingPlayer = PlayerState;
+        Pending->CardA = CardA;
+        Pending->CardB = CardB;
+        Pending->bMoveToVictoryStack = true;
+        Hand->SetActivationPairState(CardA, CardB, EActivationPairState::VictoryPresentation);
+        return;
+    }
+
     const bool bRemoved = Hand->RemoveActivationPair(CardA, CardB);
 
     if (!bRemoved)
@@ -379,6 +453,10 @@ void ASHGameMode::CardActivateEffect(ASHPlayerState* InActivatingPlayer, ASHCard
             : NewEffectFragment->EffectPresentationId
     );
 
+    if (!EffectTask->RequiresTargetSelection())
+    {
+        EffectTask->PlayActivationVFX();
+    }
     EffectTask->StartEffect();
 }
 void ASHGameMode::FinishEffectTask(UCardEffectTask* CardEffectTask)
@@ -471,23 +549,44 @@ void ASHGameMode::FinishEffectTask(UCardEffectTask* CardEffectTask)
 			ActivatingHand->MulticastPairReadyForVictory(CardA, CardB);
 		}
 
-		if (IsValid(TurnComponent) && TurnComponent->HasNamedTurnTransitionBlocks())
-		{
-			FCompletedEffectPair& PendingMove = CompletedEffectPairsWaitingForPresentation.AddDefaulted_GetRef();
-			PendingMove.ActivatingPlayer = ActivatingPlayer;
-			PendingMove.CardA = CardA;
-			PendingMove.CardB = CardB;
-		}
-		else
-		{
-			MovePairToVictoryStack(ActivatingPlayer, CardA, CardB);
-		}
+		MovePairToVictoryStack(ActivatingPlayer, CardA, CardB);
 	}
 
 	if (IsValid(TurnComponent))
 	{
 		TurnComponent->NotifyEffectTaskFinished();
 	}
+}
+
+bool ASHGameMode::CancelEffectTargetSelection(ASHPlayerState* SelectingPlayer, ASHCard* CardA, ASHCard* CardB)
+{
+	if (!HasAuthority() || !IsValid(SelectingPlayer) || !IsValid(CardA) || !IsValid(CardB)) { return false; }
+	UCardEffectTask* Task = ActiveTargetPresentations.FindRef(SelectingPlayer);
+	ASHHand* Hand = SelectingPlayer->GetHand();
+	FActivatedPair* Pair = IsValid(Hand) ? Hand->FindActivationPair(CardA) : nullptr;
+	if (!IsValid(Task) || Task->GetActivatingPlayer() != SelectingPlayer ||
+		Task->GetCardA() != CardA || Task->GetCardB() != CardB || !ActiveEffectTasks.Contains(Task) ||
+		!HasPendingSelection(Task, SelectingPlayer) || !Pair ||
+		(Pair->CardA != CardB && Pair->CardB != CardB) || !Task->CancelPendingTargetSelection())
+	{
+		return false;
+	}
+	PendingPlayerSelections.Remove(SelectingPlayer);
+	PendingParticipantSelections.Remove(SelectingPlayer);
+	PendingPairSelections.Remove(SelectingPlayer);
+	ActiveEffectTasks.Remove(Task);
+	// Teardown first: restoring old outline snapshots must precede making the pair ready.
+	SetPairTargetSelectionPresentation(Task, SelectingPlayer, false);
+	PendingPairActivations.RemoveAll([CardA, CardB](const FPendingPairActivation& Entry)
+	{
+		return Entry.CardA == CardA && Entry.CardB == CardB;
+	});
+	Hand->SetActivationPairQueued(CardA, CardB, false);
+	Hand->SetActivationPairState(CardA, CardB, EActivationPairState::Ready);
+	Hand->MulticastPairActivationCancelled(CardA, CardB);
+	TryProcessQueuedPairActivations();
+	if (IsValid(TurnComponent)) { TurnComponent->NotifyEffectTaskFinished(); }
+	return true;
 }
 
 void ASHGameMode::RequestStoredPairActivation(ASHPlayerState* ActivatingPlayer, ASHCard* SelectedCard)
@@ -521,6 +620,7 @@ void ASHGameMode::RequestStoredPairActivation(ASHPlayerState* ActivatingPlayer, 
 		Pending.ActivatingPlayer = ActivatingPlayer;
 		Pending.CardA = Pair->CardA;
 		Pending.CardB = Pair->CardB;
+		Hand->SetActivationPairQueued(Pending.CardA, Pending.CardB, true);
 	}
 
 	TryProcessQueuedPairActivations();
@@ -552,10 +652,11 @@ void ASHGameMode::NotifyActivationPairSettled(ASHCard* CardA, ASHCard* CardB)
 
 void ASHGameMode::TryProcessQueuedPairActivations()
 {
-	if (!HasAuthority() || !IsValid(TurnComponent))
+	if (!HasAuthority() || !IsValid(TurnComponent) || bProcessingPairActivations)
 	{
 		return;
 	}
+	TGuardValue<bool> ProcessingGuard(bProcessingPairActivations, true);
 
 	while (!PendingPairActivations.IsEmpty())
 	{
@@ -576,16 +677,15 @@ void ASHGameMode::TryProcessQueuedPairActivations()
 		{
 			if (Pair->State != EActivationPairState::Ready)
 			{
-				continue;
+				// Settlement will call us again; retrying the same head here would spin forever.
+				return;
 			}
 			Pending.bClickPresentationStarted = true;
 			Hand->SetActivationPairState(Pending.CardA, Pending.CardB,
 				EActivationPairState::ClickPresentation);
 			Hand->MulticastPairClicked(Pending.CardA, Pending.CardB);
-			if (TurnComponent->HasNamedTurnTransitionBlocks())
-			{
-				return;
-			}
+			// Blueprint callbacks can change the queue. Reacquire its head on the next iteration.
+			continue;
 		}
 
 		if (!Pending.bAbilityStarted)
@@ -593,11 +693,26 @@ void ASHGameMode::TryProcessQueuedPairActivations()
 			Pending.bAbilityStarted = true;
 			const FPendingPairActivation ActivationToStart = Pending;
 			StartQueuedPairAbility(ActivationToStart);
-			// The task may finish synchronously and mutate the queue.
-			return;
+			// A synchronous completion can remove this entry and expose another ready pair.
+			continue;
 		}
 
-		// The first pair owns the queue until its task and final presentation finish.
+		// Extra draws wait for a later draw gesture. Preserve their active tasks
+		// and draw order, but let another pair (e.g. Paulus) resolve before drawing.
+		const bool bDeferredDraw = ActiveEffectTasks.ContainsByPredicate(
+			[&Pending](const UCardEffectTask* Task)
+			{
+				return IsValid(Task) && Task->GetCardA() == Pending.CardA &&
+					Task->GetCardB() == Pending.CardB && !Task->BlocksNextPairActivation();
+			});
+		if (bDeferredDraw)
+		{
+			const FPendingPairActivation Deferred = Pending;
+			PendingPairActivations.RemoveAt(0);
+			Hand->SetActivationPairQueued(Deferred.CardA, Deferred.CardB, false);
+			continue;
+		}
+		// Other effects own the queue until their task and final presentation finish.
 		return;
 	}
 }
@@ -651,7 +766,12 @@ void ASHGameMode::CompleteQueuedPairActivation(ASHCard* CardA, ASHCard* CardB)
 		});
 	if (PendingIndex != INDEX_NONE)
 	{
+		ASHPlayerState* Player = PendingPairActivations[PendingIndex].ActivatingPlayer;
 		PendingPairActivations.RemoveAt(PendingIndex);
+		if (IsValid(Player) && IsValid(Player->GetHand()))
+		{
+			Player->GetHand()->SetActivationPairQueued(CardA, CardB, false);
+		}
 	}
 	TryProcessQueuedPairActivations();
 }
@@ -1141,7 +1261,7 @@ bool ASHGameMode::TryFinishGame()
     Results.Reserve(SHGameState->PlayerArray.Num());
     TSet<TObjectPtr<ASHPlayerState>> ScoreTieBreakers;
 
-    int32 HighestScore = 0;
+    int32 HighestScore = MIN_int32;
     for (APlayerState* PlayerState : SHGameState->PlayerArray)
     {
         ASHPlayerState* SHPlayerState = CastChecked<ASHPlayerState>(PlayerState);

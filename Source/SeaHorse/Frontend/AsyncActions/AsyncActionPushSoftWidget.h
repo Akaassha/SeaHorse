@@ -34,6 +34,8 @@ public:
 	FOnPushSoftWidgetDelegate AfterPush;
 
 private:
+	bool bActivated = false;
+	bool bCompleted = false;
 	TWeakObjectPtr<UWorld> CachedOwningWorld;
 	TWeakObjectPtr<APlayerController> CachedOwningPlayerController;
 	TSoftClassPtr<UWidgetActivatableBase> CachedSoftWidgetClass;

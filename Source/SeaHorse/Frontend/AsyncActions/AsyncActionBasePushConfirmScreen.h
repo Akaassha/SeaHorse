@@ -29,6 +29,8 @@ public:
 	FConfirmScreenButtonClickedDelegate OnButtonClicked;
 
 private:
+	bool bActivated = false;
+	bool bCompleted = false;
 	TWeakObjectPtr<UWorld> CachedOwningWorld;
 	EConfirmScreenType CachedScreenType;
 	FText CachedScreenTitle;
