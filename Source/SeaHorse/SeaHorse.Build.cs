@@ -21,6 +21,8 @@ public class SeaHorse : ModuleRules
 		{
 			PrivateDependencyModuleNames.Add("UMGEditor");
 			PrivateDependencyModuleNames.Add("UnrealEd");
+			PrivateDependencyModuleNames.Add("BlueprintGraph");
+			PrivateDependencyModuleNames.Add("KismetCompiler");
 		}
 		
 		// OnlineSubsystemSteam is enabled in SeaHorse.uproject and loaded dynamically above.

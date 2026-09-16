@@ -310,4 +310,127 @@ bool FSHNewCardEffectsTest::RunTest(const FString& Parameters)
 	}
 	return true;
 }
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSHExpansionEffectsTest, "SeaHorse.Gameplay.Effects.ExchangeProtectionAndPaulusPairing",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FSHExpansionEffectsTest::RunTest(const FString& Parameters)
+{
+	TGuardValue<bool> ScriptGuard(GAllowActorScriptExecutionInEditor, true);
+	auto Load = [](const TCHAR* Name) { return LoadClass<UCardDefinition>(nullptr, *FString::Printf(TEXT("/Game/SeaHorse/Cards/Definitions/%s.%s_C"), Name, Name)); };
+	UClass* Kurt = Load(TEXT("Card_KurtPriest"));
+	UClass* Wu = Load(TEXT("Card_PaulusWitchHunterWu"));
+	UClass* Rats = Load(TEXT("Card_RatfolkUnderground"));
+	UClass* Silent = Load(TEXT("Card_PaulusSilent"));
+	UClass* Dead = Load(TEXT("Card_GniewDeadHerald"));
+	if (!TestNotNull(TEXT("Kurt BP exists"), Kurt) || !TestNotNull(TEXT("Wu BP exists"), Wu) || !TestNotNull(TEXT("Ratfolk BP exists"), Rats) || !Silent || !Dead) { return false; }
+	for (bool NPC : {false, true})
+	for (int32 Count : {1, 3})
+	{
+		FSHNewEffectsWorld T;
+		ASHPlayerState* Player = T.Players[0];
+		ASHHand* Hand = Player->GetHand();
+		ASHHand* Recipient = NPC ? T.Hands[1] : T.Players[1]->GetHand();
+		TArray<ASHCard*> Offered;
+		for (int32 Index = 0; Index < Count; ++Index) { Offered.Add(T.Card(Hand)); }
+		for (int32 Index = 0; Index < 8; ++Index) { T.Card(Recipient); }
+		ASHCard* Effect = T.Pair(Hand, Kurt);
+		T.Mode->RequestStoredPairActivation(Player, Effect);
+		TestTrue(TEXT("Kurt starts with hand-card selection"), T.Mode->PendingHandCardSelections.Contains(Player));
+		T.Mode->SubmitHandCardsSelection(Player, {});
+		T.Mode->SubmitHandCardsSelection(Player, {Offered[0], Offered[0]});
+		TestTrue(TEXT("Empty and duplicate offers rejected"), T.Mode->PendingHandCardSelections.Contains(Player));
+		if (Count == 3)
+		{
+			ASHPlayerController* PC = CastChecked<ASHPlayerController>(Player->GetOwner());
+			PC->TryHandleEffectSelectionClick(Offered[0]);
+			PC->TryHandleEffectSelectionClick(Offered[1]);
+			TestTrue(TEXT("Two cards still allow changing the offer"), T.Mode->PendingHandCardSelections.Contains(Player));
+			PC->TryHandleEffectSelectionClick(Offered[0]);
+			TestEqual(TEXT("Clicking selected card deselects it"), PC->LocallySelectedEffectCards.Num(), 1);
+			PC->TryHandleEffectSelectionClick(Offered[0]);
+			PC->TryHandleEffectSelectionClick(Offered[2]);
+			TestFalse(TEXT("Third card automatically confirms without Enter"), T.Mode->PendingHandCardSelections.Contains(Player));
+		}
+		else { T.Mode->SubmitHandCardsSelection(Player, Offered); }
+		TestTrue(TEXT("Kurt then selects a recipient"), T.Mode->PendingParticipantSelections.Contains(Player));
+		T.Mode->SubmitParticipantSelection(Player, Recipient);
+		TestEqual(TEXT("Offer waits for presentation"), Hand->GetCardCount(), Count);
+		T.Advance();
+		TestEqual(TEXT("All offered cards transferred before drawing"), Hand->GetCardCount(), 0);
+		TestFalse(TEXT("Exchange cannot be cancelled after transfer"), T.Mode->CancelEffectTargetSelection(Player, Effect, Hand->FindActivationPair(Effect)->CardB));
+		for (int32 Index = 0; Index < Count; ++Index)
+		{
+			TestTrue(TEXT("Each exchange draw has an authoritative selection"), T.Mode->PendingHandCardSelections.Contains(Player));
+			const auto& Pending = T.Mode->PendingHandCardSelections.FindChecked(Player);
+			if (NPC) { TestEqual(TEXT("BN offers only its top card"), Pending.CandidateCards.Num(), 1); }
+			T.Mode->SubmitHandCardSelection(Player, NPC ? Recipient->GetTopCard() : Recipient->GetCards()[0]);
+		}
+		TestEqual(TEXT("Kurt receives exactly the offered number"), Hand->GetCardCount(), Count);
+		TestEqual(TEXT("Recipient net card count is unchanged"), Recipient->GetCardCount(), 8);
+		TestFalse(TEXT("Exchange releases tasks and selections"), T.Mode->HasActiveEffectTasks() || T.Mode->IsWaitingForPlayerSelection());
+		TestEqual(TEXT("Exchange does not consume the ordinary draw phase"), T.State->GetTurnPhase(), ETurnPhase::FirstPairing);
+	}
+	{
+		FSHNewEffectsWorld T;
+		ASHCard* Effect = T.Pair(T.Players[0]->GetHand(), Kurt);
+		T.Mode->RequestStoredPairActivation(T.Players[0], Effect);
+		TestFalse(TEXT("No cards to exchange leaves no pending effect"), T.Mode->HasActiveEffectTasks());
+		TestNotNull(TEXT("No cards does not consume Kurt"), T.Players[0]->GetHand()->FindActivationPair(Effect));
+	}
+	{
+		FSHNewEffectsWorld T;
+		ASHPlayerState* Protected = T.Players[0];
+		for (ASHHand* Hand : T.Hands) { for (int32 Index = 0; Index < 4; ++Index) { T.Card(Hand); } }
+		ASHCard* Stored = T.Pair(Protected->GetHand());
+		ASHCard* Effect = T.Pair(Protected->GetHand(), Wu);
+		T.Mode->RequestStoredPairActivation(Protected, Effect);
+		T.Advance();
+		TestTrue(TEXT("Wu grants replicated protection"), Protected->IsProtectedFromCardEffects());
+		T.State->SetCurrentPlayer(T.Players[1]);
+		TestFalse(TEXT("Protected hand cannot be drawn from"), T.Mode->GetTurnComponent()->CanDrawCardFromHand(T.Players[1], Protected->GetHand()));
+		const TArray<ASHCard*> ProtectedCards = Protected->GetHand()->GetCards();
+		T.Mode->PassHandsToLeft();
+		TestTrue(TEXT("Hand rotation skips protected player"), Protected->GetHand()->GetCards() == ProtectedCards);
+		T.Mode->ShuffleAndRedealHands();
+		TestTrue(TEXT("Global shuffle skips protected player"), Protected->GetHand()->GetCards() == ProtectedCards);
+		T.Mode->RotateActivationZonesRight(nullptr);
+		TestNotNull(TEXT("Zone rotation skips protected player"), Protected->GetHand()->FindActivationPair(Stored));
+		T.Mode->MoveAllActivationPairsToVictoryStacks();
+		TestNotNull(TEXT("Global collection skips protected player"), Protected->GetHand()->FindActivationPair(Stored));
+		ASHCard* Herald = T.Pair(T.Players[1]->GetHand(), Dead);
+		T.Mode->RequestStoredPairActivation(T.Players[1], Herald);
+		TestFalse(TEXT("Protected player is excluded from targeted effects"), T.Mode->PendingParticipantSelections.FindChecked(T.Players[1]).Candidates.Contains(Protected->GetHand()));
+		T.Mode->CancelEffectTargetSelection(T.Players[1], Herald, T.Players[1]->GetHand()->FindActivationPair(Herald)->CardB);
+		T.Mode->GetTurnComponent()->EndTurn();
+		TestTrue(TEXT("Protection survives other turns"), Protected->IsProtectedFromCardEffects());
+		T.Mode->GetTurnComponent()->EndTurn();
+		TestEqual(TEXT("Turn returns to protected player"), T.State->GetCurrentPlayer(), Protected);
+		TestFalse(TEXT("Protection expires at the beginning of own next turn"), Protected->IsProtectedFromCardEffects());
+	}
+	for (UClass* Paulus : {Silent, Wu})
+	for (int32 Location : {0, 1, 2})
+	{
+		FSHNewEffectsWorld T;
+		ASHPlayerState* Player = T.Players[0];
+		ASHCard* A = T.Card(Player->GetHand(), Rats);
+		ASHCard* B = T.Card(Player->GetHand(), Paulus);
+		ASHCard* Other = T.Card(Location == 0 ? T.Players[1]->GetHand() : T.Hands[1], Paulus);
+		if (Location == 2)
+		{
+			T.Hands[1]->RemoveCard(Other);
+			ASHCard* Mate = T.Card(T.Hands[1]);
+			T.Hands[1]->RemoveCard(Mate);
+			T.Players[1]->GetHand()->GetVictoryStack()->AddPair(Other, Mate);
+		}
+		TestTrue(TEXT("Ratfolk pair with either Paulus variant"), T.Mode->AreCardsPairCompatible(A, B));
+		TestTrue(TEXT("Special pairing is symmetric"), T.Mode->AreCardsPairCompatible(B, A));
+		TestFalse(TEXT("Ratfolk cannot pair with another Ratfolk"), UCardDefinition::ArePairDefinitionsCompatible(Rats, Rats));
+		TestFalse(TEXT("Ratfolk cannot pair with unrelated card"), UCardDefinition::ArePairDefinitionsCompatible(Rats, Kurt));
+		T.Mode->ActivatePair(Player, A, B);
+		TestEqual(TEXT("Special pair goes directly to victory"), Player->GetHand()->GetVictoryStack()->GetPairCount(), 1);
+		TestTrue(TEXT("No activation zone entry"), Player->GetHand()->GetLogicalActivationPairs().IsEmpty());
+		TestFalse(TEXT("Paulus effect never starts"), T.Mode->HasActiveEffectTasks() || Player->IsProtectedFromCardEffects());
+		TestFalse(TEXT("Other Paulus copy is removed from its location"), IsValid(Other));
+	}
+	return true;
+}
 #endif

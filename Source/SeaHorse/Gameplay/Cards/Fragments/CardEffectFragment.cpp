@@ -10,7 +10,7 @@
 TArray<ASHCard*> UStoredPairFilterEffectFragment::GetEligibleCards(const ASHPlayerState* Activator, const ASHPlayerState* Owner) const
 {
 	TArray<ASHCard*> Cards;
-	if (!IsValid(Owner) || Owner == Activator || !IsValid(Owner->GetHand())) { return Cards; }
+	if (!IsValid(Owner) || Owner == Activator || Owner->IsProtectedFromCardEffects() || !IsValid(Owner->GetHand())) { return Cards; }
 	for (const FActivatedPair& Pair : Owner->GetHand()->GetLogicalActivationPairs())
 	{
 		if (!IsValid(Pair.CardA) || !IsValid(Pair.CardB) || Pair.bActivated || Pair.State != EActivationPairState::Ready) { continue; }

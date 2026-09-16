@@ -137,6 +137,10 @@ public:
 	void ClientRequestHandCardSelection(const TArray<ASHCard*>& CandidateCards);
 	UFUNCTION(Server, Reliable)
 	void ServerSubmitHandCardSelection(ASHCard* Card);
+	UFUNCTION(Client, Reliable)
+	void ClientRequestHandCardsSelection(const TArray<ASHCard*>& Cards, int32 Min, int32 Max);
+	UFUNCTION(Server, Reliable)
+	void ServerSubmitHandCardsSelection(const TArray<ASHCard*>& Cards);
 
 	UFUNCTION(Client, Reliable)
 	void ClientSetPairTargetSelection(ASHCard* CardA, ASHCard* CardB,
@@ -207,6 +211,7 @@ protected:
 private:
 #if WITH_DEV_AUTOMATION_TESTS
 	friend class FSHGameplayEffectInputTest;
+	friend class FSHExpansionEffectsTest;
 	friend class FSHLocalMatchUIReadinessTest;
 	friend class FSHEffectTargetOutlineTest;
 #endif
@@ -246,6 +251,12 @@ private:
 	TArray<TObjectPtr<ASHCard>> LocalActivationPairSelectionCandidates;
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<ASHCard>> LocalHandCardSelectionCandidates;
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<ASHCard>> LocallySelectedEffectCards;
+	int32 LocalSelectionMin = 1;
+	int32 LocalSelectionMax = 1;
+	TSharedPtr<class SWidget> SelectionPromptWidget;
+	void RefreshSelectionPrompt();
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<ASHHand>> LocalGuidedDrawHands;
 	UPROPERTY(Transient)

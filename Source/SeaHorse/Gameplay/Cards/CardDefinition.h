@@ -36,4 +36,7 @@ public:
 
 	UFUNCTION(BlueprintPure, meta = (DeterminesOutputType = "FragmentClass"))
 	static const UCardFragment* FindFragmentByClass(const TSubclassOf<UCardDefinition> CardDefinition, const TSubclassOf< UCardFragment> FragmentClass);
+
+	UFUNCTION(BlueprintPure, Category = "Card Rules")
+	static bool ArePairDefinitionsCompatible(TSubclassOf<UObject> A, TSubclassOf<UObject> B);
 };

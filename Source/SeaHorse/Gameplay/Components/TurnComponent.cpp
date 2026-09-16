@@ -153,6 +153,7 @@ bool UTurnComponent::CanDrawCardFromHand(ASHPlayerState* DrawingPlayer, ASHHand*
 	{
 		return false;
 	}
+	if (SourceHand->IsProtectedFromCardEffects()) { return false; }
 
 	const ETurnPhase Phase = GameState->GetTurnPhase();
 	if (Phase != ETurnPhase::FirstPairing && Phase != ETurnPhase::DrawCard)
@@ -476,6 +477,7 @@ void UTurnComponent::EndTurn()
 	FirstDrawSourceHand = nullptr;
 	FirstDrawnCard = nullptr;
 	GameState->SetCurrentPlayer(NextPlayer);
+	NextPlayer->SetProtectedFromCardEffects(false);
 	bPairingActionUsed = false;
 	GameState->SetTurnPhase(ETurnPhase::FirstPairing);
 }

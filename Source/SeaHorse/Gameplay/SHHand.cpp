@@ -694,6 +694,18 @@ bool ASHHand::IsNPC() const
 	return bIsNPC;
 }
 
+bool ASHHand::IsProtectedFromCardEffects() const
+{
+	const ASHGameState* State = GetWorld()->GetGameState<ASHGameState>();
+	if (!State || bIsNPC) { return false; }
+	for (APlayerState* Entry : State->PlayerArray)
+	{
+		const ASHPlayerState* Player = Cast<ASHPlayerState>(Entry);
+		if (IsValid(Player) && Player->GetHand() == this) { return Player->IsProtectedFromCardEffects(); }
+	}
+	return false;
+}
+
 ASHCard* ASHHand::GetTopCard() const
 {
 	return bIsNPC && !Cards.IsEmpty() ? Cards.Last() : nullptr;
@@ -758,10 +770,16 @@ void ASHHand::ShuffleStack()
 {
 	checkf(HasAuthority(), TEXT("Stacks can only be shuffled on the server"));
 	if (!bIsNPC) return;
+	ShuffleCards();
+}
+
+void ASHHand::ShuffleCards()
+{
+	checkf(HasAuthority(), TEXT("Cards can only be shuffled on the server"));
 	Algo::RandomShuffle(Cards);
 	ForceNetUpdate();
 	OnRep_Cards();
-	OnNPCStackShuffled.Broadcast();
+	if (bIsNPC) { OnNPCStackShuffled.Broadcast(); }
 }
 
 void ASHHand::RevealStack()

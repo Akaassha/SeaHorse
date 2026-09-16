@@ -201,6 +201,7 @@ public:
 	bool IsNPC() const;
 	/** Authoritative mode of this logical card container, independent of local view mapping. */
 	bool IsLogicalNPC() const { return bIsNPC; }
+	bool IsProtectedFromCardEffects() const;
 	void SetIsNPC(bool bNewIsNPC);
 
 	UFUNCTION(BlueprintPure, Category = "Cards|NPC")
@@ -215,6 +216,8 @@ public:
 	ASHCard* TakeTopCard();
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Cards|NPC")
 	void ShuffleStack();
+	/** Authoritative shuffle, including human hands for exchange effects. */
+	void ShuffleCards();
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Cards|NPC")
 	void RevealStack();
 

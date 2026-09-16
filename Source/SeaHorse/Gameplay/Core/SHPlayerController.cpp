@@ -20,6 +20,10 @@
 #include "EngineUtils.h"
 #include "Components/MeshComponent.h"
 #include "Components/WidgetComponent.h"
+#include "Engine/GameViewportClient.h"
+#include "Widgets/SOverlay.h"
+#include "Widgets/Layout/SBorder.h"
+#include "Widgets/Text/STextBlock.h"
 
 ASHPlayerController::ASHPlayerController()
 {
@@ -234,6 +238,19 @@ void ASHPlayerController::RestoreEffectTargetOutlines()
 	EffectOutlineMeshes.Reset();
 }
 
+void ASHPlayerController::RefreshSelectionPrompt()
+{
+	UGameViewportClient* Viewport = GetWorld() ? GetWorld()->GetGameViewport() : nullptr;
+	if (!Viewport) { return; }
+	if (SelectionPromptWidget) { Viewport->RemoveViewportWidgetContent(SelectionPromptWidget.ToSharedRef()); SelectionPromptWidget.Reset(); }
+	if (LocalSelectionMax <= 1 || LocalHandCardSelectionCandidates.IsEmpty()) { return; }
+	const FText Prompt = FText::FromString(FString::Printf(TEXT("Wybierz %d–%d karty (wybrano: %d). Komplet zatwierdza się automatycznie. Enter — zatwierdź mniej kart. Kliknij ponownie, aby odznaczyć."), LocalSelectionMin, LocalSelectionMax, LocallySelectedEffectCards.Num()));
+	SelectionPromptWidget = SNew(SOverlay).Visibility(EVisibility::HitTestInvisible)
+		+ SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Bottom).Padding(20, 20, 20, 100)
+		[SNew(SBorder).Padding(16)[SNew(STextBlock).Text(Prompt)]];
+	Viewport->AddViewportWidgetContent(SelectionPromptWidget.ToSharedRef(), 100);
+}
+
 void ASHPlayerController::UpdateEffectTargetOutlines(AActor* HoveredActor)
 {
 	// These reserved stencil IDs are decoded by PP_SoftOutline. All state is local
@@ -242,7 +259,8 @@ void ASHPlayerController::UpdateEffectTargetOutlines(AActor* HoveredActor)
 	auto ApplyActor = [&](AActor* Actor)
 	{
 		const bool bValidTarget = IsValidEffectTarget(Actor);
-		const int32 Stencil = Actor == HoveredActor ? (bValidTarget ? 251 : 252) : 250;
+		const bool bSelected = LocallySelectedEffectCards.Contains(Cast<ASHCard>(Actor));
+		const int32 Stencil = bSelected ? 251 : (Actor == HoveredActor ? (bValidTarget ? 251 : 252) : 250);
 		TInlineComponentArray<UMeshComponent*> Meshes(Actor);
 		for (UMeshComponent* Mesh : Meshes)
 		{
@@ -262,7 +280,7 @@ void ASHPlayerController::UpdateEffectTargetOutlines(AActor* HoveredActor)
 			// material (card textures and ordinary hover continue to update normally).
 			// 0=ordinary, 1=suppressed, 2=white, 3=green hover, 4=red hover.
 			Mesh->SetCustomPrimitiveDataFloat(20,
-				Actor == HoveredActor ? (bValidTarget ? 3.0f : 4.0f) : (bValidTarget ? 2.0f : 1.0f));
+				bSelected ? 3.0f : (Actor == HoveredActor ? (bValidTarget ? 3.0f : 4.0f) : (bValidTarget ? 2.0f : 1.0f)));
 		}
 	};
 	// Also suppress ordinary interaction outlines on invalid targets during selection.
@@ -448,6 +466,7 @@ void ASHPlayerController::BeginPlay()
 
 void ASHPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	ClearLocalEffectSelectionState();
 	StopPairTargetingIndicator();
 	GetWorldTimerManager().ClearTimer(TableSetupRetryTimer);
 	GetWorldTimerManager().ClearTimer(RotatedHandsReconcileTimer);
@@ -456,6 +475,16 @@ void ASHPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 
 bool ASHPlayerController::InputKey(const FInputKeyEventArgs& Params)
 {
+	if (IsLocalController() && Params.Key == EKeys::Enter && Params.Event == IE_Pressed && LocalSelectionMax > 1 && !LocalHandCardSelectionCandidates.IsEmpty())
+	{
+		if (LocallySelectedEffectCards.Num() >= LocalSelectionMin)
+		{
+			TArray<ASHCard*> Cards;
+			for (ASHCard* Card : LocallySelectedEffectCards) { Cards.Add(Card); }
+			ServerSubmitHandCardsSelection(Cards);
+		}
+		return true;
+	}
 	if (IsLocalController() && Params.Key == EKeys::Escape && Params.Event == IE_Pressed && CancelEffectTargeting())
 	{
 		return true;
@@ -491,9 +520,29 @@ bool ASHPlayerController::TryHandleEffectSelectionClick(AActor* HitActor)
 	}
 	if (!LocalHandCardSelectionCandidates.IsEmpty())
 	{
+		// Overlapping BN cards represent one stack; resolve any hit to its offered top.
+		if (const ASHCard* HitCard = Cast<ASHCard>(HitActor); IsValid(HitCard) && IsValid(HitCard->GetOwningHand()) && HitCard->GetOwningHand()->IsLogicalNPC())
+		{
+			for (ASHCard* Candidate : LocalHandCardSelectionCandidates)
+			{
+				if (IsValid(Candidate) && Candidate->GetOwningHand() == HitCard->GetOwningHand()) { ServerSubmitHandCardSelection(Candidate); return true; }
+			}
+		}
 		if (ASHCard* Card = Cast<ASHCard>(HitActor); LocalHandCardSelectionCandidates.Contains(Card))
 		{
-			ServerSubmitHandCardSelection(Card);
+			if (LocalSelectionMax > 1)
+			{
+				if (LocallySelectedEffectCards.Contains(Card)) { LocallySelectedEffectCards.Remove(Card); }
+				else if (LocallySelectedEffectCards.Num() < LocalSelectionMax) { LocallySelectedEffectCards.Add(Card); }
+				RefreshSelectionPrompt();
+				if (LocallySelectedEffectCards.Num() == LocalSelectionMax)
+				{
+					TArray<ASHCard*> Cards;
+					for (ASHCard* Selected : LocallySelectedEffectCards) { Cards.Add(Selected); }
+					ServerSubmitHandCardsSelection(Cards);
+				}
+			}
+			else { ServerSubmitHandCardSelection(Card); }
 		}
 		return true;
 	}
@@ -817,6 +866,9 @@ void ASHPlayerController::ClearLocalPlayerSelection()
 void ASHPlayerController::ClearLocalEffectSelectionState()
 {
 	LocalHandCardSelectionCandidates.Reset();
+	LocallySelectedEffectCards.Reset();
+	LocalSelectionMin = LocalSelectionMax = 1;
+	RefreshSelectionPrompt();
 	bAwaitingPlayerSelectionResponse = false;
 	ClearLocalPlayerSelection();
 	LocalParticipantSelectionCandidates.Reset();
@@ -1057,11 +1109,24 @@ void ASHPlayerController::ClientRequestActivationPairSelection_Implementation(
 
 void ASHPlayerController::ClientRequestHandCardSelection_Implementation(const TArray<ASHCard*>& Cards)
 {
+	ClientRequestHandCardsSelection_Implementation(Cards, 1, 1);
+}
+
+void ASHPlayerController::ClientRequestHandCardsSelection_Implementation(const TArray<ASHCard*>& Cards, int32 Min, int32 Max)
+{
 	ClearLocalEffectSelectionState();
+	LocalSelectionMin = Min;
+	LocalSelectionMax = Max;
 	for (ASHCard* Card : Cards)
 	{
 		if (IsValid(Card)) { LocalHandCardSelectionCandidates.AddUnique(Card); }
 	}
+	RefreshSelectionPrompt();
+}
+
+void ASHPlayerController::ServerSubmitHandCardsSelection_Implementation(const TArray<ASHCard*>& Cards)
+{
+	if (ASHGameMode* Mode = GetWorld()->GetAuthGameMode<ASHGameMode>()) { Mode->SubmitHandCardsSelection(GetPlayerState<ASHPlayerState>(), Cards); }
 }
 
 void ASHPlayerController::ServerSubmitHandCardSelection_Implementation(ASHCard* Card)

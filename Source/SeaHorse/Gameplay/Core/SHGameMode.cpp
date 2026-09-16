@@ -800,13 +800,14 @@ void ASHGameMode::PassHandsToLeft()
 	checkf(IsValid(SHGameState), TEXT("Invalid SHGameState"));
 
 	TArray<ASHHand*> ParticipantHands;
-	const int32 ParticipantCount = SHGameState->GetParticipantCount();
-	ParticipantHands.SetNum(ParticipantCount);
-	for (int32 Seat = 0; Seat < ParticipantCount; ++Seat)
+	for (int32 Seat = 0; Seat < SHGameState->GetParticipantCount(); ++Seat)
 	{
-		ParticipantHands[Seat] = SHGameState->FindParticipantHandBySeat(Seat);
-		checkf(IsValid(ParticipantHands[Seat]), TEXT("Participant in seat %d has no hand"), Seat);
+		ASHHand* Hand = SHGameState->FindParticipantHandBySeat(Seat);
+		check(IsValid(Hand));
+		if (!Hand->IsProtectedFromCardEffects()) { ParticipantHands.Add(Hand); }
 	}
+	const int32 ParticipantCount = ParticipantHands.Num();
+	if (ParticipantCount < 2) { return; }
 
 	TArray<TArray<ASHCard*>> CardsBySeat;
 	CardsBySeat.SetNum(ParticipantCount);
@@ -855,7 +856,7 @@ void ASHGameMode::MoveAllActivationPairsToVictoryStacks()
 	{
 		ASHPlayerState* SHPlayerState = CastChecked<ASHPlayerState>(PlayerState);
 		ASHHand* Hand = SHPlayerState->GetHand();
-		if (!IsValid(Hand))
+		if (!IsValid(Hand) || SHPlayerState->IsProtectedFromCardEffects())
 		{
 			continue;
 		}
@@ -898,28 +899,35 @@ bool ASHGameMode::TransferCardToHand(
 
 bool ASHGameMode::RequestHandCardSelection(UCardEffectTask* Task, ASHPlayerState* Player, const TArray<ASHCard*>& Cards)
 {
-	if (!HasAuthority() || !IsValid(Task) || !ActiveEffectTasks.Contains(Task) || !IsValid(Player) ||
-		IsWaitingForPlayerSelection()) { return false; }
+	return RequestHandCardsSelection(Task, Player, IsValid(Player) ? Player->GetHand() : nullptr, Cards, 1, 1);
+}
+
+bool ASHGameMode::RequestHandCardsSelection(UCardEffectTask* Task, ASHPlayerState* Player, ASHHand* Source, const TArray<ASHCard*>& Cards, int32 Min, int32 Max)
+{
+	if (!HasAuthority() || !IsValid(Task) || !ActiveEffectTasks.Contains(Task) || !IsValid(Player) || !IsValid(Source) ||
+		Min < 1 || Max < Min || Max > 3 || IsWaitingForPlayerSelection()) { return false; }
 	ASHPlayerController* PC = Cast<ASHPlayerController>(Player->GetOwner());
 	if (!IsValid(PC)) { return false; }
 	FPendingPairSelection Pending;
 	Pending.Task = Task;
+	Pending.SourceHand = Source;
+	Pending.MinCards = Min;
+	Pending.MaxCards = Max;
 	TArray<ASHCard*> Candidates;
 	for (ASHCard* Card : Cards)
 	{
-		if (IsValid(Card) && Card->GetOwningHand() == Player->GetHand() && Card->GetCardZone() == ECardZone::Hand && Player->GetHand()->ContainsCard(Card))
+		if (IsValid(Card) && Card->GetOwningHand() == Source && Card->GetCardZone() == ECardZone::Hand && Source->ContainsCard(Card))
 		{
 			Pending.CandidateCards.AddUnique(Card);
 			Candidates.AddUnique(Card);
 		}
 	}
-	if (Candidates.IsEmpty()) { return false; }
+	if (Candidates.Num() < Min) { return false; }
 	PendingHandCardSelections.Add(Player, Pending);
 	SetPairTargetSelectionPresentation(Task, Player, true);
-	PC->ClientRequestHandCardSelection(Candidates);
+	PC->ClientRequestHandCardsSelection(Candidates, Min, Max);
 	return true;
 }
-
 bool ASHGameMode::HasOtherActiveEffects(const UCardEffectTask* Except) const
 {
 	return ActiveEffectTasks.ContainsByPredicate([Except](const UCardEffectTask* Task)
@@ -974,7 +982,7 @@ void ASHGameMode::RotateActivationZonesRight(ASHCard* ExcludedCard)
 	TArray<ASHPlayerState*> Players;
 	for (APlayerState* Entry : State->PlayerArray)
 	{
-		if (ASHPlayerState* Player = Cast<ASHPlayerState>(Entry); IsValid(Player) && IsValid(Player->GetHand())) { Players.Add(Player); }
+		if (ASHPlayerState* Player = Cast<ASHPlayerState>(Entry); IsValid(Player) && !Player->IsProtectedFromCardEffects() && IsValid(Player->GetHand())) { Players.Add(Player); }
 	}
 	Players.Sort([](const ASHPlayerState& A, const ASHPlayerState& B) { return A.GetSeatIndex() < B.GetSeatIndex(); });
 	const int32 Count = Players.Num();
@@ -1003,7 +1011,8 @@ void ASHGameMode::ShuffleAndRedealHands()
 {
 	check(HasAuthority());
 	ASHGameState* State = GetGameState<ASHGameState>();
-	const TArray<ASHHand*> Hands = State->GetParticipantHands();
+	TArray<ASHHand*> Hands = State->GetParticipantHands();
+	Hands.RemoveAll([](const ASHHand* Hand) { return IsValid(Hand) && Hand->IsProtectedFromCardEffects(); });
 	if (Hands.IsEmpty()) { return; }
 	TArray<ASHCard*> Cards;
 	for (ASHHand* Hand : Hands) { if (!IsValid(Hand)) { return; } }
@@ -1027,16 +1036,25 @@ void ASHGameMode::ShuffleAndRedealHands()
 
 void ASHGameMode::SubmitHandCardSelection(ASHPlayerState* Player, ASHCard* Card)
 {
-	if (!HasAuthority() || !IsValid(Player)) { return; }
-	FPendingPairSelection* Pending = PendingHandCardSelections.Find(Player);
-	if (!Pending || !IsValid(Card) || !Pending->CandidateCards.Contains(Card) ||
-		Card->GetOwningHand() != Player->GetHand() || Card->GetCardZone() != ECardZone::Hand || !Player->GetHand()->ContainsCard(Card)) { return; }
-	UCardEffectTask* Task = Pending->Task;
-	PendingHandCardSelections.Remove(Player);
-	if (IsValid(Task) && ActiveEffectTasks.Contains(Task)) { Task->HandleHandCardSelected(Card); }
-	FinishSelectionStep(Task, Player);
+	SubmitHandCardsSelection(Player, {Card});
 }
 
+void ASHGameMode::SubmitHandCardsSelection(ASHPlayerState* Player, const TArray<ASHCard*>& Cards)
+{
+	FPendingPairSelection* Pending = PendingHandCardSelections.Find(Player);
+	if (!HasAuthority() || !Pending || !IsValid(Pending->SourceHand) || Cards.Num() < Pending->MinCards || Cards.Num() > Pending->MaxCards) { return; }
+	TSet<ASHCard*> Unique;
+	for (ASHCard* Card : Cards)
+	{
+		if (!IsValid(Card) || Unique.Contains(Card) || !Pending->CandidateCards.Contains(Card) || Card->GetOwningHand() != Pending->SourceHand ||
+			Card->GetCardZone() != ECardZone::Hand || !Pending->SourceHand->ContainsCard(Card)) { return; }
+		Unique.Add(Card);
+	}
+	UCardEffectTask* Task = Pending->Task;
+	PendingHandCardSelections.Remove(Player);
+	if (IsValid(Task) && ActiveEffectTasks.Contains(Task)) { Task->HandleHandCardsSelected(Cards); }
+	FinishSelectionStep(Task, Player);
+}
 void ASHGameMode::RequestParticipantSelection(
     UCardEffectTask* Task,
     ASHPlayerState* SelectingPlayer,
@@ -1056,13 +1074,13 @@ void ASHGameMode::RequestParticipantSelection(
     const TArray<ASHHand*> ParticipantHands = IsValid(SHGameState) ? SHGameState->GetParticipantHands() : TArray<ASHHand*>();
     for (ASHHand* Candidate : Candidates)
     {
-        if (IsValid(Candidate) && ParticipantHands.Contains(Candidate))
+        if (IsValid(Candidate) && !Candidate->IsProtectedFromCardEffects() && ParticipantHands.Contains(Candidate))
         {
             Pending.Candidates.AddUnique(Candidate);
         }
     }
 
-    checkf(!Pending.Candidates.IsEmpty(), TEXT("Participant selection has no valid candidates"));
+    if (Pending.Candidates.IsEmpty()) { PendingParticipantSelections.Remove(SelectingPlayer); Task->FinishEffect(); return; }
     ASHPlayerController* Controller = Cast<ASHPlayerController>(SelectingPlayer->GetOwner());
     checkf(IsValid(Controller), TEXT("Selecting player has no controller"));
 
@@ -1078,7 +1096,7 @@ void ASHGameMode::RequestParticipantSelection(
 void ASHGameMode::SubmitParticipantSelection(ASHPlayerState* SelectingPlayer, ASHHand* SelectedHand)
 {
     FPendingParticipantSelection* Pending = PendingParticipantSelections.Find(SelectingPlayer);
-    if (!Pending || !IsValid(SelectedHand) || !Pending->Candidates.Contains(SelectedHand))
+    if (!Pending || !IsValid(SelectedHand) || SelectedHand->IsProtectedFromCardEffects() || !Pending->Candidates.Contains(SelectedHand))
     {
         UE_LOG(LogTemp, Warning,
             TEXT("[SH_PARTICIPANT_SELECTION][REJECTED] SelectingPlayer=%s SelectedHand=%s HasPending=%d"),
@@ -1113,13 +1131,13 @@ void ASHGameMode::RequestPlayerSelection(
 	PendingSelection.Purpose = Purpose;
     for (ASHPlayerState* Candidate : Candidates)
     {
-        if (IsValid(Candidate))
+        if (IsValid(Candidate) && !Candidate->IsProtectedFromCardEffects())
         {
             PendingSelection.Candidates.AddUnique(Candidate);
         }
     }
 
-    checkf(!PendingSelection.Candidates.IsEmpty(), TEXT("Player selection has no valid candidates"));
+    if (PendingSelection.Candidates.IsEmpty()) { PendingPlayerSelections.Remove(SelectingPlayer); Task->FinishEffect(); return; }
 
     ASHPlayerController* SelectingController = Cast<ASHPlayerController>(SelectingPlayer->GetOwner());
     checkf(IsValid(SelectingController), TEXT("Selecting player has no controller"));
@@ -1139,7 +1157,7 @@ void ASHGameMode::SubmitPlayerSelection(ASHPlayerState* SelectingPlayer,
 {
     FPendingPlayerSelection* PendingSelection = PendingPlayerSelections.Find(SelectingPlayer);
 	if (!PendingSelection || !IsValid(SelectedPlayer) ||
-		!PendingSelection->Candidates.Contains(SelectedPlayer))
+		SelectedPlayer->IsProtectedFromCardEffects() || !PendingSelection->Candidates.Contains(SelectedPlayer))
     {
         FString CandidateNames;
         if (PendingSelection)
@@ -1214,7 +1232,7 @@ bool ASHGameMode::RequestActivationPairSelection(
     Pending.Task = Task;
     for (ASHCard* Card : CandidateCards)
     {
-        if (IsValid(Card) && Card->GetCardZone() == ECardZone::Activation)
+        if (IsValid(Card) && Card->GetCardZone() == ECardZone::Activation && IsValid(Card->GetOwningHand()) && !Card->GetOwningHand()->IsProtectedFromCardEffects())
         {
             Pending.CandidateCards.AddUnique(Card);
         }
@@ -1276,7 +1294,7 @@ bool ASHGameMode::SubmitActivationPairSelection(ASHPlayerState* SelectingPlayer,
         }
     }
 
-    if (!IsValid(PairOwner))
+    if (!IsValid(PairOwner) || PairOwner->IsProtectedFromCardEffects())
     {
         return true;
     }
@@ -1306,6 +1324,43 @@ void ASHGameMode::ActivatePair(ASHPlayerState* PlayerState, ASHCard* CardA, ASHC
 
     ASHHand* Hand = PlayerState->GetHand();
     checkf(IsValid(Hand), TEXT("Player has no Hand"));
+
+    const auto* ImmediateA = UCardDefinition::FindFragmentByClass(CardA->GetCardDefinition(), UImmediateVictoryPairFragment::StaticClass());
+    const auto* ImmediateB = UCardDefinition::FindFragmentByClass(CardB->GetCardDefinition(), UImmediateVictoryPairFragment::StaticClass());
+    if (ImmediateA || ImmediateB)
+    {
+        if (!AreCardsPairCompatible(CardA, CardB) || !IsValid(Hand->GetVictoryStack())) { return; }
+        ASHCard* Partner = ImmediateA ? CardB : CardA;
+        // Pairing is not an activation: it neither runs Paulus nor opens a task.
+        Hand->RemoveCard(CardA);
+        Hand->RemoveCard(CardB);
+        Hand->GetVictoryStack()->AddPair(CardA, CardB);
+        CardA->Reveal(); CardB->Reveal();
+        for (TActorIterator<ASHCard> It(GetWorld()); It; ++It)
+        {
+            ASHCard* Other = *It;
+            if (Other == CardA || Other == CardB || Other->GetCardDefinition() != Partner->GetCardDefinition()) { continue; }
+            if (ASHHand* OtherHand = Other->GetOwningHand())
+            {
+                if (FActivatedPair* Pair = OtherHand->FindActivationPair(Other))
+                {
+                    const FActivatedPair Copy = *Pair;
+                    ASHCard* Survivor = Copy.CardA == Other ? Copy.CardB.Get() : Copy.CardA.Get();
+                    OtherHand->RemoveActivationPair(Copy.CardA, Copy.CardB);
+                    CompleteQueuedPairActivation(Copy.CardA, Copy.CardB);
+                    if (IsValid(Survivor)) { OtherHand->AddCard(Survivor, OtherHand->GetCardCount()); }
+                }
+                else { OtherHand->RemoveCard(Other); }
+            }
+            else if (AVictoryStack* Stack = Cast<AVictoryStack>(Other->GetOwner())) { Stack->RemoveCard(Other); }
+            Other->SetCardZone(ECardZone::None);
+            Other->Destroy();
+            break;
+        }
+        for (APlayerState* State : GetGameState<ASHGameState>()->PlayerArray) { RefreshPlayerScore(Cast<ASHPlayerState>(State)); }
+        if (TurnComponent) { TurnComponent->NotifyPairSettled(CardA, CardB); }
+        return;
+    }
 
     Hand->RemoveCard(CardA);
     Hand->RemoveCard(CardB);
@@ -1339,7 +1394,7 @@ bool ASHGameMode::AreCardsPairCompatible(ASHCard* CardA, ASHCard* CardB)
         return false;
     }
 
-    return DefinitionA == DefinitionB;
+    return UCardDefinition::ArePairDefinitionsCompatible(DefinitionA.Get(), DefinitionB.Get());
 
 }
 // ***** End Card Rules *****

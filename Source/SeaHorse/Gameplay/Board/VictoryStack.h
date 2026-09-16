@@ -22,6 +22,7 @@ public:
 	AVictoryStack();
 
 	void AddPair(ASHCard* CardA, ASHCard* CardB);
+	bool RemoveCard(ASHCard* Card);
 	void RefreshCardsPresentation();
 
 	UFUNCTION(BlueprintPure, Category = "Score")

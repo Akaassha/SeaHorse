@@ -37,3 +37,28 @@ is left unset. `configure_definitions.py` recreates the initial definitions;
 rerunning it replaces their names, descriptions and fragment configuration.
 
 Automation coverage: `SeaHorse.Gameplay.Effects.SixNewAbilities`.
+
+## Kurt, Paulus Wu and Ratfolk
+
+`configure_expansion_definitions.py` creates Card_KurtPriest,
+Card_PaulusWitchHunterWu and Card_RatfolkUnderground, without changing the deck.
+It also migrates BP_Hand.CheckPairCompatibility to the shared native pairing rule.
+
+Kurt selects 1–3 hand cards by clicking; another click deselects. Selecting the
+third card confirms automatically; Enter confirms a smaller offer. Select a human or BN recipient, then click to draw back the
+same number after the recipient's hand is shuffled. BN draws always take the
+stack top. The ordinary turn draw is unchanged. Cancellation is allowed before
+the transfer is committed; empty hands do not consume Kurt's pair.
+
+Paulus Wu grants replicated protection until the start of the owner's next
+actual turn. Protected players cannot be drawn from or targeted by activations;
+bulk hand/zone rotations, redeals and collection effects skip them.
+
+Ratfolk pair only with a definition in AllowedPartners (currently Paulus Silent
+and Paulus Witch Hunter Wu). Pairing works in either order and awards a victory
+pair immediately without starting either Paulus effect. The other copy of that
+same Paulus variant is removed wherever it is held. If it was in an activation
+pair, its surviving partner returns to that hand. Add future Paulus definitions
+to AllowedPartners when authoring them. New card artwork remains unset.
+
+Automation coverage: `SeaHorse.Gameplay.Effects.ExchangeProtectionAndPaulusPairing`.

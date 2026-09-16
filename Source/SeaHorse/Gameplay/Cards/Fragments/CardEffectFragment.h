@@ -54,3 +54,13 @@ public:
 
 	TArray<class ASHCard*> GetEligibleCards(const class ASHPlayerState* Activator, const class ASHPlayerState* Owner) const;
 };
+
+/** Restricts this card to a named partner and resolves the pair without activation. */
+UCLASS(BlueprintType, EditInlineNew)
+class SEAHORSE_API UImmediateVictoryPairFragment : public UCardFragment
+{
+	GENERATED_BODY()
+public:
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, meta = (MetaClass = "/Script/SeaHorse.CardDefinition"))
+	TArray<FSoftClassPath> AllowedPartners;
+};

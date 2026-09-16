@@ -60,6 +60,7 @@ public:
     virtual void HandleActivationPairSelected(ASHPlayerState* PairOwner, ASHCard* SelectedCardA, ASHCard* SelectedCardB);
     bool RequestHandCardSelection(const TArray<ASHCard*>& Candidates);
     virtual void HandleHandCardSelected(ASHCard* SelectedCard) {}
+    virtual void HandleHandCardsSelected(const TArray<ASHCard*>& Cards) { if (Cards.Num() == 1) { HandleHandCardSelected(Cards[0]); } }
 
     ASHPlayerState* GetActivatingPlayer() const { return ActivatingPlayer; }
     ASHCard* GetCardA() const { return CardA; }

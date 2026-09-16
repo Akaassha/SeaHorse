@@ -13,6 +13,14 @@ void ASHPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLi
 	DOREPLIFETIME(ASHPlayerState, Hand);
 	DOREPLIFETIME(ASHPlayerState, SeatIndex);
 	DOREPLIFETIME(ASHPlayerState, VictoryPoints);
+	DOREPLIFETIME(ASHPlayerState, bProtectedFromCardEffects);
+}
+
+void ASHPlayerState::SetProtectedFromCardEffects(bool bProtected)
+{
+	check(HasAuthority());
+	bProtectedFromCardEffects = bProtected;
+	ForceNetUpdate();
 }
 
 void ASHPlayerState::SetVictoryPoints(int32 NewVictoryPoints)

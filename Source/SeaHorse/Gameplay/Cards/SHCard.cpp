@@ -107,8 +107,8 @@ void ASHCard::OnRep_RevealedCardDefinition()
 		*GetNameSafe(RevealedCardDefinition.Get()),
 		bFaceUp);
 
-	RefreshCardFace();
-
+	// Replicated reveals may arrive before the local widget has initialized.
+	if (GetNetMode() != NM_DedicatedServer && IsValid(CardFaceWidget)) { RefreshCardFace(); }
 	SetFaceUp(true);
 }
 

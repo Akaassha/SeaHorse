@@ -100,6 +100,7 @@ protected:
 private:
 #if WITH_DEV_AUTOMATION_TESTS
 	friend class FSHSixPlayerSeatsTest;
+	friend class FSHExpansionEffectsTest;
 #endif
 #if WITH_DEV_AUTOMATION_TESTS
 	friend class FSHDrawRulesTest;

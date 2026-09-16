@@ -47,8 +47,15 @@ public:
 	FOnVictoryPointsChanged OnVictoryPointsChanged;
 
 	void SetVictoryPoints(int32 NewVictoryPoints);
+
+	UFUNCTION(BlueprintPure, Category = "Card Effects")
+	bool IsProtectedFromCardEffects() const { return bProtectedFromCardEffects; }
+	void SetProtectedFromCardEffects(bool bProtected);
 	
 protected:
+	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Card Effects")
+	bool bProtectedFromCardEffects = false;
+
 	UPROPERTY(ReplicatedUsing = OnRep_Hand, BlueprintReadOnly, Category = "Hand")
 	TObjectPtr<ASHHand> Hand;
 

@@ -58,6 +58,8 @@ public:
 	bool SubmitActivationPairSelection(ASHPlayerState* SelectingPlayer, ASHCard* SelectedCard);
 	bool RequestHandCardSelection(UCardEffectTask* Task, ASHPlayerState* SelectingPlayer, const TArray<ASHCard*>& Cards);
 	void SubmitHandCardSelection(ASHPlayerState* SelectingPlayer, ASHCard* Card);
+	bool RequestHandCardsSelection(UCardEffectTask* Task, ASHPlayerState* Player, ASHHand* Source, const TArray<ASHCard*>& Cards, int32 Min, int32 Max);
+	void SubmitHandCardsSelection(ASHPlayerState* Player, const TArray<ASHCard*>& Cards);
 	bool IsWaitingForPlayerSelection() const
 	{
 		return !PendingPlayerSelections.IsEmpty() || !PendingParticipantSelections.IsEmpty() ||
@@ -90,6 +92,7 @@ private:
 #if WITH_DEV_AUTOMATION_TESTS
 	friend struct FSHNewEffectsWorld;
 	friend class FSHNewCardEffectsTest;
+	friend class FSHExpansionEffectsTest;
 	friend class FSHActivationQueueReadinessTest;
 	friend class FSHBulkVictoryPresentationTest;
 	friend class FSHTargetedActivationPresentationTest;
@@ -167,6 +170,9 @@ private:
 	{
 		TObjectPtr<UCardEffectTask> Task;
 		TArray<TObjectPtr<ASHCard>> CandidateCards;
+		TObjectPtr<ASHHand> SourceHand;
+		int32 MinCards = 1;
+		int32 MaxCards = 1;
 	};
 
 	TMap<TObjectPtr<ASHPlayerState>, FPendingPairSelection> PendingPairSelections;
