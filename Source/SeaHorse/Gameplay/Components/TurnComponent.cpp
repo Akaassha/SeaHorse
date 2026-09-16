@@ -3,6 +3,7 @@
 #include "SeaHorse/Gameplay/Cards/CardDefinition.h"
 #include "SeaHorse/Gameplay/Cards/Fragments/CardActivationRulesFragment.h"
 #include "SeaHorse/Gameplay/Cards/Fragments/CardEffectFragment.h"
+#include "Gameplay/Cards/Fragments/CardReactionFragment.h"
 #include "SeaHorse/Gameplay/Cards/SHCard.h"
 #include "SeaHorse/Gameplay/Cards/Tasks/CardEffectTask.h"
 #include "SeaHorse/Gameplay/Core/SHPlayerController.h"
@@ -48,6 +49,7 @@ void UTurnComponent::SkipCurrentPhase(ASHPlayerState* RequestingPlayer)
 	CheckServerAuthority();
 
 	ASHGameState* GameState = GetSHGameState();
+	if (GameState->bReactionPending) { return; }
 	if (!IsValid(RequestingPlayer) || GameState->GetCurrentPlayer() != RequestingPlayer)
 	{
 		return;
@@ -76,12 +78,14 @@ bool UTurnComponent::CanActivatePairForState(const ASHGameState* GameState,
 		return false;
 	}
 
-	if (!IsValid(GameState) || GameState->IsGameEnded())
+	if (!IsValid(GameState) || GameState->IsGameEnded() || GameState->bReactionPending)
 	{
 		return false;
 	}
 
 	const bool bIsOwnTurn = GameState->CurrentPlayer == RequestingPlayer;
+	// Reaction pairs are offered by the server, never activated by ordinary clicks.
+	if (UCardDefinition::FindFragmentByClass(ActivatedPair.CardA->GetKnownCardDefinition(), UCardReactionFragment::StaticClass())) { return false; }
 	const auto* PairFilter = Cast<UStoredPairFilterEffectFragment>(UCardDefinition::FindFragmentByClass(
 		ActivatedPair.CardA->CardDefinition, UStoredPairFilterEffectFragment::StaticClass()));
 	if (PairFilter)
@@ -149,7 +153,7 @@ bool UTurnComponent::CanDrawCardFromHand(ASHPlayerState* DrawingPlayer, ASHHand*
 	}
 
 	const ASHGameState* GameState = GetSHGameState();
-	if (GameState->IsGameEnded() || GameState->GetCurrentPlayer() != DrawingPlayer)
+	if (GameState->IsGameEnded() || GameState->bReactionPending || GameState->GetCurrentPlayer() != DrawingPlayer)
 	{
 		return false;
 	}
@@ -530,7 +534,6 @@ void UTurnComponent::FinishTurnTransitionBlock(FName EffectId)
 	}
 	if (ASHGameMode* GameMode = GetWorld()->GetAuthGameMode<ASHGameMode>())
 	{
-		GameMode->TryProcessQueuedPairActivations();
 		GameMode->FlushCompletedEffectPairs();
 	}
 	TryCompleteDeferredEndTurn();

@@ -29,6 +29,9 @@ public:
 	virtual void PreLogin(const FString& Options, const FString& Address, const FUniqueNetIdRepl& UniqueId, FString& ErrorMessage) override;
 	//Begin AGameMode Interface
 	virtual void HandleStartingNewPlayer_Implementation(APlayerController* NewPlayer) override;
+	virtual void Logout(AController* Exiting) override;
+	void RespondToCardReaction(ASHPlayerState* Player, int32 OfferId, bool bAccept);
+	bool HasPendingCardReaction() const { return bReactionWindowOpen; }
 	//End AGameMode Interface
 
 	bool AreCardsPairCompatible(ASHCard* CardA, ASHCard* CardB);
@@ -62,10 +65,10 @@ public:
 	void SubmitHandCardsSelection(ASHPlayerState* Player, const TArray<ASHCard*>& Cards);
 	bool IsWaitingForPlayerSelection() const
 	{
-		return !PendingPlayerSelections.IsEmpty() || !PendingParticipantSelections.IsEmpty() ||
+		return bReactionWindowOpen || !PendingPlayerSelections.IsEmpty() || !PendingParticipantSelections.IsEmpty() ||
 			!PendingPairSelections.IsEmpty() || !PendingHandCardSelections.IsEmpty();
 	}
-	bool HasActiveEffectTasks() const { return !ActiveEffectTasks.IsEmpty(); }
+	bool HasActiveEffectTasks() const { return bReactionWindowOpen || !ActiveEffectTasks.IsEmpty(); }
 	void PassHandsToLeft();
 	bool TransferStoredPair(ASHHand* Source, ASHHand* Target, ASHCard* Card);
 	void RotateActivationZonesRight(ASHCard* ExcludedCard);
@@ -93,6 +96,7 @@ private:
 	friend struct FSHNewEffectsWorld;
 	friend class FSHNewCardEffectsTest;
 	friend class FSHExpansionEffectsTest;
+	friend class FSHCardReactionsTest;
 	friend class FSHActivationQueueReadinessTest;
 	friend class FSHBulkVictoryPresentationTest;
 	friend class FSHTargetedActivationPresentationTest;
@@ -142,10 +146,44 @@ private:
 		TObjectPtr<ASHCard> CardB;
 		bool bClickPresentationStarted = false;
 		bool bAbilityStarted = false;
+		bool bReactionsChecked = false;
 	};
 
 	TArray<FPendingPairActivation> PendingPairActivations;
 	bool bProcessingPairActivations = false;
+	struct FReactionOption
+	{
+		TWeakObjectPtr<ASHPlayerState> Player;
+		TWeakObjectPtr<ASHCard> CardA;
+		TWeakObjectPtr<ASHCard> CardB;
+		int64 CreationOrder = 0;
+		int32 OfferId = INDEX_NONE;
+	};
+	// Remaining pairs are queued per owner; every eligible owner can answer concurrently.
+	TArray<FReactionOption> ReactionOptions;
+	TMap<TWeakObjectPtr<ASHPlayerState>, FReactionOption> ActiveReactionOffers;
+	struct FReactionActivation
+	{
+		FReactionOption Option;
+		bool bCancelled = false;
+	};
+	TArray<FReactionActivation> ReactionChain;
+	FPendingPairActivation ReactionRootActivation;
+	TWeakObjectPtr<ASHPlayerState> ReactionTargetPlayer;
+	TWeakObjectPtr<ASHCard> ReactionTargetA;
+	TWeakObjectPtr<ASHCard> ReactionTargetB;
+	TMap<TWeakObjectPtr<ASHCard>, TWeakObjectPtr<ASHPlayerState>> PairCaptureRecipients;
+	int32 ReactionOfferSerial = 0;
+	int32 ReactionWindowSerial = 0;
+	bool bReactionWindowOpen = false;
+	bool BeginCardReactions(const FPendingPairActivation& Activation);
+	void OpenCardReactionWindow(ASHPlayerState* Player, ASHCard* CardA, ASHCard* CardB);
+	void OfferNextCardReaction(ASHPlayerState* Player);
+	void ClearCardReactionOffers();
+	void CloseCardReactions();
+	void ResolveCardReactionChain();
+	bool IsReactionOptionValid(const FReactionOption& Option) const;
+	void ConsumeReactionPair(const FReactionOption& Option, bool bExecuteEffect);
 	void StartQueuedPairAbility(const FPendingPairActivation& PendingActivation);
 	void CompleteQueuedPairActivation(ASHCard* CardA, ASHCard* CardB);
 

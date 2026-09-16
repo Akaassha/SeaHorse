@@ -18,6 +18,14 @@ void ASHGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLife
     DOREPLIFETIME(ASHGameState, CurrentTurnPhase);
     DOREPLIFETIME(ASHGameState, FinishedMatch);
     DOREPLIFETIME(ASHGameState, ParticipantHands);
+	DOREPLIFETIME(ASHGameState, bReactionPending);
+}
+
+void ASHGameState::SetReactionPending(bool bPending)
+{
+	check(HasAuthority());
+	bReactionPending = bPending;
+	ForceNetUpdate();
 }
 
 TArray<ASHHand*> ASHGameState::GetNPCHands() const

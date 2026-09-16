@@ -63,6 +63,13 @@ class SEAHORSE_API ASHGameState : public AGameState
 	GENERATED_BODY()
 	
 public:
+	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Reaction")
+	bool bReactionPending = false;
+	void SetReactionPending(bool bPending);
+	int64 AllocatePairCreationOrder() { check(HasAuthority()); return ++PairCreationCounter; }
+private:
+	int64 PairCreationCounter = 0;
+public:
 	UFUNCTION(BlueprintPure, Category = "Participants")
 	TArray<ASHHand*> GetNPCHands() const;
 	UFUNCTION(BlueprintPure, Category = "Participants")

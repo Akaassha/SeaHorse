@@ -62,3 +62,63 @@ pair, its surviving partner returns to that hand. Add future Paulus definitions
 to AllowedPartners when authoring them. New card artwork remains unset.
 
 Automation coverage: `SeaHorse.Gameplay.Effects.ExchangeProtectionAndPaulusPairing`.
+
+## Gieselbrecht reactions
+
+`configure_reaction_definitions.py` creates `Card_GieselbrechtApologist` and
+`Card_GieselbrechtWizardApprentice`, without changing the deck. Their reaction
+fragments use `WBP_GieselbrechtApologistReaction` and
+`WBP_GieselbrechtWizardApprenticeReaction` in `/Game/SeaHorse/Widgets`.
+
+Ready reaction pairs are offered only outside their owner's turn. Every eligible
+player receives a prompt concurrently; the first valid acceptance received by the
+server wins that response window and closes its prompts. Pair creation order and seat order give no
+priority between players. If a player owns multiple eligible pairs, their prompt
+offers their oldest pair first; declining offers their next pair while everyone
+else can still accept. A declined or slower pair remains unspent.
+An accepted reaction opens a fresh concurrent response window targeting that
+reaction pair. Other eligible pairs can counter or capture it, and their reactions
+can receive further reactions. Already accepted pairs are reserved in their zones
+and cannot be reused in the same chain. The outside-own-turn restriction still
+applies at every step, so the current turn's owner cannot use these reaction cards.
+When everyone declines or no eligible pairs remain, the server resolves the chain
+from the last accepted reaction back to the original activation. An uncancelled
+counter cancels only its immediate target; a cancelled counter has no effect.
+For example, two counters let the original effect execute, while three cancel it.
+The server pauses gameplay throughout these decisions. Disconnecting a responder
+removes their pending offers; if no responses remain, the chain can resolve.
+Activations of protected players cannot be countered or
+captured. Response IDs are bound to their player and offer, so delayed, duplicate
+or forged replies cannot resolve another offer.
+
+Closing a reaction prompt restores the gameplay Game and UI input mode with an
+unlocked, visible cursor during dragging, so card dragging and the HUD phase
+button remain available on the responding player's next turn.
+
+The Apprentice sends the cancelled pair to its owner's victory stack without
+executing its effect. The Apologist lets the original effect finish, including
+mandatory selections and additional draws, then receives the pair ready in their
+own activation zone instead of its normal victory destination. The Apologist can
+also capture a reaction pair: that reaction resolves before its pair transfers.
+Countering the Apologist prevents the capture. A pair removed from the game by
+its own effect cannot be captured. Accepted reaction pairs, including cancelled
+ones, are consumed once to their owners' victory stacks unless captured by a
+later reaction.
+
+To customize either prompt, assign a subclass of `UCardReactionPrompt` to
+`CardReactionFragment.PromptWidgetClass` in the card definition. The native base
+is abstract and has no layout; the supplied widget Blueprints contain an editable
+UMG hierarchy with a Polish question and Tak/Nie buttons. Open their Designer to
+change it, or create a new Widget Blueprint directly derived from
+`CardReactionPrompt`. Optional buttons named `AcceptButton` and `DeclineButton`
+are wired automatically; an optional text block named `QuestionText` receives
+the default question. For other control names, bind OnClicked to inherited
+`AcceptReaction` and `DeclineReaction`. Use `OnOfferPresented`, `ReactionCard`,
+and `TargetCard` for custom content. A missing widget class declines the offer
+and logs a warning. `upgrade_reaction_widgets.py` migrates only the original
+empty prompts and preserves existing custom layouts.
+Widgets only present the offer and submit the decision;
+the server validates and resolves it. Rerunning the configuration script
+replaces the initial card fragment configuration.
+
+Automation coverage: `SeaHorse.Gameplay.Effects.OutOfTurnReactions`.

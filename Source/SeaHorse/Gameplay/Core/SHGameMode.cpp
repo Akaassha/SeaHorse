@@ -15,6 +15,7 @@
 #include "SeaHorse/Gameplay/Components/DeckComponent.h"
 #include "SeaHorse/Gameplay/Components/TurnComponent.h"
 #include "EngineUtils.h"
+#include "Gameplay/Cards/Fragments/CardReactionFragment.h"
 #include "Kismet/GameplayStatics.h"
 #include "GameFramework/GameSession.h"
 #include "Engine/GameInstance.h"
@@ -391,7 +392,9 @@ void ASHGameMode::MovePairToVictoryStack(ASHPlayerState* PlayerState, ASHCard* C
 
     // Bulk collection (Gnushor) also reaches this function before its task finishes.
     // Keep cards on the table until all active presentation blocks have ended.
-    if (IsValid(TurnComponent) && TurnComponent->HasNamedTurnTransitionBlocks())
+    const bool bCaptureWaitingForEffect = PairCaptureRecipients.Contains(CardA) && ActiveEffectTasks.ContainsByPredicate(
+        [CardA](const UCardEffectTask* Task) { return IsValid(Task) && Task->GetCardA() == CardA; });
+    if ((IsValid(TurnComponent) && TurnComponent->HasNamedTurnTransitionBlocks()) || bCaptureWaitingForEffect)
     {
         if (!Hand->FindActivationPair(CardA)) { return; }
         FCompletedEffectPair* Pending = CompletedEffectPairsWaitingForPresentation.FindByPredicate(
@@ -412,6 +415,27 @@ void ASHGameMode::MovePairToVictoryStack(ASHPlayerState* PlayerState, ASHCard* C
         return;
     }
 
+    if (TWeakObjectPtr<ASHPlayerState>* RecipientEntry = PairCaptureRecipients.Find(CardA))
+    {
+        ASHPlayerState* Recipient = RecipientEntry->Get();
+        PairCaptureRecipients.Remove(CardA);
+        const FActivatedPair* Found = Hand->FindActivationPair(CardA);
+        if (Found && IsValid(Recipient) && IsValid(Recipient->GetHand()) && IsValid(Recipient->GetOwner()))
+        {
+            FActivatedPair Captured = *Found;
+            Captured.bActivated = false;
+            {
+                TGuardValue<bool> Guard(bProcessingPairActivations, true);
+                Hand->RemoveActivationPair(CardA, CardB);
+                CompleteQueuedPairActivation(CardA, CardB);
+                Recipient->GetHand()->ReceiveTransferredPair(Captured);
+                RefreshPlayerScore(PlayerState);
+                RefreshPlayerScore(Recipient);
+            }
+            TryProcessQueuedPairActivations();
+            return;
+        }
+    }
     const bool bRemoved = Hand->RemoveActivationPair(CardA, CardB);
 
     if (!bRemoved)
@@ -454,6 +478,7 @@ void ASHGameMode::CardActivateEffect(ASHPlayerState* InActivatingPlayer, ASHCard
             ? NewEffectFragment->EffectTaskClass->GetFName()
             : NewEffectFragment->EffectPresentationId
     );
+	if (PairCaptureRecipients.Contains(CardA)) { EffectTask->CommitEffect(); }
 
     if (!EffectTask->RequiresTargetSelection())
     {
@@ -528,6 +553,7 @@ void ASHGameMode::FinishEffectTask(UCardEffectTask* CardEffectTask)
 	}
 
 	const ECardEffectPairDisposition PairDisposition = CardEffectTask->GetPairDisposition();
+	if (PairDisposition != ECardEffectPairDisposition::MoveToVictoryStack) { PairCaptureRecipients.Remove(CardA); }
 	ActiveEffectTasks.Remove(CardEffectTask);
 
 	ASHHand* ActivatingHand = ActivatingPlayer->GetHand();
@@ -607,7 +633,7 @@ bool ASHGameMode::CancelEffectTargetSelection(ASHPlayerState* SelectingPlayer, A
 
 void ASHGameMode::RequestStoredPairActivation(ASHPlayerState* ActivatingPlayer, ASHCard* SelectedCard)
 {
-	if (!HasAuthority() || !IsValid(ActivatingPlayer) || !IsValid(SelectedCard) ||
+	if (!HasAuthority() || bReactionWindowOpen || !IsValid(ActivatingPlayer) || !IsValid(SelectedCard) ||
 		SelectedCard->GetCardZone() != ECardZone::Activation)
 	{
 		return;
@@ -668,7 +694,7 @@ void ASHGameMode::NotifyActivationPairSettled(ASHCard* CardA, ASHCard* CardB)
 
 void ASHGameMode::TryProcessQueuedPairActivations()
 {
-	if (!HasAuthority() || !IsValid(TurnComponent) || bProcessingPairActivations)
+	if (!HasAuthority() || !IsValid(TurnComponent) || bProcessingPairActivations || bReactionWindowOpen)
 	{
 		return;
 	}
@@ -706,6 +732,13 @@ void ASHGameMode::TryProcessQueuedPairActivations()
 
 		if (!Pending.bAbilityStarted)
 		{
+			if (!Pending.bReactionsChecked)
+			{
+				Pending.bReactionsChecked = true;
+				const FPendingPairActivation ReactionTarget = Pending;
+				if (BeginCardReactions(ReactionTarget)) { return; }
+				continue; // A synchronous UI response may have removed or changed the queue head.
+			}
 			Pending.bAbilityStarted = true;
 			const FPendingPairActivation ActivationToStart = Pending;
 			StartQueuedPairAbility(ActivationToStart);
@@ -759,17 +792,23 @@ void ASHGameMode::FlushCompletedEffectPairs()
 
 	const TArray<FCompletedEffectPair> MovesToApply = MoveTemp(CompletedEffectPairsWaitingForPresentation);
 	CompletedEffectPairsWaitingForPresentation.Reset();
-	for (const FCompletedEffectPair& Move : MovesToApply)
 	{
-		if (Move.bMoveToVictoryStack)
+		// Finish the entire resolved batch before any remaining activation sees the table.
+		// In particular, a captured reaction must already be Ready when the root effect runs.
+		TGuardValue<bool> Guard(bProcessingPairActivations, true);
+		for (const FCompletedEffectPair& Move : MovesToApply)
 		{
-			MovePairToVictoryStack(Move.ActivatingPlayer, Move.CardA, Move.CardB);
-		}
-		else
-		{
-			CompleteQueuedPairActivation(Move.CardA, Move.CardB);
+			if (Move.bMoveToVictoryStack)
+			{
+				MovePairToVictoryStack(Move.ActivatingPlayer, Move.CardA, Move.CardB);
+			}
+			else
+			{
+				CompleteQueuedPairActivation(Move.CardA, Move.CardB);
+			}
 		}
 	}
+	TryProcessQueuedPairActivations();
 }
 
 void ASHGameMode::CompleteQueuedPairActivation(ASHCard* CardA, ASHCard* CardB)
@@ -956,6 +995,7 @@ bool ASHGameMode::TransferStoredPair(ASHHand* Source, ASHHand* Target, ASHCard* 
 
 bool ASHGameMode::RemoveStoredPairFromGame(ASHHand* Hand, ASHCard* Card)
 {
+	PairCaptureRecipients.Remove(Card);
 	if (!HasAuthority() || !IsValid(Hand)) { return false; }
 	const FActivatedPair* Found = Hand->FindActivationPair(Card);
 	if (!Found) { return false; }
@@ -1438,7 +1478,7 @@ bool ASHGameMode::TryFinishGame()
     checkf(HasAuthority(), TEXT("TryFinishGame can only be called on the server"));
 
     ASHGameState* SHGameState = GetGameState<ASHGameState>();
-    if (!IsValid(SHGameState) || SHGameState->IsGameEnded() || !ActiveEffectTasks.IsEmpty())
+    if (!IsValid(SHGameState) || SHGameState->IsGameEnded() || bReactionWindowOpen || !ActiveEffectTasks.IsEmpty())
     {
         return IsValid(SHGameState) && SHGameState->IsGameEnded();
     }

@@ -439,6 +439,7 @@ void ASHHand::AddActivationPairToLogicalHand(ASHCard* CardA, ASHCard* CardB)
 
     Pair.CardA = CardA;
     Pair.CardB = CardB;
+	if (ASHGameState* State = GetWorld()->GetGameState<ASHGameState>()) { Pair.CreationOrder = State->AllocatePairCreationOrder(); }
     ActivationPairs.Add(Pair);
 
     UE_LOG(

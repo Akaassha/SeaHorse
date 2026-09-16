@@ -20,8 +20,10 @@
 #include "EngineUtils.h"
 #include "Components/MeshComponent.h"
 #include "Components/WidgetComponent.h"
+#include "Gameplay/Presentation/CardReactionPrompt.h"
 #include "Engine/GameViewportClient.h"
 #include "Widgets/SOverlay.h"
+#include "Widgets/SViewport.h"
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Text/STextBlock.h"
 
@@ -29,6 +31,54 @@ ASHPlayerController::ASHPlayerController()
 {
 	PrimaryActorTick.bCanEverTick = true;
 	PrimaryActorTick.TickGroup = TG_PostUpdateWork;
+}
+
+void ASHPlayerController::ClientOfferCardReaction_Implementation(int32 OfferId, ASHCard* ReactionCard, ASHCard* TargetCard, TSubclassOf<UCardReactionPrompt> WidgetClass)
+{
+	if (!IsLocalController()) { return; }
+	ClientCloseCardReaction_Implementation(ActiveReactionOfferId);
+	ActiveReactionOfferId = OfferId;
+	bCursorBeforeReaction = bShowMouseCursor;
+	if (!GetWorld()->GetGameViewport()) { return; }
+	if (!WidgetClass || WidgetClass->HasAnyClassFlags(CLASS_Abstract))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Reaction offer %d has no concrete PromptWidgetClass; declining."), OfferId);
+		ServerRespondToCardReaction(OfferId, false);
+		return;
+	}
+	ActiveReactionPrompt = CreateWidget<UCardReactionPrompt>(this, WidgetClass);
+	if (!ActiveReactionPrompt) { ServerRespondToCardReaction(OfferId, false); return; }
+	ActiveReactionPrompt->InitializeOffer(OfferId, ReactionCard, TargetCard);
+	ActiveReactionPrompt->AddToViewport(200);
+	ActiveReactionPrompt->OnOfferPresented();
+	if (!ActiveReactionPrompt || ActiveReactionOfferId != OfferId) { return; }
+	bShowMouseCursor = true;
+	FInputModeGameAndUI InputMode;
+	InputMode.SetWidgetToFocus(ActiveReactionPrompt->TakeWidget());
+	InputMode.SetHideCursorDuringCapture(false);
+	SetInputMode(InputMode);
+}
+
+void ASHPlayerController::ClientCloseCardReaction_Implementation(int32 OfferId)
+{
+	if (OfferId != ActiveReactionOfferId || ActiveReactionOfferId == INDEX_NONE) { return; }
+	if (ActiveReactionPrompt) { ActiveReactionPrompt->RemoveFromParent(); ActiveReactionPrompt = nullptr; }
+	ActiveReactionOfferId = INDEX_NONE;
+	bShowMouseCursor = bCursorBeforeReaction;
+	// Match the table's GameAndUI mode: permanent capture breaks card drag and HUD clicks.
+	FInputModeGameAndUI InputMode;
+	InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+	InputMode.SetHideCursorDuringCapture(false);
+	if (UGameViewportClient* Viewport = GetWorld()->GetGameViewport())
+	{
+		InputMode.SetWidgetToFocus(Viewport->GetGameViewportWidget());
+	}
+	SetInputMode(InputMode);
+}
+
+void ASHPlayerController::ServerRespondToCardReaction_Implementation(int32 OfferId, bool bAccept)
+{
+	if (ASHGameMode* Mode = GetWorld()->GetAuthGameMode<ASHGameMode>()) { Mode->RespondToCardReaction(GetPlayerState<ASHPlayerState>(), OfferId, bAccept); }
 }
 
 void ASHPlayerController::Tick(float DeltaSeconds)
@@ -466,6 +516,7 @@ void ASHPlayerController::BeginPlay()
 
 void ASHPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	ClientCloseCardReaction_Implementation(ActiveReactionOfferId);
 	ClearLocalEffectSelectionState();
 	StopPairTargetingIndicator();
 	GetWorldTimerManager().ClearTimer(TableSetupRetryTimer);
@@ -475,6 +526,7 @@ void ASHPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 
 bool ASHPlayerController::InputKey(const FInputKeyEventArgs& Params)
 {
+	if (ActiveReactionOfferId != INDEX_NONE) { return true; }
 	if (IsLocalController() && Params.Key == EKeys::Enter && Params.Event == IE_Pressed && LocalSelectionMax > 1 && !LocalHandCardSelectionCandidates.IsEmpty())
 	{
 		if (LocallySelectedEffectCards.Num() >= LocalSelectionMin)
@@ -1711,6 +1763,7 @@ void ASHPlayerController::ServerSetCardDropPreview_Implementation(ASHCard* Card,
 
 void ASHPlayerController::ServerReorderOwnCard_Implementation(ASHCard* Card, int32 InsertIndex)
 {
+	if (const ASHGameState* State = GetWorld()->GetGameState<ASHGameState>(); State && State->bReactionPending) { return; }
     ASHPlayerState* PS = GetPlayerState<ASHPlayerState>();
     ASHHand* Hand = IsValid(PS) ? PS->GetHand() : nullptr;
     if (IsValid(Hand))

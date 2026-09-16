@@ -64,6 +64,13 @@ public:
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	virtual bool InputKey(const FInputKeyEventArgs& Params) override;
 
+	UFUNCTION(Client, Reliable)
+	void ClientOfferCardReaction(int32 OfferId, ASHCard* ReactionCard, ASHCard* TargetCard, TSubclassOf<class UCardReactionPrompt> WidgetClass);
+	UFUNCTION(Client, Reliable)
+	void ClientCloseCardReaction(int32 OfferId);
+	UFUNCTION(Server, Reliable)
+	void ServerRespondToCardReaction(int32 OfferId, bool bAccept);
+
 	UFUNCTION(BlueprintCallable)
 	void TrySetupTableView();
 
@@ -209,9 +216,14 @@ protected:
 	bool bLocalMatchUIInitialized = false;
 
 private:
+	UPROPERTY(Transient)
+	TObjectPtr<class UCardReactionPrompt> ActiveReactionPrompt;
+	int32 ActiveReactionOfferId = INDEX_NONE;
+	bool bCursorBeforeReaction = false;
 #if WITH_DEV_AUTOMATION_TESTS
 	friend class FSHGameplayEffectInputTest;
 	friend class FSHExpansionEffectsTest;
+	friend class FSHCardReactionsTest;
 	friend class FSHLocalMatchUIReadinessTest;
 	friend class FSHEffectTargetOutlineTest;
 #endif

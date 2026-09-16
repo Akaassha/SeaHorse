@@ -49,6 +49,8 @@ public:
 	/** A moved stored pair must not replay the pair-creation animation. */
 	UPROPERTY(BlueprintReadOnly, VisibleAnywhere)
 	bool bTransferred = false;
+	UPROPERTY(BlueprintReadOnly, VisibleAnywhere)
+	int64 CreationOrder = 0;
 
 	bool operator==(const FActivatedPair& Other) const
 	{
