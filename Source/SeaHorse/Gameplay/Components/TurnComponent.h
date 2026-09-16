@@ -71,7 +71,9 @@ public:
 	bool CanDrawCard(ASHPlayerState* DrawingPlayer, ASHPlayerState* SourcePlayer) const;
 	bool CanDrawCardFromHand(ASHPlayerState* DrawingPlayer, ASHHand* SourceHand) const;
 	void HandleCardDrawn(ASHPlayerState* DrawingPlayer, ASHPlayerState* SourcePlayer);
-	void HandleCardDrawnFromHand(ASHPlayerState* DrawingPlayer, ASHHand* SourceHand);
+	void HandleCardDrawnFromHand(ASHPlayerState* DrawingPlayer, ASHHand* SourceHand, ASHCard* DrawnCard = nullptr);
+	void FinishAdditionalDraw();
+	ASHHand* GetInitialDrawSourceHand() const { return FirstDrawSourceHand; }
 	void ScheduleAdditionalDraw(UCardEffectTask* EffectTask, ASHPlayerState* PlayerState, EAdditionalDrawSourceRule SourceRule);
 	void SetForcedDrawSource(ASHPlayerState* DrawingPlayer, ASHPlayerState* SourcePlayer);
 	void SetForcedDrawSourceHand(ASHPlayerState* DrawingPlayer, ASHHand* SourceHand);
@@ -84,6 +86,7 @@ public:
 	void BeginTurnTransitionBlock(FName EffectId);
 	void FinishTurnTransitionBlock(FName EffectId);
 	bool HasNamedTurnTransitionBlocks() const { return !NamedTurnTransitionBlocks.IsEmpty(); }
+	bool HasUnsettledPairs() const { return !PendingPairSettlements.IsEmpty(); }
 
 protected:
 	UFUNCTION(BlueprintNativeEvent, Category = "Turn")
@@ -104,7 +107,6 @@ private:
 #endif
 	void EndTurn();
 	void EnterTurnPhase(ETurnPhase NewPhase);
-	void FinishAdditionalDraw();
 	void BeginWaitingForAdditionalDraw();
 	void UpdateForcedDrawGuidance(ASHPlayerState* DrawingPlayer);
 	UFUNCTION()
@@ -123,6 +125,9 @@ private:
 
 	UPROPERTY(Transient)
 	TObjectPtr<ASHHand> FirstDrawSourceHand;
+	UPROPERTY(Transient)
+	TObjectPtr<ASHCard> FirstDrawnCard;
+	bool bWaitingForDrawReturn = false;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UCardEffectTask> AdditionalDrawEffectTask;

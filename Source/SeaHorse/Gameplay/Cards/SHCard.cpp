@@ -50,6 +50,11 @@ TSubclassOf<UCardDefinition> ASHCard::GetCardDefinition()
 	return CardDefinition;
 }
 
+TSubclassOf<UCardDefinition> ASHCard::GetKnownCardDefinition() const
+{
+	return RevealedCardDefinition ? RevealedCardDefinition : CardDefinition;
+}
+
 void ASHCard::SetCardDefinition(TSubclassOf<UCardDefinition> NewCardDefinition)
 {
 	CardDefinition = NewCardDefinition;

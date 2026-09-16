@@ -14,6 +14,7 @@ void UCardEffectTask::Initialize(ASHPlayerState* InActivatingPlayer, ASHCard* In
 {
 	bFinished = false;
 	bActivationVFXStarted = false;
+	bGameplayCommitted = false;
     ActivatingPlayer = InActivatingPlayer;
     CardA = InCardA;
     CardB = InCardB;
@@ -66,7 +67,7 @@ void UCardEffectTask::PlayActivationVFX()
 
 bool UCardEffectTask::CancelPendingTargetSelection()
 {
-	if (bFinished || bActivationVFXStarted || !RequiresTargetSelection()) { return false; }
+	if (bFinished || bGameplayCommitted || bActivationVFXStarted || !RequiresTargetSelection()) { return false; }
 	bFinished = true;
 	return true;
 }
@@ -92,6 +93,12 @@ void UCardEffectTask::RequestPlayerSelection(
 void UCardEffectTask::HandlePlayerSelected(ASHPlayerState* SelectedPlayer)
 {
     checkNoEntry();
+}
+
+bool UCardEffectTask::RequestHandCardSelection(const TArray<ASHCard*>& Candidates)
+{
+    ASHGameMode* Mode = GetTypedOuter<ASHGameMode>();
+    return !bFinished && IsValid(Mode) && Mode->RequestHandCardSelection(this, ActivatingPlayer, Candidates);
 }
 
 void UCardEffectTask::HandleParticipantSelected(ASHHand* SelectedHand)

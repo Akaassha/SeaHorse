@@ -133,6 +133,10 @@ public:
 
 	UFUNCTION(Client, Reliable)
 	void ClientRequestActivationPairSelection(const TArray<ASHCard*>& CandidateCards);
+	UFUNCTION(Client, Reliable)
+	void ClientRequestHandCardSelection(const TArray<ASHCard*>& CandidateCards);
+	UFUNCTION(Server, Reliable)
+	void ServerSubmitHandCardSelection(ASHCard* Card);
 
 	UFUNCTION(Client, Reliable)
 	void ClientSetPairTargetSelection(ASHCard* CardA, ASHCard* CardB,
@@ -240,6 +244,8 @@ private:
 	TArray<TObjectPtr<ASHPlayerState>> LocalPlayerSelectionCandidates;
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<ASHCard>> LocalActivationPairSelectionCandidates;
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<ASHCard>> LocalHandCardSelectionCandidates;
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<ASHHand>> LocalGuidedDrawHands;
 	UPROPERTY(Transient)

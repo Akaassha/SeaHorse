@@ -39,6 +39,8 @@ public:
 	UFUNCTION(BlueprintCallable, BlueprintPure)
 	TSubclassOf<UCardDefinition> GetCardDefinition();
 
+	TSubclassOf<UCardDefinition> GetKnownCardDefinition() const;
+
 	void SetCardDefinition(TSubclassOf<UCardDefinition> CardDefinition);
 
 	UFUNCTION(BlueprintCallable, BlueprintPure)

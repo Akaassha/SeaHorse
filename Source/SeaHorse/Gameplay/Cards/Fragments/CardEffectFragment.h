@@ -42,3 +42,15 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Card Transfer")
 	TSubclassOf<class UCardDefinition> CardDefinitionToTransfer;
 };
+
+UCLASS(BlueprintType, EditInlineNew)
+class SEAHORSE_API UStoredPairFilterEffectFragment : public UCardEffectFragment
+{
+	GENERATED_BODY()
+public:
+	/** Soft references allow card definitions to be added to the deck later. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Card Transfer", meta = (MetaClass = "/Script/SeaHorse.CardDefinition"))
+	TArray<FSoftClassPath> AllowedCardDefinitions;
+
+	TArray<class ASHCard*> GetEligibleCards(const class ASHPlayerState* Activator, const class ASHPlayerState* Owner) const;
+};

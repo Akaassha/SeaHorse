@@ -71,6 +71,24 @@ bool ASHHand::RemoveActivationPair(ASHCard* CardA, ASHCard* CardB)
 }
 
 // Called when the game starts or when spawned
+void ASHHand::ReceiveTransferredPair(const FActivatedPair& Pair)
+{
+	check(HasAuthority());
+	if (!IsValid(Pair.CardA) || !IsValid(Pair.CardB) || FindActivationPair(Pair.CardA)) { return; }
+	FActivatedPair Received = Pair;
+	Received.State = EActivationPairState::Ready;
+	Received.bActivationQueued = false;
+	Received.bTransferred = true;
+	Received.CardA->SetOwner(this);
+	Received.CardB->SetOwner(this);
+	Received.CardA->ForceNetUpdate();
+	Received.CardB->ForceNetUpdate();
+	ActivationPairs.Add(Received);
+	ForceNetUpdate();
+	OnRep_ActivationPairs();
+	UpdateCardPositions();
+}
+
 void ASHHand::BeginPlay()
 {
 	Super::BeginPlay();
@@ -460,7 +478,7 @@ void ASHHand::RefreshActivationPairsPresentation()
         if (IsValid(Pair.CardA) && IsValid(Pair.CardB) &&
 			!PresentedActivationPairs.Contains(Pair))
         {
-			PresentPairCreated(Pair.CardA, Pair.CardB);
+			if (!Pair.bTransferred) { PresentPairCreated(Pair.CardA, Pair.CardB); }
         }
     }
 

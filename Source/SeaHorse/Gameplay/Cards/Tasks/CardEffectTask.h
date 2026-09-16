@@ -16,14 +16,17 @@ enum class EPlayerSelectionPurpose : uint8
     PlayerWhoWillDraw,
     PlayerToDrawFrom,
     PlayerToSkipTurn,
-    CardTransferRecipient
+    CardTransferRecipient,
+    CardTransferSource,
+    ActivationZoneOwner
 };
 
 UENUM(BlueprintType)
 enum class ECardEffectPairDisposition : uint8
 {
 	MoveToVictoryStack,
-	KeepOnTable
+	KeepOnTable,
+	RemoveFromGame
 };
 
 /**
@@ -55,6 +58,8 @@ public:
     virtual void HandlePlayerSelected(ASHPlayerState* SelectedPlayer);
     virtual void HandleParticipantSelected(ASHHand* SelectedHand);
     virtual void HandleActivationPairSelected(ASHPlayerState* PairOwner, ASHCard* SelectedCardA, ASHCard* SelectedCardB);
+    bool RequestHandCardSelection(const TArray<ASHCard*>& Candidates);
+    virtual void HandleHandCardSelected(ASHCard* SelectedCard) {}
 
     ASHPlayerState* GetActivatingPlayer() const { return ActivatingPlayer; }
     ASHCard* GetCardA() const { return CardA; }
@@ -66,8 +71,12 @@ public:
 	virtual bool RequiresTargetSelection() const { return false; }
 	/** Deferred draw rules stay active for turn completion without owning the pair activation queue. */
 	virtual bool BlocksNextPairActivation() const { return true; }
+	virtual void RecordDrawnCard(ASHCard* Card) {}
+	/** False keeps the draw sequence open while a mandatory return is selected. */
+	virtual bool CompleteDrawSequence() { return true; }
 	/** Called at activation for immediate effects, or after the final accepted target. */
 	void PlayActivationVFX();
+	void CommitEffect() { bGameplayCommitted = true; }
 
 protected:
     UPROPERTY()
@@ -82,4 +91,5 @@ protected:
     FName EffectPresentationId;
 	bool bFinished = false;
 	bool bActivationVFXStarted = false;
+	bool bGameplayCommitted = false;
 };

@@ -46,6 +46,9 @@ public:
 	/** Accepted by the server, including while another pair still owns the effect queue. */
 	UPROPERTY(BlueprintReadOnly, VisibleAnywhere)
 	bool bActivationQueued = false;
+	/** A moved stored pair must not replay the pair-creation animation. */
+	UPROPERTY(BlueprintReadOnly, VisibleAnywhere)
+	bool bTransferred = false;
 
 	bool operator==(const FActivatedPair& Other) const
 	{
@@ -64,6 +67,7 @@ class SEAHORSE_API ASHHand : public AActor
 	GENERATED_BODY()
 
 #if WITH_DEV_AUTOMATION_TESTS
+	friend struct FSHNewEffectsWorld;
 	friend class FSHActivationQueueReadinessTest;
 	friend class FSHStandardEffectPresentationTest;
 	friend class FSHBulkVictoryPresentationTest;
@@ -169,6 +173,7 @@ public:
 	bool IsPairMovementBlocked() const { return !LocalPresentationBlocks.IsEmpty(); }
 
 	bool RemoveActivationPair(ASHCard* CardA, ASHCard* CardB);
+	void ReceiveTransferredPair(const FActivatedPair& Pair);
 
 protected:
 	// Called when the game starts or when spawned

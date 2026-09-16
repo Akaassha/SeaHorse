@@ -2,6 +2,7 @@
 
 #include "SeaHorse/Gameplay/Cards/CardDefinition.h"
 #include "SeaHorse/Gameplay/Cards/Fragments/CardActivationRulesFragment.h"
+#include "SeaHorse/Gameplay/Cards/Fragments/CardEffectFragment.h"
 #include "SeaHorse/Gameplay/Cards/SHCard.h"
 #include "SeaHorse/Gameplay/Cards/Tasks/CardEffectTask.h"
 #include "SeaHorse/Gameplay/Core/SHPlayerController.h"
@@ -81,6 +82,17 @@ bool UTurnComponent::CanActivatePairForState(const ASHGameState* GameState,
 	}
 
 	const bool bIsOwnTurn = GameState->CurrentPlayer == RequestingPlayer;
+	const auto* PairFilter = Cast<UStoredPairFilterEffectFragment>(UCardDefinition::FindFragmentByClass(
+		ActivatedPair.CardA->CardDefinition, UStoredPairFilterEffectFragment::StaticClass()));
+	if (PairFilter)
+	{
+		bool bHasTarget = false;
+		for (APlayerState* State : GameState->PlayerArray)
+		{
+			if (!PairFilter->GetEligibleCards(RequestingPlayer, Cast<ASHPlayerState>(State)).IsEmpty()) { bHasTarget = true; break; }
+		}
+		if (!bHasTarget) { return false; }
+	}
 	const UCardActivationRulesFragment* Rules = Cast<UCardActivationRulesFragment>(
 		UCardDefinition::FindFragmentByClass(
 			ActivatedPair.CardA->CardDefinition,
@@ -130,6 +142,7 @@ bool UTurnComponent::CanDrawCard(ASHPlayerState* DrawingPlayer, ASHPlayerState* 
 
 bool UTurnComponent::CanDrawCardFromHand(ASHPlayerState* DrawingPlayer, ASHHand* SourceHand) const
 {
+	if (bWaitingForDrawReturn) { return false; }
 	if (!IsValid(DrawingPlayer) || !IsValid(SourceHand) || DrawingPlayer->GetHand() == SourceHand)
 	{
 		return false;
@@ -189,10 +202,11 @@ void UTurnComponent::HandleCardDrawn(ASHPlayerState* DrawingPlayer, ASHPlayerSta
 	HandleCardDrawnFromHand(DrawingPlayer, SourcePlayer->GetHand());
 }
 
-void UTurnComponent::HandleCardDrawnFromHand(ASHPlayerState* DrawingPlayer, ASHHand* SourceHand)
+void UTurnComponent::HandleCardDrawnFromHand(ASHPlayerState* DrawingPlayer, ASHHand* SourceHand, ASHCard* DrawnCard)
 {
 	CheckServerAuthority();
 	checkf(IsValid(DrawingPlayer) && IsValid(SourceHand), TEXT("Invalid card draw notification"));
+	if (IsValid(AdditionalDrawEffectTask)) { AdditionalDrawEffectTask->RecordDrawnCard(DrawnCard); }
 
 	if (bWaitingForAdditionalDraw)
 	{
@@ -215,6 +229,7 @@ void UTurnComponent::HandleCardDrawnFromHand(ASHPlayerState* DrawingPlayer, ASHH
 	}
 
 	FirstDrawSourceHand = SourceHand;
+	FirstDrawnCard = DrawnCard;
 	if (DrawingPlayer == AdditionalDrawPlayer)
 	{
 		BeginWaitingForAdditionalDraw();
@@ -227,8 +242,15 @@ void UTurnComponent::HandleCardDrawnFromHand(ASHPlayerState* DrawingPlayer, ASHH
 
 void UTurnComponent::FinishAdditionalDraw()
 {
+	CheckServerAuthority();
 	ClearDrawGuidance(AdditionalDrawPlayer);
 	UCardEffectTask* CompletedEffectTask = AdditionalDrawEffectTask;
+	if (IsValid(CompletedEffectTask) && !CompletedEffectTask->CompleteDrawSequence())
+	{
+		bWaitingForDrawReturn = true;
+		return;
+	}
+	bWaitingForDrawReturn = false;
 	if (IsValid(CompletedEffectTask))
 	{
 		CompletedEffectTask->FinishEffect();
@@ -241,6 +263,7 @@ void UTurnComponent::FinishAdditionalDraw()
 		AdditionalDrawPlayer = NextDraw.Player;
 		AdditionalDrawEffectTask = NextDraw.EffectTask;
 		AdditionalDrawSourceRule = NextDraw.SourceRule;
+		if (IsValid(AdditionalDrawEffectTask)) { AdditionalDrawEffectTask->RecordDrawnCard(FirstDrawnCard); }
 		BeginWaitingForAdditionalDraw();
 		return;
 	}
@@ -310,6 +333,7 @@ void UTurnComponent::ScheduleAdditionalDraw(
 		AdditionalDrawPlayer = PlayerState;
 		AdditionalDrawEffectTask = EffectTask;
 		AdditionalDrawSourceRule = SourceRule;
+		EffectTask->RecordDrawnCard(FirstDrawnCard);
 		if (IsValid(FirstDrawSourceHand))
 		{
 			EnterTurnPhase(ETurnPhase::DrawCard);
@@ -450,6 +474,7 @@ void UTurnComponent::EndTurn()
 	}
 
 	FirstDrawSourceHand = nullptr;
+	FirstDrawnCard = nullptr;
 	GameState->SetCurrentPlayer(NextPlayer);
 	bPairingActionUsed = false;
 	GameState->SetTurnPhase(ETurnPhase::FirstPairing);

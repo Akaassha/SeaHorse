@@ -56,13 +56,20 @@ public:
 	bool RequestActivationPairSelection(UCardEffectTask* Task, ASHPlayerState* SelectingPlayer,
 		const TArray<ASHCard*>& CandidateCards);
 	bool SubmitActivationPairSelection(ASHPlayerState* SelectingPlayer, ASHCard* SelectedCard);
+	bool RequestHandCardSelection(UCardEffectTask* Task, ASHPlayerState* SelectingPlayer, const TArray<ASHCard*>& Cards);
+	void SubmitHandCardSelection(ASHPlayerState* SelectingPlayer, ASHCard* Card);
 	bool IsWaitingForPlayerSelection() const
 	{
 		return !PendingPlayerSelections.IsEmpty() || !PendingParticipantSelections.IsEmpty() ||
-			!PendingPairSelections.IsEmpty();
+			!PendingPairSelections.IsEmpty() || !PendingHandCardSelections.IsEmpty();
 	}
 	bool HasActiveEffectTasks() const { return !ActiveEffectTasks.IsEmpty(); }
 	void PassHandsToLeft();
+	bool TransferStoredPair(ASHHand* Source, ASHHand* Target, ASHCard* Card);
+	void RotateActivationZonesRight(ASHCard* ExcludedCard);
+	void ShuffleAndRedealHands();
+	bool RemoveStoredPairFromGame(ASHHand* Hand, ASHCard* Card);
+	bool HasOtherActiveEffects(const UCardEffectTask* Except) const;
 	void MoveAllActivationPairsToVictoryStacks();
 	bool TransferCardToHand(ASHHand* FromHand, ASHHand* ToHand,
 		TSubclassOf<class UCardDefinition> CardDefinition);
@@ -81,6 +88,8 @@ protected:
 
 private:
 #if WITH_DEV_AUTOMATION_TESTS
+	friend struct FSHNewEffectsWorld;
+	friend class FSHNewCardEffectsTest;
 	friend class FSHActivationQueueReadinessTest;
 	friend class FSHBulkVictoryPresentationTest;
 	friend class FSHTargetedActivationPresentationTest;
@@ -161,6 +170,7 @@ private:
 	};
 
 	TMap<TObjectPtr<ASHPlayerState>, FPendingPairSelection> PendingPairSelections;
+	TMap<TObjectPtr<ASHPlayerState>, FPendingPairSelection> PendingHandCardSelections;
 
 	/** Server bookkeeping for one continuous, possibly multi-step local targeting session. */
 	UPROPERTY(Transient)

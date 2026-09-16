@@ -188,7 +188,7 @@ bool ASHPlayerController::IsValidEffectTarget(const AActor* Actor) const
 	}
 	if (const ASHCard* Card = Cast<ASHCard>(Actor))
 	{
-		return LocalActivationPairSelectionCandidates.Contains(Card) ||
+		return LocalHandCardSelectionCandidates.Contains(Card) || LocalActivationPairSelectionCandidates.Contains(Card) ||
 			(IsValid(Card->GetOwningHand()) && Card->GetOwningHand()->IsLogicalNPC() &&
 			LocalParticipantSelectionCandidates.Contains(Card->GetOwningHand()));
 	}
@@ -468,7 +468,7 @@ bool ASHPlayerController::InputKey(const FInputKeyEventArgs& Params)
 	}
 	if (IsLocalController() && Params.Key == EKeys::LeftMouseButton && Params.Event == IE_Pressed &&
 		(!LocalPlayerSelectionCandidates.IsEmpty() || !LocalParticipantSelectionCandidates.IsEmpty() ||
-			bAwaitingPlayerSelectionResponse))
+			!LocalHandCardSelectionCandidates.IsEmpty() || !LocalActivationPairSelectionCandidates.IsEmpty() || bAwaitingPlayerSelectionResponse))
 	{
 		// Own the whole gesture, including release. A listen-server selection can
 		// synchronously open the next step before this press finishes dispatching.
@@ -484,6 +484,19 @@ bool ASHPlayerController::InputKey(const FInputKeyEventArgs& Params)
 
 bool ASHPlayerController::TryHandleEffectSelectionClick(AActor* HitActor)
 {
+	if (!LocalActivationPairSelectionCandidates.IsEmpty())
+	{
+		if (ASHCard* Card = Cast<ASHCard>(HitActor); LocalActivationPairSelectionCandidates.Contains(Card)) { ServerActivateStoredPair(Card); }
+		return true;
+	}
+	if (!LocalHandCardSelectionCandidates.IsEmpty())
+	{
+		if (ASHCard* Card = Cast<ASHCard>(HitActor); LocalHandCardSelectionCandidates.Contains(Card))
+		{
+			ServerSubmitHandCardSelection(Card);
+		}
+		return true;
+	}
 	if (bAwaitingPlayerSelectionResponse)
 	{
 		return true;
@@ -803,6 +816,7 @@ void ASHPlayerController::ClearLocalPlayerSelection()
 
 void ASHPlayerController::ClearLocalEffectSelectionState()
 {
+	LocalHandCardSelectionCandidates.Reset();
 	bAwaitingPlayerSelectionResponse = false;
 	ClearLocalPlayerSelection();
 	LocalParticipantSelectionCandidates.Reset();
@@ -1029,6 +1043,7 @@ void ASHPlayerController::ServerSubmitParticipantSelection_Implementation(ASHHan
 void ASHPlayerController::ClientRequestActivationPairSelection_Implementation(
     const TArray<ASHCard*>& CandidateCards)
 {
+	ClearLocalEffectSelectionState();
 	LocalActivationPairSelectionCandidates.Reset();
 	for (ASHCard* Candidate : CandidateCards)
 	{
@@ -1038,6 +1053,23 @@ void ASHPlayerController::ClientRequestActivationPairSelection_Implementation(
 		}
 	}
     OnActivationPairSelectionRequested(CandidateCards);
+}
+
+void ASHPlayerController::ClientRequestHandCardSelection_Implementation(const TArray<ASHCard*>& Cards)
+{
+	ClearLocalEffectSelectionState();
+	for (ASHCard* Card : Cards)
+	{
+		if (IsValid(Card)) { LocalHandCardSelectionCandidates.AddUnique(Card); }
+	}
+}
+
+void ASHPlayerController::ServerSubmitHandCardSelection_Implementation(ASHCard* Card)
+{
+	if (ASHGameMode* Mode = GetWorld()->GetAuthGameMode<ASHGameMode>())
+	{
+		Mode->SubmitHandCardSelection(GetPlayerState<ASHPlayerState>(), Card);
+	}
 }
 
 ASHPlayerState* ASHPlayerController::FindPlayerStateForCard(const ASHCard* Card) const
@@ -1774,6 +1806,6 @@ void ASHPlayerController::ServerTakeCard_Implementation(ASHCard* Card, int32 Ins
         Card->GetCardDefinition()
     );
 
-    TurnComponent->HandleCardDrawnFromHand(SHPlayerState, SourceHand);
+    TurnComponent->HandleCardDrawnFromHand(SHPlayerState, SourceHand, Card);
 }
 
