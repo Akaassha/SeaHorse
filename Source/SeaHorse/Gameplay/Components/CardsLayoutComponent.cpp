@@ -80,6 +80,12 @@ void USHHandCardsLayoutComponent::UpdateCardsPositions(const TArray<ASHCard*>& C
 		return;
 	}
 
+	// Use the same retained cursor hit as Blueprint clicks and hover queries.
+	ASHPlayerController* PC = GetWorld() ? Cast<ASHPlayerController>(GetWorld()->GetFirstPlayerController()) : nullptr;
+	ASHCard* HoveredCard = IsValid(PC) ? PC->GetHandCardUnderCursor() : nullptr;
+	FocusedCardIndexValue = !bSuppressFocusedCardForTargeting && CanLayoutHandCard(HoveredCard)
+		? Cards.IndexOfByKey(HoveredCard) : INDEX_NONE;
+
 	ASHCard* PreviewCard = nullptr;
 	int32 PreviewInsertIndex = INDEX_NONE;
 	const bool bShowDropPreview = GetExternalCardDropPreview(PreviewCard, PreviewInsertIndex);
@@ -127,6 +133,36 @@ bool USHHandCardsLayoutComponent::CanLayoutHandCard(const ASHCard* Card) const
 	return IsValid(RepresentedHand) && Card->GetOwningHand() == RepresentedHand;
 }
 
+bool USHHandCardsLayoutComponent::GetUnfocusedCardTransform(const ASHCard* Card, FTransform& OutTransform) const
+{
+	if (const FTransform* Transform = CardsTransforms_WithNoOffsets.Find(Card))
+	{
+		OutTransform = *Transform;
+		return true;
+	}
+	return false;
+}
+
+bool USHHandCardsLayoutComponent::GetHoverReturnTransform(const ASHCard* Card, FTransform& OutTransform) const
+{
+	const FTransform* Target = CardsTransforms.Find(Card);
+	// A selected card remains elevated intentionally and must keep its visible hit area.
+	return IsValid(Card) && Target && GetUnfocusedCardTransform(Card, OutTransform) &&
+		Target->Equals(OutTransform, 0.01) && !Card->GetActorTransform().Equals(OutTransform, 0.01);
+}
+
+FTransform USHHandCardsLayoutComponent::MakeFocusedCardTransform(const FTransform& BaseTransform) const
+{
+	FTransform Focused = BaseTransform;
+	if (IsValid(TableCenterDirectionComponent))
+	{
+		Focused.AddToTranslation(TableCenterDirectionComponent->GetForwardVector() * ForwardFocusedOffser);
+	}
+	Focused.AddToTranslation(FVector(0.0, 0.0, FocusLiftHeight));
+	Focused.SetScale3D(FVector(FocusCardScale));
+	return Focused;
+}
+
 void USHHandCardsLayoutComponent::UpdateSingleCardPosition(ASHCard* Card, int32 Index, int32 CardsAmount)
 {
 	if (!IsValid(Card) || !IsValid(OwnerSpline))
@@ -146,12 +182,7 @@ void USHHandCardsLayoutComponent::UpdateSingleCardPosition(ASHCard* Card, int32 
 		!bSuppressFocusedCardForTargeting && Index == FocusedCardIndexValue;
 	if (bIsFocused || Index == SelectedCardIndexValue)
 	{
-		if (IsValid(TableCenterDirectionComponent))
-		{
-			Location += TableCenterDirectionComponent->GetForwardVector() * ForwardFocusedOffser;
-		}
-		Location.Z += FocusLiftHeight;
-		CardsTransforms.Add(Card, FTransform(Rotation, Location, FVector(FocusCardScale)));
+		CardsTransforms.Add(Card, MakeFocusedCardTransform(BaseTransform));
 	}
 	else
 	{

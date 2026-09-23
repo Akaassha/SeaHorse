@@ -65,6 +65,18 @@ public:
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	virtual bool InputKey(const FInputKeyEventArgs& Params) override;
 
+	/** Local hand hover; the area between resting and raised poses retains focus while the card lifts. */
+	UFUNCTION(BlueprintCallable, Category = "Cards|Hover")
+	ASHCard* GetHandCardUnderCursor();
+	/** Shared local target for hover and Blueprint click/drag input. */
+	UFUNCTION(BlueprintPure, Category = "Cards|Hover")
+	bool GetCardInteractionUnderCursor(ASHCard*& Card, FVector& Location);
+	UFUNCTION(BlueprintPure, Category = "Cards|Hover")
+	ASHCard* GetPointerPressedCard() const { return PointerPressedCard.Get(); }
+	/** Cursor movement on the fixed press plane, unaffected by hover mesh animation. */
+	UFUNCTION(BlueprintPure, Category = "Cards|Hover")
+	FVector GetCardDragCursorLocation() const;
+
 	UFUNCTION(BlueprintPure, Category = "Cards|Inspection")
 	bool CanInspectCard(const ASHCard* Card) const;
 	UFUNCTION(BlueprintCallable, Category = "Cards|Inspection")
@@ -231,6 +243,19 @@ protected:
 	bool bLocalMatchUIInitialized = false;
 
 private:
+	friend class FSHHandCursorHoverTest;
+	friend class FSHHandHoverMotionTest;
+	friend class FSHHandHoverCorridorTest;
+	friend class FSHHandHoverMapTest;
+	void ResolveCardCursorHit(const FHitResult& Hit, const FVector& RayStart, const FVector& RayEnd, FHitResult& OutHit);
+	void ResetHandCursorHover();
+	TWeakObjectPtr<ASHCard> HandCursorHoverCard;
+	TWeakObjectPtr<ASHHand> HandCursorHoverOwner;
+	FTransform HandCursorHoverBaseTransform;
+	FTransform HandCursorHoverFocusedTransform;
+	bool bHasHandCursorHoverFocusedTransform = false;
+	TWeakObjectPtr<ASHCard> PointerPressedCard;
+	FVector PointerPressedLocation = FVector::ZeroVector;
 	friend class UCardInfoWidget;
 #if WITH_DEV_AUTOMATION_TESTS
 	friend class FSHCardInspectionTest;

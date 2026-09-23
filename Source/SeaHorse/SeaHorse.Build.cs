@@ -19,6 +19,7 @@ public class SeaHorse : ModuleRules
 
 		if (Target.bBuildEditor)
 		{
+			PrivateDependencyModuleNames.Add("RenderCore"); // Viewport-backed input automation tests.
 			PrivateDependencyModuleNames.Add("UMGEditor");
 			PrivateDependencyModuleNames.Add("UnrealEd");
 			PrivateDependencyModuleNames.Add("BlueprintGraph");

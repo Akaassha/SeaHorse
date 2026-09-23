@@ -563,6 +563,11 @@ bool ASHPlayerController::InputKey(const FInputKeyEventArgs& Params)
 		// Only clicks that reached the game arrive here. Close without consuming
 		// the event: the same press must still select/drag/activate its world target.
 		CloseCardInfo();
+		ASHCard* Pressed = nullptr;
+		FVector Position;
+		GetCardInteractionUnderCursor(Pressed, Position);
+		PointerPressedCard = Pressed;
+		PointerPressedLocation = Position;
 	}
 	if (IsLocalController() && Params.Key == EKeys::Escape && Params.Event == IE_Pressed && ActiveCardInfoWidget)
 	{
@@ -574,9 +579,10 @@ bool ASHPlayerController::InputKey(const FInputKeyEventArgs& Params)
 	{
 		if (Params.Event == IE_Pressed)
 		{
-			FHitResult Hit;
-			GetHitResultUnderCursor(ECC_Visibility, true, Hit);
-			if (!ShowCardInfo(Cast<ASHCard>(Hit.GetActor()))) { CloseCardInfo(); }
+			ASHCard* Card = nullptr;
+			FVector Location;
+			GetCardInteractionUnderCursor(Card, Location);
+			if (!ShowCardInfo(Card)) { CloseCardInfo(); }
 		}
 		// Do not let right-click trigger Blueprint card dragging or effect selection.
 		return true;

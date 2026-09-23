@@ -80,9 +80,15 @@ class SEAHORSE_API ASHHand : public AActor
 	friend class FSHTargetedActivationPresentationTest;
 #endif
 	
-public:	
+public:
 	// Sets default values for this actor's properties
 	ASHHand();
+	/** Local hover for this visual seat, resolved against actual card geometry. */
+	UFUNCTION(BlueprintPure, Category = "Cards|Interaction")
+	ASHCard* GetHoveredHandCard() const;
+	/** Index of the card captured on mouse-down, never a nearest-center estimate. */
+	UFUNCTION(BlueprintPure, Category = "Cards|Interaction")
+	int32 GetPointerPressedHandCardIndex() const;
 
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
@@ -200,7 +206,7 @@ protected:
 	UPROPERTY(EditInstanceOnly, BlueprintReadOnly, Category = "Player Area")
 	TObjectPtr<AVictoryStack> VictoryStack;
 
-public:	
+public:
 	// Called every frame
 	virtual void Tick(float DeltaTime) override;
 

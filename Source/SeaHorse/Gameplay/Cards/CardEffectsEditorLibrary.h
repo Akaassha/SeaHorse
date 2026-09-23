@@ -8,6 +8,9 @@ class SEAHORSE_API UCardEffectsEditorLibrary : public UBlueprintFunctionLibrary
 {
 	GENERATED_BODY()
 public:
+	/** Migrate hand hover and click selection to the shared pointer resolver. Validates both Blueprints before saving. */
+	UFUNCTION(BlueprintCallable, Category = "Card Effects|Editor")
+	static bool UpgradeCardPointerBlueprints(bool bSave = false);
 	/** One-time migration of BP_Hand's pairing predicate to the shared native rule. */
 	UFUNCTION(BlueprintCallable, Category = "Card Effects|Editor")
 	static bool UpgradeHandPairingBlueprint();

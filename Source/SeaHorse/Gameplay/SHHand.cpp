@@ -1126,3 +1126,19 @@ ASHPlayerState* ASHHand::GetRepresentedPlayerState() const
 {
     return RepresentedPlayerState;
 }
+
+ASHCard* ASHHand::GetHoveredHandCard() const
+{
+	auto* PC = GetWorld() ? Cast<ASHPlayerController>(GetWorld()->GetFirstPlayerController()) : nullptr;
+	ASHCard* Card = IsValid(PC) ? PC->GetHandCardUnderCursor() : nullptr;
+	return IsValid(Card) && Card->GetOwningHand() == GetRepresentedHand() ? Card : nullptr;
+}
+
+int32 ASHHand::GetPointerPressedHandCardIndex() const
+{
+	auto* PC = GetWorld() ? Cast<ASHPlayerController>(GetWorld()->GetFirstPlayerController()) : nullptr;
+	ASHCard* Card = IsValid(PC) && PC->IsLocalController() ? PC->GetPointerPressedCard() : nullptr;
+	ASHHand* LogicalHand = GetRepresentedHand();
+	return IsValid(Card) && Card->GetCardZone() == ECardZone::Hand && IsValid(LogicalHand) && Card->GetOwningHand() == LogicalHand
+		? LogicalHand->GetCards().IndexOfByKey(Card) : INDEX_NONE;
+}

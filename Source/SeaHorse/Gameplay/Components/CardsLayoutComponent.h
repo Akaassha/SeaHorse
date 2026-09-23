@@ -65,15 +65,24 @@ UCLASS(Blueprintable, BlueprintType, ClassGroup=(SeaHorse), meta=(BlueprintSpawn
 class SEAHORSE_API USHHandCardsLayoutComponent : public USHCardsLayoutComponent
 {
 	GENERATED_BODY()
+	friend class FSHHandCursorHoverTest;
+	friend class FSHHandHoverMotionTest;
+	friend class FSHHandHoverCorridorTest;
+	friend class FSHHandHoverMapTest;
 
 public:
 	virtual void UpdateCardsPositions(const TArray<ASHCard*>& Cards) override;
 	virtual void MoveCardsToDesiredPositions(float DeltaTime) override;
 	virtual void UpdateSingleCardPosition(ASHCard* Card, int32 Index, int32 CardsAmount) override;
+	bool GetUnfocusedCardTransform(const ASHCard* Card, FTransform& OutTransform) const;
+	bool GetHoverReturnTransform(const ASHCard* Card, FTransform& OutTransform) const;
+	/** Final hover pose, available before the first animation/layout tick. */
+	FTransform MakeFocusedCardTransform(const FTransform& BaseTransform) const;
 
 	UFUNCTION(BlueprintPure, Category="Cards Layout")
 	double CalculateFocusOffset(int32 Index) const;
 
+	/** Legacy BP compatibility. UpdateCardsPositions resolves the actual cursor hit before applying layout. */
 	UFUNCTION(BlueprintCallable, Category="Cards Layout")
 	void SetFocusedCardIndex(int32 FocusedCardIndex);
 
