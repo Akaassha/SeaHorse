@@ -109,8 +109,17 @@ protected:
 	int32 CalculateDropInsertIndex(const ASHCard* PreviewCard, int32 CurrentCardCount) const;
 	bool IsLocallyDraggedCard(const ASHCard* Card) const;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Cards Layout")
+	/** Offset toward the table center for hovered and selected cards. Keep the serialized name for existing Blueprints. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Cards Layout|Hover", meta=(DisplayName="Forward Offset", Units="cm"))
 	float ForwardFocusedOffser = 2.0f;
+
+	/** World-space vertical lift for hovered and selected cards. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Cards Layout|Hover", meta=(DisplayName="Lift Height", Units="cm"))
+	double FocusLiftHeight = 2.0;
+
+	/** Uniform scale for hovered and selected cards; 1 means the normal card size. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Cards Layout|Hover", meta=(DisplayName="Card Scale", ClampMin="0.01", UIMin="0.01"))
+	double FocusCardScale = 1.3;
 
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Cards Layout")
 	int32 FocusedCardIndexValue = INDEX_NONE;
@@ -124,7 +133,8 @@ protected:
 	/** Presentation-only suppression controlled locally while choosing an effect target. */
 	bool bSuppressFocusedCardForTargeting = false;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Cards Layout")
+	/** Distance neighboring cards move along the hand spline when a card is hovered. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Cards Layout|Hover", meta=(DisplayName="Neighbor Spread Distance", Units="cm", ClampMin="0.0"))
 	double FocusSpreadDistance = 0.0;
 
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Cards Layout")

@@ -150,8 +150,8 @@ void USHHandCardsLayoutComponent::UpdateSingleCardPosition(ASHCard* Card, int32 
 		{
 			Location += TableCenterDirectionComponent->GetForwardVector() * ForwardFocusedOffser;
 		}
-		Location.Z += 2.0;
-		CardsTransforms.Add(Card, FTransform(Rotation, Location, FVector(1.3)));
+		Location.Z += FocusLiftHeight;
+		CardsTransforms.Add(Card, FTransform(Rotation, Location, FVector(FocusCardScale)));
 	}
 	else
 	{
