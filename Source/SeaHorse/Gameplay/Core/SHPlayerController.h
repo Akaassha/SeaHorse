@@ -14,6 +14,7 @@ class ASHGameState;
 class ASHCard;
 class UCardDefinition;
 class UMeshComponent;
+class UCardInfoWidget;
 
 struct FEffectOutlineMeshState
 {
@@ -63,6 +64,19 @@ public:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	virtual bool InputKey(const FInputKeyEventArgs& Params) override;
+
+	UFUNCTION(BlueprintPure, Category = "Cards|Inspection")
+	bool CanInspectCard(const ASHCard* Card) const;
+	UFUNCTION(BlueprintCallable, Category = "Cards|Inspection")
+	bool ShowCardInfo(ASHCard* Card);
+	UFUNCTION(BlueprintCallable, Category = "Cards|Inspection")
+	void CloseCardInfo();
+	UFUNCTION(BlueprintPure, Category = "Cards|Inspection")
+	ASHCard* GetInspectedCard() const;
+
+	/** Designer-authored subclass of CardInfoWidget. Unassigned means inspection UI is disabled. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Cards|Inspection")
+	TSubclassOf<UCardInfoWidget> CardInfoWidgetClass;
 
 	UFUNCTION(Client, Reliable)
 	void ClientOfferCardReaction(int32 OfferId, ASHCard* ReactionCard, ASHCard* TargetCard, TSubclassOf<class UCardReactionPrompt> WidgetClass);
@@ -217,6 +231,16 @@ protected:
 	bool bLocalMatchUIInitialized = false;
 
 private:
+	friend class UCardInfoWidget;
+#if WITH_DEV_AUTOMATION_TESTS
+	friend class FSHCardInspectionTest;
+#endif
+	UPROPERTY(Transient)
+	TObjectPtr<UCardInfoWidget> ActiveCardInfoWidget;
+	UPROPERTY(Transient)
+	TWeakObjectPtr<ASHCard> InspectedCard;
+	void ValidateCardInfoAccess();
+
 	UPROPERTY(Transient)
 	TObjectPtr<class UCardReactionPrompt> ActiveReactionPrompt;
 	int32 ActiveReactionOfferId = INDEX_NONE;

@@ -5,6 +5,7 @@
 #include "SeaHorse/Gameplay/SHHand.h"
 #include "SeaHorse/Gameplay/Cards/CardDefinition.h"
 #include "SeaHorse/Gameplay/Core/SHPlayerController.h"
+#include "SeaHorse/Gameplay/Core/SHPlayerState.h"
 #include "Blueprint/UserWidget.h"
 #include "Net/UnrealNetwork.h"
 #include "Components/MeshComponent.h"
@@ -53,6 +54,26 @@ TSubclassOf<UCardDefinition> ASHCard::GetCardDefinition()
 TSubclassOf<UCardDefinition> ASHCard::GetKnownCardDefinition() const
 {
 	return RevealedCardDefinition ? RevealedCardDefinition : CardDefinition;
+}
+
+TSubclassOf<UCardDefinition> ASHCard::GetInspectableDefinition(const ASHPlayerController* Viewer) const
+{
+	if (!IsValid(Viewer) || !Viewer->IsLocalController() || Viewer->GetWorld() != GetWorld() ||
+		IsActorBeingDestroyed() || IsHidden() || CardZone == ECardZone::None || CardZone == ECardZone::Deck)
+	{
+		return nullptr;
+	}
+	// Public disclosure is replicated to everybody. Never substitute the private
+	// CardDefinition here: the listen host knows every card, including opponents'.
+	if (RevealedCardDefinition) { return RevealedCardDefinition; }
+	const ASHPlayerState* Player = Viewer->GetPlayerState<ASHPlayerState>();
+	const ASHHand* Hand = GetOwningHand();
+	if (CardZone == ECardZone::Hand && IsValid(Player) && IsValid(Hand) &&
+		!Hand->IsLogicalNPC() && Player->GetHand() == Hand && Hand->GetOwner() == Viewer)
+	{
+		return CardDefinition;
+	}
+	return nullptr;
 }
 
 void ASHCard::SetCardDefinition(TSubclassOf<UCardDefinition> NewCardDefinition)

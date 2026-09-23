@@ -34,6 +34,7 @@ ASHPlayerController::ASHPlayerController()
 void ASHPlayerController::ClientOfferCardReaction_Implementation(int32 OfferId, ASHCard* ReactionCard, ASHCard* TargetCard, TSubclassOf<UCardReactionPrompt> WidgetClass)
 {
 	if (!IsLocalController()) { return; }
+	CloseCardInfo();
 	ClientCloseCardReaction_Implementation(ActiveReactionOfferId);
 	ActiveReactionOfferId = OfferId;
 	bCursorBeforeReaction = bShowMouseCursor;
@@ -82,6 +83,7 @@ void ASHPlayerController::ServerRespondToCardReaction_Implementation(int32 Offer
 void ASHPlayerController::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
+	ValidateCardInfoAccess();
 	KeepDraggedCardAboveOtherCards();
 	UpdateLocalActivatablePairHover();
 	UpdatePairTargetingIndicator();
@@ -545,6 +547,7 @@ void ASHPlayerController::BeginPlay()
 
 void ASHPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	CloseCardInfo();
 	ClientCloseCardReaction_Implementation(ActiveReactionOfferId);
 	ClearLocalEffectSelectionState();
 	StopPairTargetingIndicator();
@@ -555,7 +558,29 @@ void ASHPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 
 bool ASHPlayerController::InputKey(const FInputKeyEventArgs& Params)
 {
+	if (IsLocalController() && Params.Key == EKeys::LeftMouseButton && Params.Event == IE_Pressed)
+	{
+		// Only clicks that reached the game arrive here. Close without consuming
+		// the event: the same press must still select/drag/activate its world target.
+		CloseCardInfo();
+	}
+	if (IsLocalController() && Params.Key == EKeys::Escape && Params.Event == IE_Pressed && ActiveCardInfoWidget)
+	{
+		CloseCardInfo();
+		return true;
+	}
 	if (ActiveReactionOfferId != INDEX_NONE) { return true; }
+	if (IsLocalController() && Params.Key == EKeys::RightMouseButton)
+	{
+		if (Params.Event == IE_Pressed)
+		{
+			FHitResult Hit;
+			GetHitResultUnderCursor(ECC_Visibility, true, Hit);
+			if (!ShowCardInfo(Cast<ASHCard>(Hit.GetActor()))) { CloseCardInfo(); }
+		}
+		// Do not let right-click trigger Blueprint card dragging or effect selection.
+		return true;
+	}
 	if (IsLocalController() && Params.Key == EKeys::Enter && Params.Event == IE_Pressed && LocalSelectionMax > 1 && !LocalHandCardSelectionCandidates.IsEmpty())
 	{
 		ConfirmEffectCardSelection();

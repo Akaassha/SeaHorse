@@ -10,6 +10,7 @@
 
 class UCardDefinition;
 class ASHHand;
+class ASHPlayerController;
 class UTextureRenderTarget2D;
 
 UENUM(BlueprintType)
@@ -40,6 +41,9 @@ public:
 	TSubclassOf<UCardDefinition> GetCardDefinition();
 
 	TSubclassOf<UCardDefinition> GetKnownCardDefinition() const;
+
+	/** Local inspection access, including listen hosts and stale owner-only data after transfers. */
+	TSubclassOf<UCardDefinition> GetInspectableDefinition(const ASHPlayerController* Viewer) const;
 
 	void SetCardDefinition(TSubclassOf<UCardDefinition> CardDefinition);
 
@@ -112,6 +116,7 @@ public:
 	bool bFaceUp = false;
 
 private:
+	friend class UCardInfoWidget;
 
 	void OnCardZoneChanged();
 
