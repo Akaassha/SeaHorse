@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/GameModeBase.h"
+#include "Online/SHSessionTypes.h"
 #include "SHLobbyGameMode.generated.h"
 
 class ASHLobbyPlayerController;
@@ -19,7 +20,13 @@ public:
 	virtual void Logout(AController* Exiting) override;
 	void SetPlayerReady(ASHLobbyPlayerController* Player, bool bReady);
 	void RequestStartMatch(ASHLobbyPlayerController* Player);
+	void RequestSelectMatchMap(ASHLobbyPlayerController* Player, ESHMatchMap Map);
 	bool IsStartingRosterValid(int32 ExpectedPlayers) const;
+private:
+#if WITH_DEV_AUTOMATION_TESTS
+	friend class FSHLobbyMapSelectionTest;
+#endif
+	void FinishMapSelection(ASHLobbyPlayerController* Player, ESHMatchMap Map, bool bSuccess, const FString& Error);
 };
 
 // Local menu must not run the card GameMode's hand/deck initialization.

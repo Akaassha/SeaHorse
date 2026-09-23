@@ -4,7 +4,10 @@
 #include "SHSessionTypes.generated.h"
 
 UENUM(BlueprintType)
-enum class ESHSessionOperation : uint8 { None, Create, Find, Join, Leave, Start, Travel };
+enum class ESHSessionOperation : uint8 { None, Create, Find, Join, Leave, Start, Travel, UpdateLobbyMap };
+
+UENUM(BlueprintType)
+enum class ESHMatchMap : uint8 { Small, Medium };
 
 USTRUCT(BlueprintType)
 struct SEAHORSE_API FSHSessionResult

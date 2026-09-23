@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/GameStateBase.h"
+#include "Online/SHSessionTypes.h"
 #include "SHLobbyGameState.generated.h"
 
 class ASHLobbyPlayerState;
@@ -13,6 +14,8 @@ struct FSHLobbyInfo
 	GENERATED_BODY()
 	UPROPERTY(BlueprintReadOnly) FString ServerName;
 	UPROPERTY(BlueprintReadOnly) int32 MaxPlayers = 4;
+	UPROPERTY(BlueprintReadOnly) ESHMatchMap SelectedMap = ESHMatchMap::Small;
+	UPROPERTY(BlueprintReadOnly) bool bChangingMap = false;
 	UPROPERTY(BlueprintReadOnly) bool bStartingMatch = false;
 	UPROPERTY(BlueprintReadOnly) TObjectPtr<ASHLobbyPlayerState> Host;
 };
@@ -29,6 +32,7 @@ public:
 	UFUNCTION(BlueprintPure, Category="SeaHorse|Lobby") TArray<ASHLobbyPlayerState*> GetLobbyPlayers() const;
 	UFUNCTION(BlueprintPure, Category="SeaHorse|Lobby") bool AreAllPlayersReady() const;
 	UFUNCTION(BlueprintPure, Category="SeaHorse|Lobby") bool CanStartMatch() const;
+	UFUNCTION(BlueprintPure, Category="SeaHorse|Lobby") bool CanSelectMatchMap(ESHMatchMap Map) const;
 	UPROPERTY(BlueprintAssignable) FSHLobbyChanged OnLobbyChanged;
 	void SetLobbyInfo(const FSHLobbyInfo& Value);
 	void NotifyLobbyChanged();

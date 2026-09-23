@@ -22,6 +22,8 @@ class SEAHORSE_API UDrawTwoReturnOneEffectTask : public UAdditionalDrawEffectTas
 public:
 	virtual void RecordDrawnCard(ASHCard* Card) override;
 	virtual bool CompleteDrawSequence() override;
+	// The first execution uses the ordinary draw; the repeat needs its own two cards.
+	virtual int32 GetAdditionalDrawCount() const override { return IsRepeatedExecution() ? 2 : 1; }
 	virtual void HandleHandCardSelected(ASHCard* Card) override;
 private:
 	UPROPERTY() TArray<TObjectPtr<ASHCard>> DrawnCards;
@@ -69,6 +71,9 @@ class SEAHORSE_API URotateActivationZonesRightEffectTask : public UResolvedCardE
 	GENERATED_BODY()
 public:
 	virtual void StartEffect_Implementation() override { ResolveAfterPresentation(); }
+	virtual float GetRepeatPresentationDelay() const override { return TransferPresentationDuration; }
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Presentation", meta = (ClampMin = "0.0", Units = "s"))
+	float TransferPresentationDuration = 1.5f;
 protected:
 	virtual bool WaitForOtherEffects() const override { return true; }
 	virtual void ResolveAbility() override;

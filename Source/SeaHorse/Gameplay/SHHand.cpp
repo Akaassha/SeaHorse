@@ -335,6 +335,14 @@ void ASHHand::MulticastPairActivationCancelled_Implementation(ASHCard* CardA, AS
 	VisualHand->RefreshPairActivationAvailability();
 }
 
+void ASHHand::MulticastBeginPairEffectExecution_Implementation(ASHCard* CardA, ASHCard* CardB)
+{
+	const FActivatedPair Pair{CardA, CardB, true};
+	// VFX deduplication lives on the logical hand receiving the multicast, even
+	// when the circle and movement lock are presented by a mapped visual hand.
+	PresentedActivationVFX.Remove(Pair);
+}
+
 void ASHHand::MulticastPlayActivationVFX_Implementation(
 	ASHCard* CardA, ASHCard* CardB, UNiagaraSystem* System, float Duration)
 {

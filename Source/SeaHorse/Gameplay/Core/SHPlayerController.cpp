@@ -21,11 +21,9 @@
 #include "Components/MeshComponent.h"
 #include "Components/WidgetComponent.h"
 #include "Gameplay/Presentation/CardReactionPrompt.h"
+#include "Gameplay/Presentation/CardSelectionPrompt.h"
 #include "Engine/GameViewportClient.h"
-#include "Widgets/SOverlay.h"
 #include "Widgets/SViewport.h"
-#include "Widgets/Layout/SBorder.h"
-#include "Widgets/Text/STextBlock.h"
 
 ASHPlayerController::ASHPlayerController()
 {
@@ -290,15 +288,46 @@ void ASHPlayerController::RestoreEffectTargetOutlines()
 
 void ASHPlayerController::RefreshSelectionPrompt()
 {
-	UGameViewportClient* Viewport = GetWorld() ? GetWorld()->GetGameViewport() : nullptr;
-	if (!Viewport) { return; }
-	if (SelectionPromptWidget) { Viewport->RemoveViewportWidgetContent(SelectionPromptWidget.ToSharedRef()); SelectionPromptWidget.Reset(); }
-	if (LocalSelectionMax <= 1 || LocalHandCardSelectionCandidates.IsEmpty()) { return; }
-	const FText Prompt = FText::FromString(FString::Printf(TEXT("Wybierz %d–%d karty (wybrano: %d). Komplet zatwierdza się automatycznie. Enter — zatwierdź mniej kart. Kliknij ponownie, aby odznaczyć."), LocalSelectionMin, LocalSelectionMax, LocallySelectedEffectCards.Num()));
-	SelectionPromptWidget = SNew(SOverlay).Visibility(EVisibility::HitTestInvisible)
-		+ SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Bottom).Padding(20, 20, 20, 100)
-		[SNew(SBorder).Padding(16)[SNew(STextBlock).Text(Prompt)]];
-	Viewport->AddViewportWidgetContent(SelectionPromptWidget.ToSharedRef(), 100);
+	if (SelectionPromptWidget && (!SelectionPromptClass || LocalHandCardSelectionCandidates.IsEmpty() ||
+		SelectionPromptWidget->GetClass() != SelectionPromptClass.Get()))
+	{
+		UCardSelectionPrompt* Previous = SelectionPromptWidget;
+		SelectionPromptWidget = nullptr;
+		Previous->RemoveFromParent();
+	}
+	if (!SelectionPromptClass || LocalHandCardSelectionCandidates.IsEmpty() || !IsLocalController() ||
+		!GetWorld() || !GetWorld()->GetGameViewport() || SelectionPromptClass->HasAnyClassFlags(CLASS_Abstract)) { return; }
+	if (!SelectionPromptWidget)
+	{
+		SelectionPromptWidget = CreateWidget<UCardSelectionPrompt>(this, SelectionPromptClass);
+		if (!SelectionPromptWidget) { return; }
+		SelectionPromptWidget->AddToViewport(100);
+	}
+	if (SelectionPromptWidget) { SelectionPromptWidget->OnSelectionChanged(); }
+}
+
+void ASHPlayerController::ConfirmEffectCardSelection()
+{
+	if (LocalHandCardSelectionCandidates.IsEmpty() || LocallySelectedEffectCards.Num() < LocalSelectionMin ||
+		LocallySelectedEffectCards.Num() > LocalSelectionMax) { return; }
+	TArray<ASHCard*> Cards;
+	for (ASHCard* Card : LocallySelectedEffectCards) { Cards.Add(Card); }
+	ServerSubmitHandCardsSelection(Cards);
+}
+
+void ASHPlayerController::ToggleEffectCardSelection(ASHCard* Card)
+{
+	if (!IsValid(Card) || !LocalHandCardSelectionCandidates.Contains(Card)) { return; }
+	if (LocalSelectionMax == 1) { ServerSubmitHandCardSelection(Card); return; }
+	if (LocallySelectedEffectCards.Contains(Card)) { LocallySelectedEffectCards.Remove(Card); }
+	else if (LocallySelectedEffectCards.Num() < LocalSelectionMax) { LocallySelectedEffectCards.Add(Card); }
+	const int32 Serial = LocalCardSelectionSerial;
+	RefreshSelectionPrompt();
+	// A Blueprint callback may confirm synchronously and open another selection step.
+	if (Serial == LocalCardSelectionSerial && LocallySelectedEffectCards.Num() == LocalSelectionMax)
+	{
+		ConfirmEffectCardSelection();
+	}
 }
 
 void ASHPlayerController::UpdateEffectTargetOutlines(AActor* HoveredActor)
@@ -529,12 +558,7 @@ bool ASHPlayerController::InputKey(const FInputKeyEventArgs& Params)
 	if (ActiveReactionOfferId != INDEX_NONE) { return true; }
 	if (IsLocalController() && Params.Key == EKeys::Enter && Params.Event == IE_Pressed && LocalSelectionMax > 1 && !LocalHandCardSelectionCandidates.IsEmpty())
 	{
-		if (LocallySelectedEffectCards.Num() >= LocalSelectionMin)
-		{
-			TArray<ASHCard*> Cards;
-			for (ASHCard* Card : LocallySelectedEffectCards) { Cards.Add(Card); }
-			ServerSubmitHandCardsSelection(Cards);
-		}
+		ConfirmEffectCardSelection();
 		return true;
 	}
 	if (IsLocalController() && Params.Key == EKeys::Escape && Params.Event == IE_Pressed && CancelEffectTargeting())
@@ -582,19 +606,7 @@ bool ASHPlayerController::TryHandleEffectSelectionClick(AActor* HitActor)
 		}
 		if (ASHCard* Card = Cast<ASHCard>(HitActor); LocalHandCardSelectionCandidates.Contains(Card))
 		{
-			if (LocalSelectionMax > 1)
-			{
-				if (LocallySelectedEffectCards.Contains(Card)) { LocallySelectedEffectCards.Remove(Card); }
-				else if (LocallySelectedEffectCards.Num() < LocalSelectionMax) { LocallySelectedEffectCards.Add(Card); }
-				RefreshSelectionPrompt();
-				if (LocallySelectedEffectCards.Num() == LocalSelectionMax)
-				{
-					TArray<ASHCard*> Cards;
-					for (ASHCard* Selected : LocallySelectedEffectCards) { Cards.Add(Selected); }
-					ServerSubmitHandCardsSelection(Cards);
-				}
-			}
-			else { ServerSubmitHandCardSelection(Card); }
+			ToggleEffectCardSelection(Card);
 		}
 		return true;
 	}
@@ -917,9 +929,11 @@ void ASHPlayerController::ClearLocalPlayerSelection()
 
 void ASHPlayerController::ClearLocalEffectSelectionState()
 {
+	++LocalCardSelectionSerial;
 	LocalHandCardSelectionCandidates.Reset();
 	LocallySelectedEffectCards.Reset();
 	LocalSelectionMin = LocalSelectionMax = 1;
+	SelectionPromptClass = nullptr;
 	RefreshSelectionPrompt();
 	bAwaitingPlayerSelectionResponse = false;
 	ClearLocalPlayerSelection();
@@ -1161,14 +1175,15 @@ void ASHPlayerController::ClientRequestActivationPairSelection_Implementation(
 
 void ASHPlayerController::ClientRequestHandCardSelection_Implementation(const TArray<ASHCard*>& Cards)
 {
-	ClientRequestHandCardsSelection_Implementation(Cards, 1, 1);
+	ClientRequestHandCardsSelection_Implementation(Cards, 1, 1, nullptr);
 }
 
-void ASHPlayerController::ClientRequestHandCardsSelection_Implementation(const TArray<ASHCard*>& Cards, int32 Min, int32 Max)
+void ASHPlayerController::ClientRequestHandCardsSelection_Implementation(const TArray<ASHCard*>& Cards, int32 Min, int32 Max, TSubclassOf<UCardSelectionPrompt> WidgetClass)
 {
 	ClearLocalEffectSelectionState();
 	LocalSelectionMin = Min;
 	LocalSelectionMax = Max;
+	SelectionPromptClass = WidgetClass;
 	for (ASHCard* Card : Cards)
 	{
 		if (IsValid(Card)) { LocalHandCardSelectionCandidates.AddUnique(Card); }

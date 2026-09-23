@@ -216,6 +216,7 @@ void UTurnComponent::HandleCardDrawnFromHand(ASHPlayerState* DrawingPlayer, ASHH
 	if (bWaitingForAdditionalDraw)
 	{
 		ClearDrawGuidance(DrawingPlayer);
+		if (--RemainingSequenceDraws > 0) { BeginWaitingForAdditionalDraw(); return; }
 		FinishAdditionalDraw();
 		return;
 	}
@@ -268,7 +269,8 @@ void UTurnComponent::FinishAdditionalDraw()
 		AdditionalDrawPlayer = NextDraw.Player;
 		AdditionalDrawEffectTask = NextDraw.EffectTask;
 		AdditionalDrawSourceRule = NextDraw.SourceRule;
-		if (IsValid(AdditionalDrawEffectTask)) { AdditionalDrawEffectTask->RecordDrawnCard(FirstDrawnCard); }
+		RemainingSequenceDraws = IsValid(AdditionalDrawEffectTask) ? AdditionalDrawEffectTask->GetAdditionalDrawCount() : 1;
+		if (IsValid(AdditionalDrawEffectTask) && !AdditionalDrawEffectTask->IsRepeatedExecution()) { AdditionalDrawEffectTask->RecordDrawnCard(FirstDrawnCard); }
 		BeginWaitingForAdditionalDraw();
 		return;
 	}
@@ -338,7 +340,8 @@ void UTurnComponent::ScheduleAdditionalDraw(
 		AdditionalDrawPlayer = PlayerState;
 		AdditionalDrawEffectTask = EffectTask;
 		AdditionalDrawSourceRule = SourceRule;
-		EffectTask->RecordDrawnCard(FirstDrawnCard);
+		RemainingSequenceDraws = EffectTask->GetAdditionalDrawCount();
+		if (!EffectTask->IsRepeatedExecution()) { EffectTask->RecordDrawnCard(FirstDrawnCard); }
 		if (IsValid(FirstDrawSourceHand))
 		{
 			EnterTurnPhase(ETurnPhase::DrawCard);
@@ -480,6 +483,14 @@ void UTurnComponent::EndTurn()
 
 	FirstDrawSourceHand = nullptr;
 	FirstDrawnCard = nullptr;
+	for (ASHHand* Hand : GameState->GetParticipantHands())
+	{
+		if (!IsValid(Hand)) { continue; }
+		for (const FActivatedPair& Pair : Hand->GetLogicalActivationPairs())
+		{
+			if (Pair.bDoubleEffectThisTurn) { Hand->FindActivationPair(Pair.CardA)->bDoubleEffectThisTurn = false; Hand->ForceNetUpdate(); }
+		}
+	}
 	GameState->SetCurrentPlayer(NextPlayer);
 	NextPlayer->SetProtectedFromCardEffects(false);
 	bPairingActionUsed = false;

@@ -35,15 +35,18 @@ public:
 	UPROPERTY(BlueprintAssignable) FSHConnectionError OnConnectionError;
 
 	// Server-only C++ entry point; the lobby GameMode validates host and readiness first.
-	void StartLobbyMatch(int32 PlayerCount, TFunction<void(bool, const FString&)> Completion);
+	void StartLobbyMatch(ESHMatchMap Map, int32 PlayerCount, TFunction<void(bool, const FString&)> Completion);
+	void UpdateLobbyMap(ESHMatchMap Map, TFunction<void(bool, const FString&)> Completion);
 	// Called by the authoritative match GameMode once every participant has a hand and the match is ready.
 	void NotifyMatchReady(UWorld* MatchWorld);
 	int32 GetHostedMaxPlayers() const { return HostedMaxPlayers; }
+	ESHMatchMap GetHostedMatchMap() const { return HostedMatchMap; }
 	FString GetHostedServerName() const { return HostedServerName; }
 private:
 #if WITH_DEV_AUTOMATION_TESTS
 	friend class FSHAsyncSearchCompletionTest;
 	friend class FSHMatchTravelCompletionTest;
+	friend class FSHLobbyMapSelectionTest;
 #endif
 	bool Prepare(ESHSessionOperation Requested);
 	void BeginOperation(ESHSessionOperation Requested);
@@ -55,6 +58,7 @@ private:
 	void HandleJoin(FName Name, EOnJoinSessionCompleteResult::Type Result);
 	void HandleDestroy(FName Name, bool bSuccess);
 	void HandleStart(FName Name, bool bSuccess);
+	void HandleUpdateLobbyMap(FName Name, bool bSuccess);
 	void HandlePostLoad(UWorld* World);
 	void HandleNetworkFailure(UWorld* World, UNetDriver* Driver, ENetworkFailure::Type Type, const FString& Error);
 	void HandleTravelFailure(UWorld* World, ETravelFailure::Type Type, const FString& Error);
@@ -73,11 +77,15 @@ private:
 	FString HostedServerName;
 	FString PendingMatchURL;
 	int32 HostedMaxPlayers = 4;
+	ESHMatchMap HostedMatchMap = ESHMatchMap::Small;
+	ESHMatchMap PendingLobbyMap = ESHMatchMap::Small;
+	TOptional<FOnlineSessionSettings> PreviousLobbySettings;
 	int32 StartingPlayerCount = 0;
 	bool bHandlingFailure = false;
 	TFunction<void(bool, const FString&)> StartCompletion;
+	TFunction<void(bool, const FString&)> MapChangeCompletion;
 	TFunction<void(bool, const TArray<FSHSessionResult>&, const FString&)> SearchCompletion;
-	FDelegateHandle CreateHandle, FindHandle, JoinHandle, DestroyHandle, StartHandle;
+	FDelegateHandle CreateHandle, FindHandle, JoinHandle, DestroyHandle, StartHandle, UpdateMapHandle;
 	FDelegateHandle NetworkFailureHandle, TravelFailureHandle, PostLoadHandle;
 	FTSTicker::FDelegateHandle TimeoutHandle;
 };

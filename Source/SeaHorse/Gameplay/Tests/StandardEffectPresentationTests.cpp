@@ -53,6 +53,14 @@ bool FSHStandardEffectPresentationTest::RunTest(const FString& Parameters)
     ++GFrameCounter;
     World->GetTimerManager().Tick(1.6f);
     TestFalse(TEXT("The lock expires without a Niagara completion callback"), Hand->IsPairMovementBlocked());
+    Hand->MulticastBeginPairEffectExecution_Implementation(A, B);
+    Hand->MulticastPlayActivationVFX_Implementation(A, B, System, 1.5f);
+    Hand->MulticastPlayActivationVFX_Implementation(A, B, System, 1.5f);
+    TestTrue(TEXT("A new execution of the same pair replays its circle and movement lock"), Hand->IsPairMovementBlocked());
+    TestEqual(TEXT("Duplicate notifications within the second execution remain suppressed"), Hand->LocalPresentationBlocks.Num(), 1);
+    ++GFrameCounter; World->GetTimerManager().Tick(0.01f);
+    ++GFrameCounter; World->GetTimerManager().Tick(1.6f);
+    TestFalse(TEXT("Second execution releases its own lock"), Hand->IsPairMovementBlocked());
     World->DestroyWorld(false);
     return true;
 }

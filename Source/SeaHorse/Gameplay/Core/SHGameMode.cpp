@@ -392,8 +392,9 @@ void ASHGameMode::MovePairToVictoryStack(ASHPlayerState* PlayerState, ASHCard* C
 
     // Bulk collection (Gnushor) also reaches this function before its task finishes.
     // Keep cards on the table until all active presentation blocks have ended.
-    const bool bCaptureWaitingForEffect = PairCaptureRecipients.Contains(CardA) && ActiveEffectTasks.ContainsByPredicate(
-        [CardA](const UCardEffectTask* Task) { return IsValid(Task) && Task->GetCardA() == CardA; });
+    const bool bCaptureWaitingForEffect = ActiveEffectTasks.ContainsByPredicate(
+        [CardA](const UCardEffectTask* Task) { return IsValid(Task) && Task->GetCardA() == CardA; }) ||
+        PendingSuccessfulActivations.ContainsByPredicate([CardA](const FSuccessfulActivation& Entry) { return Entry.Activation.CardA == CardA; });
     if ((IsValid(TurnComponent) && TurnComponent->HasNamedTurnTransitionBlocks()) || bCaptureWaitingForEffect)
     {
         if (!Hand->FindActivationPair(CardA)) { return; }
@@ -449,6 +450,18 @@ void ASHGameMode::MovePairToVictoryStack(ASHPlayerState* PlayerState, ASHCard* C
 
 void ASHGameMode::CardActivateEffect(ASHPlayerState* InActivatingPlayer, ASHCard* CardA, ASHCard* CardB)
 {
+	InActivatingPlayer->GetHand()->MulticastBeginPairEffectExecution(CardA, CardB);
+    const bool bRepeat = RepeatedPairEffects.Contains(CardA);
+    if (!bRepeat)
+    {
+        FActivatedPair* Pair = InActivatingPlayer->GetHand()->FindActivationPair(CardA);
+        if (Pair && Pair->bDoubleEffectThisTurn)
+        {
+            Pair->bDoubleEffectThisTurn = false;
+            InActivatingPlayer->GetHand()->ForceNetUpdate();
+            RepeatedPairEffects.Add(CardA, FRepeatedPairEffect{1, ECardEffectPairDisposition::KeepOnTable});
+        }
+    }
     const UCardEffectFragment* NewEffectFragment =
         Cast<UCardEffectFragment>(
             UCardDefinition::FindFragmentByClass(
@@ -479,6 +492,7 @@ void ASHGameMode::CardActivateEffect(ASHPlayerState* InActivatingPlayer, ASHCard
             : NewEffectFragment->EffectPresentationId
     );
 	if (PairCaptureRecipients.Contains(CardA)) { EffectTask->CommitEffect(); }
+	if (bRepeat) { EffectTask->SetRepeatedExecution(); }
 
     if (!EffectTask->RequiresTargetSelection())
     {
@@ -552,7 +566,37 @@ void ASHGameMode::FinishEffectTask(UCardEffectTask* CardEffectTask)
 		SetPairTargetSelectionPresentation(CardEffectTask, PresentationOwner, false);
 	}
 
-	const ECardEffectPairDisposition PairDisposition = CardEffectTask->GetPairDisposition();
+	ECardEffectPairDisposition PairDisposition = CardEffectTask->GetPairDisposition();
+	if (FRepeatedPairEffect* Repeat = RepeatedPairEffects.Find(CardA))
+	{
+		if (PairDisposition == ECardEffectPairDisposition::RemoveFromGame ||
+			(Repeat->Disposition == ECardEffectPairDisposition::KeepOnTable && PairDisposition == ECardEffectPairDisposition::MoveToVictoryStack))
+		{
+			Repeat->Disposition = PairDisposition;
+		}
+		if (Repeat->Remaining > 0 && PairDisposition != ECardEffectPairDisposition::KeepOnTable &&
+			IsValid(ActivatingPlayer->GetHand()) && ActivatingPlayer->GetHand()->FindActivationPair(CardA))
+		{
+			--Repeat->Remaining;
+			const float Delay = CardEffectTask->GetRepeatPresentationDelay();
+			if (FMath::IsFinite(Delay) && Delay > 0.0f)
+			{
+				// Keep the task registered to hold the activation queue and turn,
+				// without a local hand lock that would freeze cards in transit.
+				FTimerHandle Timer;
+				GetWorldTimerManager().SetTimer(Timer, FTimerDelegate::CreateWeakLambda(this, [this, CardEffectTask]()
+				{
+					RestartRepeatedPairEffect(CardEffectTask);
+				}), Delay, false);
+			}
+			else { RestartRepeatedPairEffect(CardEffectTask); }
+			return;
+		}
+		PairDisposition = Repeat->Disposition;
+		RepeatedPairEffects.Remove(CardA);
+		// Bulk collectors can have scheduled an early move of their own pair.
+		CompletedEffectPairsWaitingForPresentation.RemoveAll([CardA](const FCompletedEffectPair& Entry) { return Entry.CardA == CardA; });
+	}
 	if (PairDisposition != ECardEffectPairDisposition::MoveToVictoryStack) { PairCaptureRecipients.Remove(CardA); }
 	ActiveEffectTasks.Remove(CardEffectTask);
 
@@ -584,13 +628,8 @@ void ASHGameMode::FinishEffectTask(UCardEffectTask* CardEffectTask)
 	}
 	else
 	{
-		if (IsValid(ActivatingHand))
-		{
-			ActivatingHand->SetActivationPairState(CardA, CardB, EActivationPairState::VictoryPresentation);
-			ActivatingHand->MulticastPairReadyForVictory(CardA, CardB);
-		}
-
-		MovePairToVictoryStack(ActivatingPlayer, CardA, CardB);
+		QueueSuccessfulActivation(ActivatingPlayer, CardA, CardB);
+		ProcessSuccessfulActivations();
 	}
 
 	if (IsValid(TurnComponent))
@@ -617,6 +656,11 @@ bool ASHGameMode::CancelEffectTargetSelection(ASHPlayerState* SelectingPlayer, A
 	PendingPairSelections.Remove(SelectingPlayer);
 	PendingHandCardSelections.Remove(SelectingPlayer);
 	ActiveEffectTasks.Remove(Task);
+	if (RepeatedPairEffects.Remove(CardA) > 0)
+	{
+		Pair->bDoubleEffectThisTurn = true;
+		Hand->ForceNetUpdate();
+	}
 	// Teardown first: restoring old outline snapshots must precede making the pair ready.
 	SetPairTargetSelectionPresentation(Task, SelectingPlayer, false);
 	PendingPairActivations.RemoveAll([CardA, CardB](const FPendingPairActivation& Entry)
@@ -694,7 +738,7 @@ void ASHGameMode::NotifyActivationPairSettled(ASHCard* CardA, ASHCard* CardB)
 
 void ASHGameMode::TryProcessQueuedPairActivations()
 {
-	if (!HasAuthority() || !IsValid(TurnComponent) || bProcessingPairActivations || bReactionWindowOpen)
+	if (!HasAuthority() || !IsValid(TurnComponent) || bProcessingPairActivations || bReactionWindowOpen || !PendingSuccessfulActivations.IsEmpty())
 	{
 		return;
 	}
@@ -804,10 +848,18 @@ void ASHGameMode::FlushCompletedEffectPairs()
 			}
 			else
 			{
+				if (Move.bRestoreReady && IsValid(Move.ActivatingPlayer) && IsValid(Move.ActivatingPlayer->GetHand()))
+				{
+					ASHHand* Hand = Move.ActivatingPlayer->GetHand();
+					Hand->SetActivationPairState(Move.CardA, Move.CardB, EActivationPairState::Ready);
+					Hand->SetActivationPairQueued(Move.CardA, Move.CardB, false);
+					Hand->RefreshActivationPairsPresentation();
+				}
 				CompleteQueuedPairActivation(Move.CardA, Move.CardB);
 			}
 		}
 	}
+	ProcessSuccessfulActivations();
 	TryProcessQueuedPairActivations();
 }
 
@@ -964,7 +1016,9 @@ bool ASHGameMode::RequestHandCardsSelection(UCardEffectTask* Task, ASHPlayerStat
 	if (Candidates.Num() < Min) { return false; }
 	PendingHandCardSelections.Add(Player, Pending);
 	SetPairTargetSelectionPresentation(Task, Player, true);
-	PC->ClientRequestHandCardsSelection(Candidates, Min, Max);
+	const auto* Fragment = IsValid(Task->GetCardA()) ? Cast<UCardEffectFragment>(UCardDefinition::FindFragmentByClass(
+		Task->GetCardA()->GetCardDefinition(), UCardEffectFragment::StaticClass())) : nullptr;
+	PC->ClientRequestHandCardsSelection(Candidates, Min, Max, Fragment ? Fragment->SelectionWidgetClass : nullptr);
 	return true;
 }
 bool ASHGameMode::HasOtherActiveEffects(const UCardEffectTask* Except) const
@@ -996,6 +1050,7 @@ bool ASHGameMode::TransferStoredPair(ASHHand* Source, ASHHand* Target, ASHCard* 
 bool ASHGameMode::RemoveStoredPairFromGame(ASHHand* Hand, ASHCard* Card)
 {
 	PairCaptureRecipients.Remove(Card);
+	RepeatedPairEffects.Remove(Card);
 	if (!HasAuthority() || !IsValid(Hand)) { return false; }
 	const FActivatedPair* Found = Hand->FindActivationPair(Card);
 	if (!Found) { return false; }
@@ -1022,7 +1077,9 @@ void ASHGameMode::RotateActivationZonesRight(ASHCard* ExcludedCard)
 	TArray<ASHPlayerState*> Players;
 	for (APlayerState* Entry : State->PlayerArray)
 	{
-		if (ASHPlayerState* Player = Cast<ASHPlayerState>(Entry); IsValid(Player) && !Player->IsProtectedFromCardEffects() && IsValid(Player->GetHand())) { Players.Add(Player); }
+		// Hans rotates every human zone. Protection does not opt a player out;
+		// a reaction can still cancel the entire activation before it resolves.
+		if (ASHPlayerState* Player = Cast<ASHPlayerState>(Entry); IsValid(Player) && IsValid(Player->GetHand())) { Players.Add(Player); }
 	}
 	Players.Sort([](const ASHPlayerState& A, const ASHPlayerState& B) { return A.GetSeatIndex() < B.GetSeatIndex(); });
 	const int32 Count = Players.Num();

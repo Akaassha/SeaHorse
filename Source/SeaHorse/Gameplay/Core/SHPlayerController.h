@@ -145,7 +145,8 @@ public:
 	UFUNCTION(Server, Reliable)
 	void ServerSubmitHandCardSelection(ASHCard* Card);
 	UFUNCTION(Client, Reliable)
-	void ClientRequestHandCardsSelection(const TArray<ASHCard*>& Cards, int32 Min, int32 Max);
+	void ClientRequestHandCardsSelection(const TArray<ASHCard*>& Cards, int32 Min, int32 Max,
+		TSubclassOf<class UCardSelectionPrompt> WidgetClass);
 	UFUNCTION(Server, Reliable)
 	void ServerSubmitHandCardsSelection(const TArray<ASHCard*>& Cards);
 
@@ -223,6 +224,9 @@ private:
 #if WITH_DEV_AUTOMATION_TESTS
 	friend class FSHGameplayEffectInputTest;
 	friend class FSHExpansionEffectsTest;
+	friend class FSHCardSelectionWidgetTest;
+	friend class UCardSelectionPrompt;
+	friend class FSHReportedEffectRegressionsTest;
 	friend class FSHCardReactionsTest;
 	friend class FSHLocalMatchUIReadinessTest;
 	friend class FSHEffectTargetOutlineTest;
@@ -267,8 +271,14 @@ private:
 	TArray<TObjectPtr<ASHCard>> LocallySelectedEffectCards;
 	int32 LocalSelectionMin = 1;
 	int32 LocalSelectionMax = 1;
-	TSharedPtr<class SWidget> SelectionPromptWidget;
+	UPROPERTY(Transient)
+	TObjectPtr<UCardSelectionPrompt> SelectionPromptWidget;
+	UPROPERTY(Transient)
+	TSubclassOf<UCardSelectionPrompt> SelectionPromptClass;
+	int32 LocalCardSelectionSerial = 0;
 	void RefreshSelectionPrompt();
+	void ConfirmEffectCardSelection();
+	void ToggleEffectCardSelection(ASHCard* Card);
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<ASHHand>> LocalGuidedDrawHands;
 	UPROPERTY(Transient)

@@ -63,9 +63,11 @@ class SEAHORSE_API ASHGameState : public AGameState
 	GENERATED_BODY()
 	
 public:
-	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Reaction")
+	UPROPERTY(ReplicatedUsing = OnRep_ReactionPending, BlueprintReadOnly, Category = "Reaction")
 	bool bReactionPending = false;
 	void SetReactionPending(bool bPending);
+	UFUNCTION()
+	void OnRep_ReactionPending();
 	int64 AllocatePairCreationOrder() { check(HasAuthority()); return ++PairCreationCounter; }
 private:
 	int64 PairCreationCounter = 0;

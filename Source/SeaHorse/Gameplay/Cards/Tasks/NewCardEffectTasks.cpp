@@ -159,7 +159,7 @@ void UCollectSelectedActivationPairEffectTask::StartEffect_Implementation()
 				continue;
 			}
 
-			if (IsValid(Pair.CardA) && IsValid(Pair.CardB))
+			if (IsValid(Pair.CardA) && IsValid(Pair.CardB) && Pair.State < EActivationPairState::VictoryPresentation)
 			{
 				CandidateCards.Add(Pair.CardA);
 				CandidateCards.Add(Pair.CardB);

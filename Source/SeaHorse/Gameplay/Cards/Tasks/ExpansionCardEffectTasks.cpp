@@ -1,4 +1,6 @@
 #include "Gameplay/Cards/Tasks/ExpansionCardEffectTasks.h"
+#include "Gameplay/Cards/CardDefinition.h"
+#include "Gameplay/Cards/Fragments/CardEffectFragment.h"
 #include "Gameplay/Cards/SHCard.h"
 #include "Gameplay/Core/SHGameMode.h"
 #include "Gameplay/Core/SHGameState.h"
@@ -68,5 +70,47 @@ void UExchangeHandCardsEffectTask::RequestNextDraw()
 void UProtectUntilNextTurnEffectTask::ResolveAbility()
 {
 	GetActivatingPlayer()->SetProtectedFromCardEffects(true);
+	FinishEffect();
+}
+TArray<ASHCard*> UDoubleStoredPairEffectTask::GetCandidates() const
+{
+	TArray<ASHCard*> Candidates;
+	ASHPlayerState* Player = GetActivatingPlayer();
+	ASHGameMode* Mode = GetTypedOuter<ASHGameMode>();
+	if (!IsValid(Player) || !IsValid(Player->GetHand()) || !Mode || !Mode->GetTurnComponent()) { return Candidates; }
+	for (const FActivatedPair& Pair : Player->GetHand()->GetLogicalActivationPairs())
+	{
+		if (Pair.CardA == GetCardA() || Pair.bDoubleEffectThisTurn || Pair.State != EActivationPairState::Ready ||
+			!Mode->GetTurnComponent()->CanActivatePair(Player, Pair)) { continue; }
+		const auto* Effect = Cast<UCardEffectFragment>(UCardDefinition::FindFragmentByClass(
+			Pair.CardA->GetKnownCardDefinition(), UCardEffectFragment::StaticClass()));
+		if (!Effect || !Effect->EffectTaskClass) { continue; }
+		Candidates.Add(Pair.CardA); Candidates.Add(Pair.CardB);
+	}
+	return Candidates;
+}
+
+void UDoubleStoredPairEffectTask::StartEffect_Implementation()
+{
+	if (!RequestActivationPairSelection(GetCandidates())) { FinishEffect(); }
+}
+
+void UDoubleStoredPairEffectTask::HandleActivationPairSelected(ASHPlayerState* Owner, ASHCard* A, ASHCard* B)
+{
+	if (Owner != GetActivatingPlayer() || !GetCandidates().Contains(A)) { FinishEffect(); return; }
+	SelectedCard = A;
+	PlayActivationVFX();
+	ResolveAfterPresentation();
+}
+
+void UDoubleStoredPairEffectTask::ResolveAbility()
+{
+	if (GetCandidates().Contains(SelectedCard))
+	{
+		ASHHand* Hand = GetActivatingPlayer()->GetHand();
+		Hand->FindActivationPair(SelectedCard)->bDoubleEffectThisTurn = true;
+		Hand->ForceNetUpdate();
+		bApplied = true;
+	}
 	FinishEffect();
 }

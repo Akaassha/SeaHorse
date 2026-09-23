@@ -73,6 +73,11 @@ public:
 	/** Deferred draw rules stay active for turn completion without owning the pair activation queue. */
 	virtual bool BlocksNextPairActivation() const { return true; }
 	virtual void RecordDrawnCard(ASHCard* Card) {}
+	virtual int32 GetAdditionalDrawCount() const { return 1; }
+	/** Time for moved cards to reach their first destination before a repeat starts. */
+	virtual float GetRepeatPresentationDelay() const { return 0.0f; }
+	bool IsRepeatedExecution() const { return bRepeatedExecution; }
+	void SetRepeatedExecution() { bRepeatedExecution = true; CommitEffect(); }
 	/** False keeps the draw sequence open while a mandatory return is selected. */
 	virtual bool CompleteDrawSequence() { return true; }
 	/** Called at activation for immediate effects, or after the final accepted target. */
@@ -93,4 +98,5 @@ protected:
 	bool bFinished = false;
 	bool bActivationVFXStarted = false;
 	bool bGameplayCommitted = false;
+	bool bRepeatedExecution = false;
 };

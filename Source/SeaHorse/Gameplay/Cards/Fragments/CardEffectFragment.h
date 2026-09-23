@@ -24,6 +24,10 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Presentation")
 	FName EffectPresentationId;
 
+	/** Optional UMG layout for card selection. None displays no selection panel. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Presentation")
+	TSubclassOf<class UCardSelectionPrompt> SelectionWidgetClass;
+
 	/** Optional one-shot presentation; targeted tasks start it after their final accepted target. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Presentation")
 	TObjectPtr<UNiagaraSystem> ActivationVFX;
@@ -63,4 +67,14 @@ class SEAHORSE_API UImmediateVictoryPairFragment : public UCardFragment
 public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, meta = (MetaClass = "/Script/SeaHorse.CardDefinition"))
 	TArray<FSoftClassPath> AllowedPartners;
+};
+
+/** A passive stored pair that pays the victory cost of a successful activation. */
+UCLASS(BlueprintType, EditInlineNew)
+class SEAHORSE_API UVictorySubstituteFragment : public UCardFragment
+{
+	GENERATED_BODY()
+public:
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, meta = (MetaClass = "/Script/SeaHorse.CardDefinition"))
+	TArray<FSoftClassPath> AllowedCardDefinitions;
 };

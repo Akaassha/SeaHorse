@@ -24,6 +24,7 @@ class SEAHORSE_API ASHPlayerRepresentation : public AActor
 public:
 	ASHPlayerRepresentation();
 
+	virtual void BeginPlay() override;
 	virtual void NotifyActorOnClicked(FKey ButtonPressed = EKeys::LeftMouseButton) override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
@@ -75,6 +76,8 @@ protected:
 	virtual UTexture2D* ResolvePlayerAvatar_Implementation(ASHPlayerState* PlayerState) const;
 
 private:
+	void RefreshInteractionCollision();
+
 	UFUNCTION()
 	void HandlePlayerDisplayNameChanged();
 

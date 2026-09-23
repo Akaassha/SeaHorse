@@ -20,7 +20,16 @@
 #include "Gameplay/Cards/Tasks/ExtendedCardEffectTasks.h"
 #include "Gameplay/Cards/Fragments/CardReactionFragment.h"
 #include "Gameplay/Presentation/CardReactionPrompt.h"
+#include "Gameplay/Presentation/CardSelectionPrompt.h"
 #include "Gameplay/SHHand.h"
+#if WITH_EDITOR
+#include "WidgetBlueprint.h"
+#include "Blueprint/WidgetBlueprintGeneratedClass.h"
+#include "Blueprint/WidgetTree.h"
+#include "Components/Button.h"
+#include "Kismet2/KismetEditorUtilities.h"
+#include "Widgets/SOverlay.h"
+#endif
 
 struct FSHNewEffectsWorld
 {
@@ -405,9 +414,10 @@ bool FSHExpansionEffectsTest::RunTest(const FString& Parameters)
 		T.Mode->ShuffleAndRedealHands();
 		TestTrue(TEXT("Global shuffle skips protected player"), Protected->GetHand()->GetCards() == ProtectedCards);
 		T.Mode->RotateActivationZonesRight(nullptr);
-		TestNotNull(TEXT("Zone rotation skips protected player"), Protected->GetHand()->FindActivationPair(Stored));
+		TestNotNull(TEXT("Hans rotates the protected player's zone too"), T.Players[2]->GetHand()->FindActivationPair(Stored));
+		ASHCard* CollectionStored = T.Pair(Protected->GetHand());
 		T.Mode->MoveAllActivationPairsToVictoryStacks();
-		TestNotNull(TEXT("Global collection skips protected player"), Protected->GetHand()->FindActivationPair(Stored));
+		TestNotNull(TEXT("Global collection still skips protected player"), Protected->GetHand()->FindActivationPair(CollectionStored));
 		ASHCard* Herald = T.Pair(T.Players[1]->GetHand(), Dead);
 		T.Mode->RequestStoredPairActivation(T.Players[1], Herald);
 		TestFalse(TEXT("Protected player is excluded from targeted effects"), T.Mode->PendingParticipantSelections.FindChecked(T.Players[1]).Candidates.Contains(Protected->GetHand()));
@@ -572,13 +582,17 @@ bool FSHCardReactionsTest::RunTest(const FString& Parameters)
 		ASHCard* Target = T.Pair(T.Players[0]->GetHand(), Dead);
 		ASHCard* Requested = T.Card(T.Players[2]->GetHand(), Bodgy);
 		T.Mode->RequestStoredPairActivation(T.Players[0], Target);
+		TestFalse(TEXT("Apologist is not offered before the effect"), T.Mode->ActiveReactionOffers.Contains(T.Players[1]));
+		T.Mode->RespondToCardReaction(T.Players[2], OfferId(T, T.Players[2]), false);
+		T.Advance();
+		TestTrue(TEXT("Original effect selects its target before capture"), T.Mode->PendingParticipantSelections.Contains(T.Players[0]));
+		T.Mode->SubmitParticipantSelection(T.Players[0], T.Players[2]->GetHand());
+		T.Advance();
+		TestTrue(TEXT("Effect is already applied when capture is offered"), T.Players[0]->GetHand()->ContainsCard(Requested));
 		T.Mode->RespondToCardReaction(T.Players[1], OfferId(T, T.Players[1]), true);
 		T.Mode->RespondToCardReaction(T.Players[2], OfferId(T, T.Players[2]), true);
 		T.Advance();
-		TestTrue(TEXT("Countering capture permits the original effect to execute"), T.Mode->PendingParticipantSelections.Contains(T.Players[0]));
-		T.Mode->SubmitParticipantSelection(T.Players[0], T.Players[2]->GetHand());
-		T.Advance();
-		TestTrue(TEXT("Original effect completes after its capture was cancelled"), T.Players[0]->GetHand()->ContainsCard(Requested));
+		TestTrue(TEXT("Countering capture does not undo the completed effect"), T.Players[0]->GetHand()->ContainsCard(Requested));
 		TestNull(TEXT("Cancelled capture does not transfer the original pair"), T.Players[1]->GetHand()->FindActivationPair(Target));
 		for (ASHPlayerState* Player : T.Players)
 		{
@@ -593,6 +607,8 @@ bool FSHCardReactionsTest::RunTest(const FString& Parameters)
 		ASHCard* Target = T.Pair(T.Players[0]->GetHand(), Bodgy);
 		T.Mode->RequestStoredPairActivation(T.Players[0], Target);
 		T.Mode->RespondToCardReaction(T.Players[1], OfferId(T, T.Players[1]), true);
+		T.Advance();
+		TestEqual(TEXT("Capture is offered for the completed counter, never the cancelled root"), T.Mode->ReactionTargetA.Get(), Counter);
 		T.Mode->RespondToCardReaction(T.Players[2], OfferId(T, T.Players[2]), true);
 		T.Advance();
 		TestFalse(TEXT("Capturing a counter lets that counter cancel the root"), T.Mode->HasActiveEffectTasks());
@@ -612,18 +628,22 @@ bool FSHCardReactionsTest::RunTest(const FString& Parameters)
 		FSHNewEffectsWorld T;
 		ASHCard* FirstCapture = T.Pair(T.Players[1]->GetHand(), Capture);
 		T.Pair(T.Players[2]->GetHand(), Capture);
-		ASHCard* Target = T.Pair(T.Players[0]->GetHand(), Hans);
+		ASHCard* Target = T.Pair(T.Players[0]->GetHand(), Dead);
+		T.Card(T.Players[2]->GetHand(), Bodgy);
 		T.Mode->RequestStoredPairActivation(T.Players[0], Target);
+		T.Mode->SubmitParticipantSelection(T.Players[0], T.Players[2]->GetHand());
+		T.Advance();
+		TestEqual(TEXT("Both Apologists are offered the completed effect concurrently"), T.Mode->ActiveReactionOffers.Num(), 2);
 		T.Mode->RespondToCardReaction(T.Players[1], OfferId(T, T.Players[1]), true);
+		T.Advance();
+		TestEqual(TEXT("Next capture targets the completed Apologist"), T.Mode->ReactionTargetA.Get(), FirstCapture);
 		T.Mode->RespondToCardReaction(T.Players[2], OfferId(T, T.Players[2]), true);
-		// Keep the definitions' real presentation locks: the root must wait for all
-		// completed reaction moves, including capture, before rotating ready pairs.
 		T.Advance();
-		T.Advance();
-		TestNotNull(TEXT("Hans rotates the captured reaction from player two back to player one"), T.Players[1]->GetHand()->FindActivationPair(FirstCapture));
-		TestNull(TEXT("Captured reaction was ready before Hans, so it leaves player two's zone"), T.Players[2]->GetHand()->FindActivationPair(FirstCapture));
-		TestEqual(TEXT("Rotated reaction has the final zone's network owner"), FirstCapture->GetOwningHand(), T.Players[1]->GetHand());
-		TestNotNull(TEXT("Root Hans finishes and is then captured by the first reacting player"), T.Players[1]->GetHand()->FindActivationPair(Target));
+		// The first Apologist has moved to player two, so it can now react to that
+		// player's completed Apologist only if owned by somebody else (it isn't).
+		TestNotNull(TEXT("Second Apologist takes the completed first Apologist"), T.Players[2]->GetHand()->FindActivationPair(FirstCapture));
+		TestEqual(TEXT("Captured reaction has its new network owner"), FirstCapture->GetOwningHand(), T.Players[2]->GetHand());
+		TestNotNull(TEXT("Original completed pair remains with the first capturing player"), T.Players[1]->GetHand()->FindActivationPair(Target));
 		TestEqual(TEXT("Only the final uncaptured reaction reaches victory"), T.Players[2]->GetHand()->GetVictoryStack()->GetPairCount(), 1);
 		TestFalse(TEXT("Reaction presentations and root rotation fully drain"), T.Mode->HasActiveEffectTasks());
 	}
@@ -683,7 +703,7 @@ bool FSHCardReactionsTest::RunTest(const FString& Parameters)
 	}
 	{
 		FSHNewEffectsWorld T;
-		ASHCard* FirstChoice = T.Pair(T.Players[1]->GetHand(), Capture);
+		ASHCard* FirstChoice = T.Pair(T.Players[1]->GetHand(), Cancel);
 		ASHCard* SecondChoice = T.Pair(T.Players[1]->GetHand(), Cancel);
 		ASHCard* OtherChoice = T.Pair(T.Players[2]->GetHand(), Cancel);
 		ASHCard* Target = T.Pair(T.Players[0]->GetHand(), Bodgy);
@@ -694,7 +714,7 @@ bool FSHCardReactionsTest::RunTest(const FString& Parameters)
 		T.Mode->RespondToCardReaction(T.Players[1], FirstOffer, false);
 		const int32 SecondOffer = OfferId(T, T.Players[1]);
 		TestNotEqual(TEXT("Second pair receives a fresh offer ID"), FirstOffer, SecondOffer);
-		TestEqual(TEXT("Decline offers that player's other reaction kind"), T.Mode->ActiveReactionOffers.FindChecked(T.Players[1]).CardA.Get(), SecondChoice);
+		TestEqual(TEXT("Decline offers that player's next counter"), T.Mode->ActiveReactionOffers.FindChecked(T.Players[1]).CardA.Get(), SecondChoice);
 		TestEqual(TEXT("Other player's concurrent offer remains unchanged"), OfferId(T, T.Players[2]), OtherOffer);
 		T.Mode->RespondToCardReaction(T.Players[1], FirstOffer, true);
 		CastChecked<ASHPlayerController>(T.Players[1]->GetOwner())->ClientCloseCardReaction_Implementation(FirstOffer);
@@ -758,7 +778,6 @@ bool FSHCardReactionsTest::RunTest(const FString& Parameters)
 		ASHCard* Target = T.Pair(T.Players[0]->GetHand(), Dead);
 		ASHCard* Requested = T.Card(T.Players[2]->GetHand(), Bodgy);
 		T.Mode->RequestStoredPairActivation(T.Players[0], Target);
-		T.Mode->RespondToCardReaction(T.Players[1], OfferId(T, T.Players[1]), true);
 		DeclineRemainingOffers(T);
 		T.Advance();
 		TestTrue(TEXT("Capture lets targeted activation execute"), T.Mode->PendingParticipantSelections.Contains(T.Players[0]));
@@ -766,6 +785,9 @@ bool FSHCardReactionsTest::RunTest(const FString& Parameters)
 		T.Mode->SubmitParticipantSelection(T.Players[0], T.Players[2]->GetHand());
 		T.Advance();
 		TestTrue(TEXT("Original activation transferred Bodgy before capture"), T.Players[0]->GetHand()->ContainsCard(Requested));
+		T.Mode->RespondToCardReaction(T.Players[1], OfferId(T, T.Players[1]), true);
+		DeclineRemainingOffers(T);
+		T.Advance();
 		const FActivatedPair* Captured = T.Players[1]->GetHand()->FindActivationPair(Target);
 		if (TestNotNull(TEXT("Finished pair captured into reaction owner's zone"), Captured))
 		{
@@ -774,7 +796,7 @@ bool FSHCardReactionsTest::RunTest(const FString& Parameters)
 		}
 		TestEqual(TEXT("Captured card gets new network owner"), Target->GetOwningHand(), T.Players[1]->GetHand());
 		TestEqual(TEXT("Original owner gets no victory point for captured pair"), T.Players[0]->GetHand()->GetVictoryStack()->GetPairCount(), 0);
-		TestNotNull(TEXT("Earlier counter loses to the faster capture response and is not consumed"), T.Players[2]->GetHand()->FindActivationPair(Counter));
+		TestNotNull(TEXT("Declined counter remains unspent"), T.Players[2]->GetHand()->FindActivationPair(Counter));
 		TestFalse(TEXT("Capture leaves no active task or offer"), T.Mode->HasActiveEffectTasks());
 	}
 	{
@@ -785,12 +807,15 @@ bool FSHCardReactionsTest::RunTest(const FString& Parameters)
 		ASHCard* First = T.Card(Source);
 		ASHCard* Second = T.Card(Source);
 		T.Mode->RequestStoredPairActivation(T.Players[0], Target);
-		T.Mode->RespondToCardReaction(T.Players[1], OfferId(T, T.Players[1]), true);
+		TestTrue(TEXT("No capture prompt during deferred draw"), T.Mode->ActiveReactionOffers.IsEmpty());
 		T.Advance();
 		TestNotNull(TEXT("Deferred draw pair not captured prematurely"), T.Players[0]->GetHand()->FindActivationPair(Target));
 		T.Draw(T.Players[0], Source, First);
 		T.Draw(T.Players[0], Source, Second);
+		TestTrue(TEXT("No capture prompt before mandatory return"), T.Mode->ActiveReactionOffers.IsEmpty());
 		T.Mode->SubmitHandCardSelection(T.Players[0], First);
+		T.Advance();
+		T.Mode->RespondToCardReaction(T.Players[1], OfferId(T, T.Players[1]), true);
 		T.Advance();
 		TestNotNull(TEXT("Capture waits through mandatory return"), T.Players[1]->GetHand()->FindActivationPair(Target));
 		TestFalse(TEXT("Deferred capture drains effects"), T.Mode->HasActiveEffectTasks());
@@ -798,7 +823,7 @@ bool FSHCardReactionsTest::RunTest(const FString& Parameters)
 	{
 		FSHNewEffectsWorld T;
 		T.Pair(T.Players[2]->GetHand(), Cancel);
-		T.Pair(T.Players[1]->GetHand(), Capture);
+		T.Pair(T.Players[1]->GetHand(), Cancel);
 		ASHCard* Target = T.Pair(T.Players[0]->GetHand(), Bodgy);
 		T.Mode->RequestStoredPairActivation(T.Players[0], Target);
 		const int32 RemainingOffer = OfferId(T, T.Players[1]);
@@ -810,6 +835,59 @@ bool FSHCardReactionsTest::RunTest(const FString& Parameters)
 		T.Advance();
 		TestFalse(TEXT("All declines resume normal activation"), T.State->bReactionPending);
 		TestTrue(TEXT("Uncountered deferred draw starts normally"), T.Mode->HasActiveEffectTasks());
+	}
+	{
+		FSHNewEffectsWorld T;
+		ASHCard* Apologist = T.Pair(T.Players[2]->GetHand(), Capture);
+		ASHCard* OtherPair = T.Pair(T.Players[1]->GetHand());
+		ASHCard* Target = T.Pair(T.Players[0]->GetHand(), Hans);
+		T.Mode->RequestStoredPairActivation(T.Players[0], Target);
+		TestTrue(TEXT("Hans starts without asking Apologists"), T.Mode->ActiveReactionOffers.IsEmpty());
+		T.Advance();
+		TestEqual(TEXT("Hans has already moved the Apologist before the question"), Apologist->GetOwningHand(), T.Players[1]->GetHand());
+		TestEqual(TEXT("Hans has already moved other pairs before the question"), OtherPair->GetOwningHand(), T.Players[0]->GetHand());
+		TestFalse(TEXT("Apologist's previous owner gets no prompt"), T.Mode->ActiveReactionOffers.Contains(T.Players[2]));
+		TestEqual(TEXT("Capture targets completed Hans"), T.Mode->ReactionTargetA.Get(), Target);
+		TestEqual(TEXT("Hans is not scored while capture is undecided"), T.Players[0]->GetHand()->GetVictoryStack()->GetPairCount(), 0);
+		T.Mode->RespondToCardReaction(T.Players[1], OfferId(T, T.Players[1]), true);
+		T.Advance();
+		TestNotNull(TEXT("New owner can use the moved Apologist to capture Hans"), T.Players[1]->GetHand()->FindActivationPair(Target));
+		TestEqual(TEXT("Captured Hans does not rotate pairs a second time"), OtherPair->GetOwningHand(), T.Players[0]->GetHand());
+		TestFalse(TEXT("Rotation and capture release the turn"), T.Mode->HasActiveEffectTasks());
+	}
+	for (int32 ExitMode : {0, 1, 2})
+	{
+		FSHNewEffectsWorld T;
+		ASHCard* Apologist = T.Pair(T.Players[1]->GetHand(), Capture);
+		ASHCard* Target = T.Pair(T.Players[0]->GetHand(), Dead);
+		ASHCard* Requested = T.Card(T.Players[2]->GetHand(), Bodgy);
+		T.Mode->RequestStoredPairActivation(T.Players[0], Target);
+		T.Mode->SubmitParticipantSelection(T.Players[0], T.Players[2]->GetHand());
+		T.Advance();
+		const int32 PostOffer = OfferId(T, T.Players[1]);
+		TestTrue(TEXT("Post-effect decision holds the authoritative turn pause"), T.State->bReactionPending);
+		TestTrue(TEXT("Post-effect decision sees the already transferred card"), T.Players[0]->GetHand()->ContainsCard(Requested));
+		if (ExitMode == 0) { T.Mode->RespondToCardReaction(T.Players[1], PostOffer, false); }
+		else { T.Mode->Logout(CastChecked<ASHPlayerController>(T.Players[ExitMode == 1 ? 1 : 0]->GetOwner())); }
+		T.Advance();
+		T.Mode->RespondToCardReaction(T.Players[1], PostOffer, true);
+		TestEqual(TEXT("Decline or disconnect finalizes completed root once"), T.Players[0]->GetHand()->GetVictoryStack()->GetPairCount(), 1);
+		TestNotNull(TEXT("Unaccepted Apologist remains unspent"), T.Players[1]->GetHand()->FindActivationPair(Apologist));
+		TestTrue(TEXT("Post-effect cleanup clears completion queue"), T.Mode->PendingSuccessfulActivations.IsEmpty());
+		TestFalse(TEXT("Post-effect cleanup releases all response and task locks"), T.State->bReactionPending || T.Mode->HasActiveEffectTasks());
+	}
+	{
+		FSHNewEffectsWorld T;
+		UClass* Collector = Load(TEXT("Card_Gnushor"));
+		if (!TestNotNull(TEXT("Collector definition exists"), Collector)) { return false; }
+		ASHCard* Apologist = T.Pair(T.Players[1]->GetHand(), Capture);
+		ASHCard* Target = T.Pair(T.Players[0]->GetHand(), Collector);
+		T.Mode->RequestStoredPairActivation(T.Players[0], Target);
+		T.Advance(); T.Advance();
+		TestTrue(TEXT("Apologist collected by the completed effect gets no prompt"), T.Mode->ActiveReactionOffers.IsEmpty());
+		TestEqual(TEXT("Collected Apologist is already in victory"), Apologist->GetCardZone(), ECardZone::Victory);
+		TestEqual(TEXT("Collector finalizes its own pair only once"), T.Players[0]->GetHand()->GetVictoryStack()->GetPairCount(), 1);
+		TestFalse(TEXT("Collector drains deferred own-pair completion"), T.Mode->HasActiveEffectTasks());
 	}
 	for (bool Accept : {false, true})
 	{
@@ -849,9 +927,9 @@ bool FSHCardReactionsTest::RunTest(const FString& Parameters)
 			ViewportClient->GetMouseLockMode(), EMouseLockMode::DoNotLock);
 		TestFalse(TEXT("Closing reaction does not hide cursor during card drag"), ViewportClient->HideCursorDuringCapture());
 		TestTrue(TEXT("Closing reaction preserves visible table cursor"), ReactorController->bShowMouseCursor);
-		TestFalse(TEXT("Closing reaction releases authoritative pause"), T.State->bReactionPending);
 
 		T.Advance();
+		TestFalse(TEXT("Closing reaction and finishing its presentation releases authoritative pause"), T.State->bReactionPending);
 		if (!Accept)
 		{
 			T.Mode->SubmitParticipantSelection(Activator, T.Hands[1]);
@@ -889,4 +967,705 @@ bool FSHCardReactionsTest::RunTest(const FString& Parameters)
 	}
 	return true;
 }
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSHSupportPairEffectsTest, "SeaHorse.Gameplay.Effects.SupportPairs",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FSHSupportPairEffectsTest::RunTest(const FString& Parameters)
+{
+	TGuardValue<bool> ScriptGuard(GAllowActorScriptExecutionInEditor, true);
+	auto Definition = [this](const TCHAR* Name)
+	{
+		UClass* Result = LoadClass<UCardDefinition>(nullptr, *FString::Printf(TEXT("/Game/SeaHorse/Cards/Definitions/%s.%s_C"), Name, Name));
+		TestNotNull(Name, Result);
+		return Result;
+	};
+	UClass* Dogs = Definition(TEXT("Card_DachshundsSpectralHounds"));
+	UClass* Pancho = Definition(TEXT("Card_Pancho"));
+	UClass* Counter = Definition(TEXT("Card_GieselbrechtWizardApprentice"));
+	UClass* Capture = Definition(TEXT("Card_GieselbrechtApologist"));
+	UClass* Dead = Definition(TEXT("Card_GniewDeadHerald"));
+	UClass* Bodgy = Definition(TEXT("Card_BodgyVampireHunter"));
+	UClass* Slayer = Definition(TEXT("Card_ThronriTrollSlayer"));
+	UClass* Collector = Definition(TEXT("Card_Gnushor"));
+	if (!Dogs || !Pancho || !Counter || !Capture || !Dead || !Bodgy || !Slayer || !Collector) { return false; }
+	auto Accept = [this](FSHNewEffectsWorld& T, ASHPlayerState* Player)
+	{
+		const ASHGameMode::FReactionOption* Offer = T.Mode->ActiveReactionOffers.Find(Player);
+		if (!TestNotNull(TEXT("Expected reaction offered"), Offer)) { return; }
+		T.Mode->RespondToCardReaction(Player, Offer->OfferId, true);
+	};
+	auto Boost = [this, Pancho](FSHNewEffectsWorld& T, ASHCard* Target)
+	{
+		ASHPlayerState* Player = T.Players[0];
+		ASHCard* Support = T.Pair(Player->GetHand(), Pancho);
+		T.Mode->RequestStoredPairActivation(Player, Support);
+		T.Advance();
+		TestTrue(TEXT("Pancho accepts a direct click on the own stored pair"), T.Mode->SubmitActivationPairSelection(Player, Target));
+		T.Advance();
+		const FActivatedPair* Pair = Player->GetHand()->FindActivationPair(Target);
+		TestTrue(TEXT("Selected pair stays Ready with a replicated bonus"), Pair && Pair->bDoubleEffectThisTurn && Pair->State == EActivationPairState::Ready && !Pair->bActivated);
+		TestFalse(TEXT("Pancho leaves the activation zone immediately after selection"), Player->GetHand()->FindActivationPair(Support) != nullptr);
+		TestFalse(TEXT("Choosing a pair does not start its effect"), T.Mode->HasActiveEffectTasks());
+	};
+	for (UClass* Reaction : {Counter, Capture})
+	{
+		FSHNewEffectsWorld T;
+		ASHPlayerState* Reactor = T.Players[1];
+		ASHHand* Hand = Reactor->GetHand();
+		ASHCard* DogPair = T.Pair(Hand, Dogs);
+		ASHCard* SecondDogs = T.Pair(Hand, Dogs);
+		ASHCard* Gieselbrecht = T.Pair(Hand, Reaction);
+		ASHCard* Root = T.Pair(T.Players[0]->GetHand(), Dead);
+		TestFalse(TEXT("Dogs are passive and cannot be manually activated"), T.Mode->GetTurnComponent()->CanActivatePair(Reactor, *Hand->FindActivationPair(DogPair)));
+		T.Mode->RequestStoredPairActivation(T.Players[0], Root);
+		if (Reaction == Capture) { T.Mode->SubmitParticipantSelection(T.Players[0], T.Hands[1]); T.Advance(); }
+		Accept(T, Reactor);
+		T.Advance();
+		TestFalse(TEXT("Oldest dogs pay for a successful Gieselbrecht"), Hand->FindActivationPair(DogPair) != nullptr);
+		TestNotNull(TEXT("Only one dog pair is spent"), Hand->FindActivationPair(SecondDogs));
+		const FActivatedPair* Kept = Hand->FindActivationPair(Gieselbrecht);
+		TestTrue(TEXT("Gieselbrecht is restored and unreserved"), Kept && Kept->State == EActivationPairState::Ready && !Kept->bActivated && !Kept->bActivationQueued);
+		TestEqual(TEXT("Dogs award one victory pair"), Hand->GetVictoryStack()->GetPairCount(), 1);
+		if (Reaction == Capture)
+		{
+			TestNotNull(TEXT("Apologist still captures the root after its effect"), Hand->FindActivationPair(Root));
+		}
+		TestFalse(TEXT("Support leaves no pending task or reaction"), T.Mode->HasActiveEffectTasks());
+		ASHCard* NextRoot = T.Pair(T.Players[0]->GetHand(), Dead);
+		T.Mode->RequestStoredPairActivation(T.Players[0], NextRoot);
+		if (Reaction == Capture) { T.Mode->SubmitParticipantSelection(T.Players[0], T.Hands[1]); T.Advance(); }
+		Accept(T, Reactor);
+		T.Advance();
+		TestFalse(TEXT("Restored Gieselbrecht can use the second dogs on another activation"), Hand->FindActivationPair(SecondDogs) != nullptr);
+	}
+	{
+		FSHNewEffectsWorld T;
+		ASHCard* DogPair = T.Pair(T.Players[1]->GetHand(), Dogs);
+		ASHCard* Gieselbrecht = T.Pair(T.Players[1]->GetHand(), Counter);
+		T.Pair(T.Players[2]->GetHand(), Counter);
+		ASHCard* Root = T.Pair(T.Players[0]->GetHand(), Dead);
+		T.Mode->RequestStoredPairActivation(T.Players[0], Root);
+		Accept(T, T.Players[1]); Accept(T, T.Players[2]); T.Advance();
+		TestNotNull(TEXT("Countered Gieselbrecht does not consume dogs"), T.Players[1]->GetHand()->FindActivationPair(DogPair));
+		TestFalse(TEXT("Countered Gieselbrecht is spent normally"), T.Players[1]->GetHand()->FindActivationPair(Gieselbrecht) != nullptr);
+		T.Mode->SubmitParticipantSelection(T.Players[0], T.Hands[1]); T.Advance();
+		TestFalse(TEXT("Counter chain with dogs releases all gameplay locks"), T.Mode->HasActiveEffectTasks());
+	}
+	{
+		FSHNewEffectsWorld T;
+		ASHCard* DogPair = T.Pair(T.Players[1]->GetHand(), Dogs);
+		ASHCard* Gieselbrecht = T.Pair(T.Players[1]->GetHand(), Counter);
+		T.Pair(T.Players[2]->GetHand(), Capture);
+		ASHCard* Root = T.Pair(T.Players[0]->GetHand(), Dead);
+		T.Mode->RequestStoredPairActivation(T.Players[0], Root);
+		Accept(T, T.Players[1]); T.Advance(); Accept(T, T.Players[2]); T.Advance();
+		TestNotNull(TEXT("Capture takes Gieselbrecht instead of invoking a victory substitute"), T.Players[2]->GetHand()->FindActivationPair(Gieselbrecht));
+		TestNotNull(TEXT("Dogs remain when Gieselbrecht is captured"), T.Players[1]->GetHand()->FindActivationPair(DogPair));
+		TestFalse(TEXT("Capturing Gieselbrecht leaves no unresolved effects"), T.Mode->HasActiveEffectTasks());
+	}
+	{
+		FSHNewEffectsWorld T;
+		ASHPlayerState* Reactor = T.Players[1];
+		ASHCard* DogPair = T.Pair(Reactor->GetHand(), Dogs);
+		ASHCard* Gieselbrecht = T.Pair(Reactor->GetHand(), Counter);
+		ASHCard* Root = T.Pair(T.Players[0]->GetHand(), Dead);
+		T.Mode->RequestStoredPairActivation(T.Players[0], Root);
+		UTurnComponent* Turns = T.Mode->GetTurnComponent();
+		Turns->BeginTurnTransitionBlock(TEXT("SupportAnimation"));
+		Accept(T, Reactor);
+		TestNotNull(TEXT("Dogs stay on the table until presentation completes"), Reactor->GetHand()->FindActivationPair(DogPair));
+		TestTrue(TEXT("Gieselbrecht remains reserved during replacement presentation"), Reactor->GetHand()->FindActivationPair(Gieselbrecht)->bActivationQueued);
+		Turns->FinishTurnTransitionBlock(TEXT("SupportAnimation")); T.Advance();
+		TestFalse(TEXT("Animation completion moves dogs to victory"), Reactor->GetHand()->FindActivationPair(DogPair) != nullptr);
+		TestFalse(TEXT("Animation completion releases Gieselbrecht reservation"), Reactor->GetHand()->FindActivationPair(Gieselbrecht)->bActivationQueued);
+		TestTrue(TEXT("Animation completion restores Gieselbrecht readiness"), Reactor->GetHand()->FindActivationPair(Gieselbrecht)->State == EActivationPairState::Ready);
+		TestTrue(TEXT("Replacement drains the root queue and pending presentation moves"), T.Mode->PendingPairActivations.IsEmpty() && T.Mode->CompletedEffectPairsWaitingForPresentation.IsEmpty());
+	}
+	for (UClass* Reaction : {Counter, Capture})
+	{
+		FSHNewEffectsWorld T;
+		ASHPlayerState* Player = T.Players[0];
+		ASHCard* Target = T.Pair(Player->GetHand(), Dead);
+		T.Card(T.Hands[1], Bodgy); T.Card(T.Hands[1], Bodgy);
+		Boost(T, Target);
+		T.Pair(T.Players[1]->GetHand(), Reaction);
+		T.Mode->RequestStoredPairActivation(Player, Target);
+		if (Reaction == Capture)
+		{
+			TestTrue(TEXT("Doubled effect has no early capture prompt"), T.Mode->ActiveReactionOffers.IsEmpty());
+			T.Mode->SubmitParticipantSelection(Player, T.Hands[1]); T.Advance();
+			TestNotNull(TEXT("Capture waits until both doubled executions finish"), Player->GetHand()->FindActivationPair(Target));
+			TestTrue(TEXT("No capture prompt between doubled executions"), T.Mode->ActiveReactionOffers.IsEmpty());
+			T.Mode->SubmitParticipantSelection(Player, T.Hands[1]); T.Advance();
+			Accept(T, T.Players[1]); T.Advance();
+			const FActivatedPair* Captured = T.Players[1]->GetHand()->FindActivationPair(Target);
+			TestTrue(TEXT("Captured pair is Ready without retaining its used bonus"), Captured && Captured->State == EActivationPairState::Ready && !Captured->bDoubleEffectThisTurn);
+			TestEqual(TEXT("Both executions occurred before capture"), Player->GetHand()->GetCardCount(), 2);
+		}
+		else
+		{
+			Accept(T, T.Players[1]); T.Advance();
+			TestEqual(TEXT("Counter cancels both executions of the doubled activation"), Player->GetHand()->GetCardCount(), 0);
+			TestEqual(TEXT("Cancelled doubled pair is consumed once"), Player->GetHand()->GetVictoryStack()->GetPairCount(), 2);
+		}
+		TestTrue(TEXT("Reaction on a doubled activation leaves no repeat bookkeeping"), T.Mode->RepeatedPairEffects.IsEmpty());
+		TestFalse(TEXT("Reaction on a doubled activation releases gameplay"), T.Mode->HasActiveEffectTasks());
+	}
+	{
+		FSHNewEffectsWorld T;
+		ASHPlayerState* Player = T.Players[0];
+		ASHHand* Hand = Player->GetHand();
+		ASHCard* Target = T.Pair(Hand, Dead);
+		ASHCard* First = T.Card(T.Hands[1], Bodgy);
+		ASHCard* Second = T.Card(T.Players[1]->GetHand(), Bodgy);
+		Boost(T, Target);
+		T.Mode->RequestStoredPairActivation(Player, Target); T.Advance();
+		T.Mode->SubmitParticipantSelection(Player, T.Hands[1]); T.Advance();
+		TestTrue(TEXT("First execution transfers one Bodgy"), Hand->ContainsCard(First));
+		TestNotNull(TEXT("Pair is not spent between executions"), Hand->FindActivationPair(Target));
+		TestTrue(TEXT("Second execution requests a new target"), T.Mode->PendingParticipantSelections.Contains(Player));
+		TestFalse(TEXT("Second execution cannot be rolled back with ESC"), T.Mode->CancelEffectTargetSelection(Player, Target, Hand->FindActivationPair(Target)->CardB));
+		T.Mode->SubmitParticipantSelection(Player, T.Players[1]->GetHand()); T.Advance();
+		TestTrue(TEXT("Second execution can use a different source"), Hand->ContainsCard(Second));
+		TestEqual(TEXT("Pancho and the doubled target are each spent once"), Hand->GetVictoryStack()->GetPairCount(), 2);
+		TestFalse(TEXT("Two executions finish all targeting and tasks"), T.Mode->HasActiveEffectTasks() || T.Mode->IsWaitingForPlayerSelection());
+	}
+	for (int32 Targets : {1, 2})
+	{
+		FSHNewEffectsWorld T;
+		ASHPlayerState* Player = T.Players[0];
+		ASHCard* Target = T.Pair(Player->GetHand(), Slayer);
+		ASHCard* First = T.Pair(T.Players[1]->GetHand());
+		ASHCard* Second = Targets == 2 ? T.Pair(T.Players[2]->GetHand()) : nullptr;
+		Boost(T, Target);
+		T.Mode->RequestStoredPairActivation(Player, Target); T.Advance();
+		T.Mode->SubmitActivationPairSelection(Player, First); T.Advance();
+		if (Second) { T.Mode->SubmitActivationPairSelection(Player, Second); T.Advance(); }
+		TestFalse(TEXT("Doubled slayer is removed even when the second execution has no target"), IsValid(Target));
+		TestFalse(TEXT("First chosen pair is removed"), IsValid(First));
+		if (Second) { TestFalse(TEXT("Second chosen pair is removed"), IsValid(Second)); }
+		TestFalse(TEXT("Removal releases the activation queue"), T.Mode->HasActiveEffectTasks());
+	}
+	{
+		FSHNewEffectsWorld T;
+		ASHCard* Target = T.Pair(T.Players[0]->GetHand(), Collector);
+		T.Pair(T.Players[1]->GetHand());
+		Boost(T, Target);
+		T.Mode->RequestStoredPairActivation(T.Players[0], Target); T.Advance();
+		T.Advance(); // Two separate VFX periods, including the final victory presentation.
+		TestFalse(TEXT("Bulk collection can finish both executions without an early own-pair removal"), T.Mode->HasActiveEffectTasks());
+		TestEqual(TEXT("Doubled collector only scores itself once"), T.Players[0]->GetHand()->GetVictoryStack()->GetPairCount(), 2);
+	}
+	{
+		FSHNewEffectsWorld T;
+		ASHPlayerState* Player = T.Players[0];
+		ASHHand* Source = T.Hands[1];
+		ASHCard* Target = T.Pair(Player->GetHand(), Bodgy);
+		TArray<ASHCard*> Cards;
+		for (int32 I = 0; I < 4; ++I) { Cards.Add(T.Card(Source)); }
+		Boost(T, Target);
+		T.Mode->RequestStoredPairActivation(Player, Target); T.Advance();
+		T.Draw(Player, Source, Cards[0]); T.Draw(Player, Source, Cards[1]);
+		T.Mode->SubmitHandCardSelection(Player, Cards[0]); T.Advance();
+		TestTrue(TEXT("Repeat continues the deferred draw after the first return"), T.Mode->GetTurnComponent()->CanDrawCardFromHand(Player, Source));
+		T.Draw(Player, Source, Cards[2]);
+		TestFalse(TEXT("Repeated Bodgy waits for its own second card before asking for a return"), T.Mode->PendingHandCardSelections.Contains(Player));
+		T.Draw(Player, Source, Cards[3]);
+		T.Mode->SubmitHandCardSelection(Player, Cards[1]);
+		TestTrue(TEXT("Second return cannot use a card retained from the first execution"), T.Mode->PendingHandCardSelections.Contains(Player));
+		T.Mode->SubmitHandCardSelection(Player, Cards[2]); T.Advance();
+		TestEqual(TEXT("Four draws and two returns retain two cards"), Player->GetHand()->GetCardCount(), 2);
+		TestEqual(TEXT("Repeated draw returns to second pairing"), T.State->GetTurnPhase(), ETurnPhase::SecondPairing);
+		TestFalse(TEXT("Repeated deferred draw releases tasks"), T.Mode->HasActiveEffectTasks());
+	}
+	{
+		FSHNewEffectsWorld T;
+		for (ASHHand* Hand : T.Hands) { T.Card(Hand); }
+		ASHCard* Target = T.Pair(T.Players[0]->GetHand(), Dead);
+		Boost(T, Target);
+		T.State->SetTurnPhase(ETurnPhase::SecondPairing);
+		T.Mode->GetTurnComponent()->SkipCurrentPhase(T.Players[0]);
+		TestEqual(TEXT("Unused bonus does not block ending the turn"), T.State->GetCurrentPlayer(), T.Players[1]);
+		TestFalse(TEXT("Unused bonus expires at turn end"), T.Players[0]->GetHand()->FindActivationPair(Target)->bDoubleEffectThisTurn);
+	}
+	return true;
+}
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSHDoubledZoneRotationTest, "SeaHorse.Gameplay.Effects.DoubledZoneRotation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FSHDoubledZoneRotationTest::RunTest(const FString& Parameters)
+{
+	TGuardValue<bool> ScriptGuard(GAllowActorScriptExecutionInEditor, true);
+	UClass* Pancho = LoadClass<UCardDefinition>(nullptr, TEXT("/Game/SeaHorse/Cards/Definitions/Card_Pancho.Card_Pancho_C"));
+	UClass* Hans = LoadClass<UCardDefinition>(nullptr, TEXT("/Game/SeaHorse/Cards/Definitions/Card_HansCaptain.Card_HansCaptain_C"));
+	if (!TestNotNull(TEXT("Pancho definition exists"), Pancho) || !TestNotNull(TEXT("Hans definition exists"), Hans)) { return false; }
+	for (int32 Humans : {2, 3, 5, 6})
+	for (bool Protected : {false, true})
+	{
+		if (Protected && Humans == 2) { continue; }
+		FSHNewEffectsWorld T(Humans, FMath::Min(Humans + 1, 6));
+		ASHPlayerState* Activator = T.Players[0];
+		TArray<ASHPlayerState*> Participants;
+		TArray<ASHCard*> Pairs;
+		for (int32 Index = 0; Index < T.Players.Num(); ++Index)
+		{
+			ASHPlayerState* Player = T.Players[Index];
+			ASHCard* Pair = T.Pair(Player->GetHand());
+			if (Protected && Index == 1) { Player->SetProtectedFromCardEffects(true); }
+			Participants.Add(Player); Pairs.Add(Pair);
+		}
+		ASHCard* Target = T.Pair(Activator->GetHand(), Hans);
+		ASHCard* Support = T.Pair(Activator->GetHand(), Pancho);
+		T.Mode->RequestStoredPairActivation(Activator, Support); T.Advance();
+		T.Mode->SubmitActivationPairSelection(Activator, Target); T.Advance();
+		TestTrue(TEXT("Pancho applies to Hans without activating him"), Activator->GetHand()->FindActivationPair(Target)->bDoubleEffectThisTurn);
+		auto Tick = [&T]() { ++GFrameCounter; T.World->GetTimerManager().Tick(0.05f); };
+		auto CheckStep = [this, &T, &Participants, &Pairs](int32 Step)
+		{
+			for (int32 Index = 0; Index < Pairs.Num(); ++Index)
+			{
+				ASHHand* Expected = Participants[(Index + Pairs.Num() - Step) % Pairs.Num()]->GetHand();
+				TestEqual(*FString::Printf(TEXT("Step %d moves pair %d to the correct right-hand neighbour"), Step, Index), Pairs[Index]->GetOwningHand(), Expected);
+				TestNotNull(TEXT("Destination contains the pair"), Expected->FindActivationPair(Pairs[Index]));
+				int32 Copies = 0;
+				for (ASHHand* Hand : T.Hands) { if (Hand->FindActivationPair(Pairs[Index])) { ++Copies; } }
+				TestEqual(TEXT("Each pair exists in exactly one zone"), Copies, 1);
+			}
+			for (ASHHand* Hand : T.Hands) { if (Hand->IsLogicalNPC()) { TestTrue(TEXT("BN is skipped by both rotations"), Hand->GetLogicalActivationPairs().IsEmpty()); } }
+		};
+		T.Mode->RequestStoredPairActivation(Activator, Target);
+		TestTrue(TEXT("First execution starts its own circle"), T.Mode->GetTurnComponent()->HasNamedTurnTransitionBlocks());
+		for (int32 TickIndex = 0; TickIndex < 200 && Pairs[0]->GetOwningHand() == Participants[0]->GetHand(); ++TickIndex) { Tick(); }
+		CheckStep(1);
+		TestTrue(TEXT("First rotation retains the activation until the repeat"), T.Mode->HasActiveEffectTasks());
+		TestFalse(TEXT("First destination is not frozen by an overlapping second circle"), T.Mode->GetTurnComponent()->HasNamedTurnTransitionBlocks());
+		for (int32 TickIndex = 0; TickIndex < 10; ++TickIndex) { Tick(); }
+		CheckStep(1);
+		for (int32 TickIndex = 0; TickIndex < 200 && !T.Mode->GetTurnComponent()->HasNamedTurnTransitionBlocks(); ++TickIndex) { Tick(); }
+		TestTrue(TEXT("Second execution visibly replays the circle"), T.Mode->GetTurnComponent()->HasNamedTurnTransitionBlocks());
+		CheckStep(1);
+		for (int32 TickIndex = 0; TickIndex < 200 && T.Mode->HasActiveEffectTasks(); ++TickIndex) { Tick(); }
+		CheckStep(2);
+		TestFalse(TEXT("Both executions release gameplay and presentation"), T.Mode->HasActiveEffectTasks() || T.Mode->GetTurnComponent()->HasNamedTurnTransitionBlocks());
+		TestTrue(TEXT("Repeated rotation leaves no queue entries"), T.Mode->PendingPairActivations.IsEmpty() && T.Mode->RepeatedPairEffects.IsEmpty());
+		TestEqual(TEXT("Pancho and Hans each score exactly one pair for the activator"), Activator->GetHand()->GetVictoryStack()->GetPairCount(), 2);
+		TestFalse(TEXT("Hans does not rotate with the other pairs"), Activator->GetHand()->FindActivationPair(Target) != nullptr);
+	}
+	return true;
+}
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSHPanchoAllCardsTest, "SeaHorse.Gameplay.Effects.PanchoAllDefinitions",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FSHPanchoAllCardsTest::RunTest(const FString& Parameters)
+{
+	TGuardValue<bool> ScriptGuard(GAllowActorScriptExecutionInEditor, true);
+	auto Load = [this](const TCHAR* Name)
+	{
+		UClass* Class = LoadClass<UCardDefinition>(nullptr, *FString::Printf(TEXT("/Game/SeaHorse/Cards/Definitions/%s.%s_C"), Name, Name));
+		TestNotNull(Name, Class); return Class;
+	};
+	UClass* Pancho = Load(TEXT("Card_Pancho"));
+	UClass* Gloria = Load(TEXT("Card_Gloria"));
+	UClass* Otfried = Load(TEXT("Card_Otfried"));
+	UClass* Bodgy = Load(TEXT("Card_BodgyVampireHunter"));
+	UClass* SeaHorse = Load(TEXT("Card_SeaHorse"));
+	if (!Pancho || !Gloria || !Otfried || !Bodgy || !SeaHorse) { return false; }
+	const TArray<FString> Names = {TEXT("Card_Aramdila"), TEXT("Card_BodgyVampireHunter"), TEXT("Card_CrumoUrsula"),
+		TEXT("Card_Fimarik"), TEXT("Card_Gloria"), TEXT("Card_GniewDeadHerald"), TEXT("Card_GniewLivingHerald"),
+		TEXT("Card_Gnushor"), TEXT("Card_HansCaptain"), TEXT("Card_KurtPriest"), TEXT("Card_OlgaPriest"),
+		TEXT("Card_Otfried"), TEXT("Card_Pancho"), TEXT("Card_PaulusSilent"), TEXT("Card_PaulusWitchHunterWu"),
+		TEXT("Card_ThronriTrollSlayer"), TEXT("Card_Wilhelm"), TEXT("Card_YeHeshaNightMonk")};
+	for (const FString& Name : Names)
+	for (int32 Variant = 1; Variant <= (Name == TEXT("Card_Wilhelm") ? 2 : 1); ++Variant)
+	{
+		UClass* Definition = Load(*Name);
+		if (!Definition) { continue; }
+		AddInfo(TEXT("Pancho compatibility: ") + Name);
+		FSHNewEffectsWorld T;
+		ASHPlayerState* Player = T.Players[0];
+		ASHHand* Hand = Player->GetHand();
+		UTurnComponent* Turns = T.Mode->GetTurnComponent();
+		TArray<ASHCard*> Anchors;
+		for (ASHHand* H : T.Hands) { Anchors.Add(T.Card(H)); for (int32 I = 1; I < 6; ++I) { T.Card(H); } }
+		ASHCard* Victim1 = T.Pair(T.Players[1]->GetHand(), Gloria);
+		ASHCard* Victim2 = T.Pair(T.Players[2]->GetHand(), Otfried);
+		if (Definition == Pancho)
+		{
+			Victim1 = T.Pair(Hand, Gloria); Victim2 = T.Pair(Hand, Otfried);
+		}
+		TArray<ASHCard*> SpecialCards;
+		if (Name == TEXT("Card_GniewDeadHerald"))
+		{
+			SpecialCards.Add(T.Card(T.Players[1]->GetHand(), Bodgy)); SpecialCards.Add(T.Card(T.Players[2]->GetHand(), Bodgy));
+		}
+		if (Name == TEXT("Card_Wilhelm")) { for (int32 I = 0; I < Variant; ++I) { SpecialCards.Add(T.Card(Hand, SeaHorse)); } }
+		ASHCard* Target = T.Pair(Hand, Definition);
+		ASHCard* Support = T.Pair(Hand, Pancho);
+		T.Mode->RequestStoredPairActivation(Player, Support); T.Advance();
+		T.Mode->SubmitActivationPairSelection(Player, Target); T.Advance();
+		if (!TestTrue(*Name, Hand->FindActivationPair(Target)->bDoubleEffectThisTurn)) { continue; }
+		const bool DrawEffect = Name == TEXT("Card_BodgyVampireHunter") || Name == TEXT("Card_CrumoUrsula") || Name == TEXT("Card_Otfried");
+		int32 Draws = 0, Returns = 0, PlayerChoices = 0, ParticipantChoices = 0, PairChoices = 0, Exchanges = 0;
+		TArray<ASHCard*> CollectedTargets;
+		T.Mode->RequestStoredPairActivation(Player, Target);
+		for (int32 Step = 0; Step < 800 && (T.Mode->HasActiveEffectTasks() || !T.Mode->PendingPairActivations.IsEmpty()); ++Step)
+		{
+			++GFrameCounter; T.World->GetTimerManager().Tick(0.05f);
+			if (Turns->HasNamedTurnTransitionBlocks()) { continue; }
+			if (const auto* Pending = T.Mode->PendingPlayerSelections.Find(Player))
+			{
+				ASHPlayerState* Choice = T.Players[1 + PlayerChoices % 2];
+				TestTrue(TEXT("Each execution offers its own player target"), Pending->Candidates.Contains(Choice));
+				++PlayerChoices; T.Mode->SubmitPlayerSelection(Player, Choice);
+			}
+			else if (const auto* ParticipantSelection = T.Mode->PendingParticipantSelections.Find(Player))
+			{
+				ASHHand* Choice = Name == TEXT("Card_GniewDeadHerald") ? T.Players[1 + ParticipantChoices % 2]->GetHand() : T.Hands[1];
+				TestTrue(TEXT("Each execution offers a fresh hand target"), ParticipantSelection->Candidates.Contains(Choice));
+				++ParticipantChoices; T.Mode->SubmitParticipantSelection(Player, Choice);
+			}
+			else if (const auto* PairSelection = T.Mode->PendingPairSelections.Find(Player))
+			{
+				ASHCard* Choice = PairChoices == 0 ? Victim1 : Victim2;
+				TestTrue(TEXT("Both executions can select different pairs"), PairSelection->CandidateCards.Contains(Choice));
+				for (ASHCard* Previous : CollectedTargets) { TestFalse(TEXT("Olga cannot reselect an already collected pair"), PairSelection->CandidateCards.Contains(Previous)); }
+				if (Name == TEXT("Card_OlgaPriest")) { CollectedTargets.Add(Choice); }
+				++PairChoices; T.Mode->SubmitActivationPairSelection(Player, Choice);
+			}
+			else if (const auto* CardSelection = T.Mode->PendingHandCardSelections.Find(Player))
+			{
+				TArray<ASHCard*> Choice;
+				const bool Offering = Name == TEXT("Card_KurtPriest") && CardSelection->SourceHand == Hand;
+				const int32 Count = Offering ? FMath::Min(3, CardSelection->CandidateCards.Num()) : 1;
+				for (int32 I = 0; I < Count; ++I) { Choice.Add(CardSelection->CandidateCards[I]); }
+				if (Offering) { ++Exchanges; }
+				if (Name == TEXT("Card_BodgyVampireHunter")) { ++Returns; }
+				T.Mode->SubmitHandCardsSelection(Player, Choice);
+			}
+			else if (DrawEffect && (Draws == 0 || Turns->bWaitingForAdditionalDraw))
+			{
+				ASHHand* Source = Draws > 0 && Name == TEXT("Card_CrumoUrsula") ? T.Hands[1] : T.Players[1]->GetHand();
+				if (Turns->CanDrawCardFromHand(Player, Source)) { T.Draw(Player, Source, Source->GetCards()[0]); ++Draws; }
+			}
+		}
+		T.Advance();
+		TestFalse(*FString::Printf(TEXT("%s finishes both executions without a stuck selection"), *Name), T.Mode->HasActiveEffectTasks() || T.Mode->IsWaitingForPlayerSelection());
+		TestTrue(TEXT("No repeated activation or queue remains"), T.Mode->RepeatedPairEffects.IsEmpty() && T.Mode->PendingPairActivations.IsEmpty());
+		TestEqual(TEXT("The activating pair is spent exactly once"), Hand->GetVictoryStack()->GetPairCount(), Name == TEXT("Card_ThronriTrollSlayer") ? 1 : 2);
+		if (DrawEffect)
+		{
+			TestEqual(TEXT("Additional draws execute twice"), Draws, Name == TEXT("Card_BodgyVampireHunter") ? 4 : 3);
+			TestEqual(TEXT("Draw sequence reaches the same turn's second pairing"), T.State->GetTurnPhase(), ETurnPhase::SecondPairing);
+			if (Name == TEXT("Card_BodgyVampireHunter")) { TestEqual(TEXT("Bodgy returns one card per execution"), Returns, 2); }
+		}
+		if (Name == TEXT("Card_Gloria")) { for (int32 I : {1, 2}) { TestEqual(TEXT("Gloria schedules each selected skip"), Turns->PendingSkippedTurns.FindRef(T.Players[I]), 1); } }
+		if (Name == TEXT("Card_PaulusSilent")) { for (int32 I : {1, 2}) { TestEqual(TEXT("Paulus sets each selected player's source"), Turns->GetFirstForcedDrawSourceHand(T.Players[I]), T.Hands[1]); } }
+		if (Name == TEXT("Card_KurtPriest")) { TestEqual(TEXT("Kurt requests two separate exchanges"), Exchanges, 2); TestEqual(TEXT("Both exchanges preserve own hand size"), Hand->GetCardCount(), 6); }
+		if (Name == TEXT("Card_GniewDeadHerald")) { for (ASHCard* Card : SpecialCards) { TestTrue(TEXT("Dead Herald transfers both requested cards"), Hand->ContainsCard(Card)); } }
+		if (Name == TEXT("Card_GniewLivingHerald")) { for (ASHCard* Card : {Victim1, Victim2}) { TestNotNull(TEXT("Living Herald steals both eligible pairs"), Hand->FindActivationPair(Card)); } }
+		if (Name == TEXT("Card_OlgaPriest") || Name == TEXT("Card_Gnushor")) { for (int32 I : {1, 2}) { TestEqual(TEXT("Collected pairs score once for their own owners"), T.Players[I]->GetHand()->GetVictoryStack()->GetPairCount(), 1); } }
+		if (Name == TEXT("Card_ThronriTrollSlayer")) { TestFalse(TEXT("Slayer removes itself and both chosen pairs"), IsValid(Target) || IsValid(Victim1) || IsValid(Victim2)); }
+		if (Name == TEXT("Card_Aramdila")) { for (int32 I = 0; I < Anchors.Num(); ++I) { TestEqual(TEXT("Aramdila passes hands left twice, including BN"), Anchors[I]->GetOwningHand(), T.Hands[(I + 2) % T.Hands.Num()]); } }
+		if (Name == TEXT("Card_HansCaptain")) { TestNotNull(TEXT("Hans passes the first opponent's pair two human seats right"), T.Players[2]->GetHand()->FindActivationPair(Victim1)); }
+		if (Definition == Pancho) { for (ASHCard* Card : {Victim1, Victim2}) { TestTrue(TEXT("Doubled Pancho boosts two separate pairs"), Hand->FindActivationPair(Card)->bDoubleEffectThisTurn); } }
+		if (Name == TEXT("Card_Wilhelm")) { for (ASHCard* Card : SpecialCards) { TestEqual(TEXT("Wilhelm transfers available SeaHorses without duplicating them"), Card->GetOwningHand(), T.Hands[1]); } }
+		if (Name == TEXT("Card_YeHeshaNightMonk"))
+		{
+			TSet<ASHCard*> Unique;
+			for (ASHHand* H : T.Hands) { TestEqual(TEXT("Two shuffles still deal balanced hands"), H->GetCardCount(), 6); for (ASHCard* Card : H->GetCards()) { Unique.Add(Card); } }
+			TestEqual(TEXT("Two shuffles preserve every card exactly once"), Unique.Num(), 24);
+		}
+		if (Name == TEXT("Card_PaulusWitchHunterWu"))
+		{
+			TestTrue(TEXT("Doubled protection is active"), Player->IsProtectedFromCardEffects());
+			Turns->EndTurn(); Turns->EndTurn(); Turns->EndTurn();
+			TestFalse(TEXT("Repeating protection does not extend its next-turn expiry"), Player->IsProtectedFromCardEffects());
+		}
+	}
+	return true;
+}
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSHDogsReactionChainTest, "SeaHorse.Gameplay.Effects.DogsReactionChainDestinations",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FSHDogsReactionChainTest::RunTest(const FString& Parameters)
+{
+	TGuardValue<bool> ScriptGuard(GAllowActorScriptExecutionInEditor, true);
+	auto Load = [this](const TCHAR* Name)
+	{
+		UClass* Class = LoadClass<UCardDefinition>(nullptr, *FString::Printf(TEXT("/Game/SeaHorse/Cards/Definitions/%s.%s_C"), Name, Name));
+		TestNotNull(Name, Class); return Class;
+	};
+	UClass* Dogs = Load(TEXT("Card_DachshundsSpectralHounds"));
+	UClass* Counter = Load(TEXT("Card_GieselbrechtWizardApprentice"));
+	UClass* Capture = Load(TEXT("Card_GieselbrechtApologist"));
+	UClass* Dead = Load(TEXT("Card_GniewDeadHerald"));
+	UClass* Hans = Load(TEXT("Card_HansCaptain"));
+	UClass* Collector = Load(TEXT("Card_Gnushor"));
+	if (!Dogs || !Counter || !Capture || !Dead || !Hans || !Collector) { return false; }
+	for (int32 First : {1, 2})
+	for (bool DogsWithFirst : {true, false})
+	for (bool SecondCaptures : {false, true})
+	for (bool FirstCaptures : {false, true})
+	for (UClass* RootDefinition : {Dead, Hans, Collector})
+	{
+		if (FirstCaptures && SecondCaptures) { continue; }
+		// Mixed reactions now occur in separate phases. Rotation/collection of
+		// unused Apologists is covered by the post-activation timing scenarios.
+		if ((FirstCaptures || SecondCaptures) && RootDefinition != Dead) { continue; }
+		FSHNewEffectsWorld T;
+		const int32 Second = 3 - First;
+		const int32 DogsOwner = DogsWithFirst ? First : Second;
+		ASHCard* Root = T.Pair(T.Players[0]->GetHand(), RootDefinition);
+		ASHCard* A = T.Pair(T.Players[First]->GetHand(), FirstCaptures ? Capture : Counter);
+		ASHCard* B = T.Pair(T.Players[Second]->GetHand(), SecondCaptures ? Capture : Counter);
+		ASHCard* Hounds = T.Pair(T.Players[DogsOwner]->GetHand(), Dogs);
+		T.Mode->RequestStoredPairActivation(T.Players[0], Root);
+		if (FirstCaptures)
+		{
+			const auto* InitialCounter = T.Mode->ActiveReactionOffers.Find(T.Players[Second]);
+			if (!TestNotNull(TEXT("Only the counter is offered before the effect"), InitialCounter)) { return false; }
+			T.Mode->RespondToCardReaction(T.Players[Second], InitialCounter->OfferId, false);
+			T.Advance();
+			T.Mode->SubmitParticipantSelection(T.Players[0], T.Hands[1]); T.Advance();
+		}
+		for (int32 Index : {First, Second})
+		{
+			if (SecondCaptures && Index == Second) { T.Advance(); }
+			const auto* Offer = T.Mode->ActiveReactionOffers.Find(T.Players[Index]);
+			if (!TestNotNull(TEXT("Both reactions are offered in the chosen order"), Offer)) { return false; }
+			T.Mode->RespondToCardReaction(T.Players[Index], Offer->OfferId, true);
+		}
+		T.Advance(); T.Advance();
+		if (!FirstCaptures && !SecondCaptures && RootDefinition == Dead)
+		{
+			TestTrue(TEXT("A countered counter restores the original effect"), T.Mode->PendingParticipantSelections.Contains(T.Players[0]));
+			T.Mode->SubmitParticipantSelection(T.Players[0], T.Hands[1]);
+			T.Advance();
+		}
+		// Describe the expected result before the original effect (if restored) runs.
+		const TArray<ASHCard*> Cards = {Root, A, B, Hounds};
+		TArray<int32> Owners = {0, SecondCaptures ? Second : First, Second, DogsOwner};
+		TArray<bool> Victory = {true, !SecondCaptures, DogsWithFirst, !DogsWithFirst};
+		if (!SecondCaptures)
+		{
+			for (int32 Index = 1; Index < Cards.Num(); ++Index)
+			{
+				if (Victory[Index]) { continue; }
+				if (RootDefinition == Hans) { Owners[Index] = (Owners[Index] + 2) % 3; }
+				else if (RootDefinition == Collector) { Victory[Index] = true; }
+			}
+		}
+		TArray<int32> ExpectedScores = {0, 0, 0};
+		for (int32 Index = 0; Index < Cards.Num(); ++Index)
+		{
+			ASHHand* Hand = T.Players[Owners[Index]]->GetHand();
+			if (Victory[Index])
+			{
+				++ExpectedScores[Owners[Index]];
+				TestEqual(TEXT("Spent pair reaches the expected victory stack"), Cards[Index]->GetOwner(), static_cast<AActor*>(Hand->GetVictoryStack()));
+				TestEqual(TEXT("Spent pair has victory zone"), Cards[Index]->GetCardZone(), ECardZone::Victory);
+			}
+			else
+			{
+				TestEqual(TEXT("Remaining or moved pair has the expected activation-zone owner"), Cards[Index]->GetOwningHand(), Hand);
+				const FActivatedPair* Pair = Hand->FindActivationPair(Cards[Index]);
+				TestTrue(TEXT("Surviving pair is ready and unreserved"), Pair && Pair->State == EActivationPairState::Ready && !Pair->bActivated && !Pair->bActivationQueued);
+			}
+		}
+		for (int32 Index = 0; Index < 3; ++Index) { TestEqual(TEXT("Scores match all four pairs without duplication"), T.Players[Index]->GetHand()->GetVictoryStack()->GetPairCount(), ExpectedScores[Index]); }
+		TestTrue(TEXT("Chain drains every pending move and activation"), T.Mode->CompletedEffectPairsWaitingForPresentation.IsEmpty() && T.Mode->PendingPairActivations.IsEmpty());
+		TestFalse(TEXT("Chain releases all gameplay and presentation locks"), T.Mode->HasActiveEffectTasks() || T.Mode->IsWaitingForPlayerSelection() || T.Mode->GetTurnComponent()->HasNamedTurnTransitionBlocks());
+	}
+	return true;
+}
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSHReportedEffectRegressionsTest, "SeaHorse.Gameplay.Effects.ReportedDrawAndRotationRegressions",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FSHReportedEffectRegressionsTest::RunTest(const FString& Parameters)
+{
+	TGuardValue<bool> ScriptGuard(GAllowActorScriptExecutionInEditor, true);
+	auto Load = [](const TCHAR* Name) { return LoadClass<UCardDefinition>(nullptr, *FString::Printf(TEXT("/Game/SeaHorse/Cards/Definitions/%s.%s_C"), Name, Name)); };
+	UClass* Rotation = Load(TEXT("Card_Aramdila"));
+	UClass* Monk = Load(TEXT("Card_YeHeshaNightMonk"));
+	UClass* Crumo = Load(TEXT("Card_CrumoUrsula"));
+	UClass* Kurt = Load(TEXT("Card_KurtPriest"));
+	if (!Rotation || !Monk || !Crumo || !Kurt) { AddError(TEXT("Missing regression card definitions")); return false; }
+	{
+		FSHNewEffectsWorld T;
+		ASHPlayerState* Player = T.Players[0];
+		ASHHand* Hand = Player->GetHand();
+		ASHPlayerController* PC = CastChecked<ASHPlayerController>(Player->GetOwner());
+		T.World->AddController(PC);
+		Hand->SetRepresentedPlayerState(Player);
+		T.State->OnTurnStateChanged.AddDynamic(PC, &ASHPlayerController::HandleTurnStateChanged);
+		ASHCard* ReadyMonk = T.Pair(Hand, Monk);
+		ASHCard* Effect = T.Pair(Hand, Rotation);
+		for (ASHHand* Other : T.Hands) { T.Card(Other); }
+		Hand->RefreshPairActivationAvailability();
+		TestEqual(TEXT("Both pairs initially have their indicators"), Hand->LocallyActivatablePairs.Num(), 2);
+		T.Mode->RequestStoredPairActivation(Player, Effect); T.Advance();
+		TestTrue(TEXT("Monk remains legally activatable after hand rotation"), Hand->CanLocalPlayerActivatePair(ReadyMonk));
+		TestTrue(TEXT("Monk indicator is restored without clicking or changing phase"), Hand->LocallyActivatablePairs.Contains(*Hand->FindActivationPair(ReadyMonk)));
+		T.State->SetReactionPending(true);
+		TestTrue(TEXT("Reaction pause immediately hides the listen-host indicator"), Hand->LocallyActivatablePairs.IsEmpty());
+		T.State->SetReactionPending(false);
+		TestEqual(TEXT("Ending the pause immediately restores the listen-host indicator"), Hand->LocallyActivatablePairs.Num(), 1);
+		const FProperty* PauseProperty = FindFProperty<FProperty>(ASHGameState::StaticClass(), TEXT("bReactionPending"));
+		TestTrue(TEXT("Remote clients are notified when reaction pause changes"), PauseProperty && PauseProperty->HasAnyPropertyFlags(CPF_RepNotify));
+	}
+	for (bool FirstSourceNPC : {false, true})
+	for (bool ProtectedAlternative : {false, true})
+	for (bool Doubled : {false, true})
+	for (bool WithCapture : {false, true})
+	{
+		FSHNewEffectsWorld T;
+		ASHPlayerState* Player = T.Players[0];
+		ASHPlayerController* PC = CastChecked<ASHPlayerController>(Player->GetOwner());
+		T.World->AddController(PC);
+		Player->GetHand()->SetRepresentedPlayerState(Player);
+		T.State->OnTurnStateChanged.AddDynamic(PC, &ASHPlayerController::HandleTurnStateChanged);
+		ASHCard* StillReady = T.Pair(Player->GetHand(), Monk);
+		UTurnComponent* Turns = T.Mode->GetTurnComponent();
+		ASHHand* Source = FirstSourceNPC ? T.Hands[1] : T.Players[1]->GetHand();
+		ASHCard* Effect = T.Pair(Player->GetHand(), Crumo);
+		ASHCard* First = T.Card(Source);
+		for (int32 I = 0; I < 6; ++I) { T.Card(Source); }
+		if (ProtectedAlternative) { T.Card(T.Players[2]->GetHand()); T.Players[2]->SetProtectedFromCardEffects(true); }
+		if (Doubled)
+		{
+			ASHCard* Pancho = T.Pair(Player->GetHand(), Load(TEXT("Card_Pancho")));
+			T.Mode->RequestStoredPairActivation(Player, Pancho); T.Advance();
+			T.Mode->SubmitActivationPairSelection(Player, Effect); T.Advance();
+		}
+		if (WithCapture) { T.Pair(T.Players[1]->GetHand(), Load(TEXT("Card_GieselbrechtApologist"))); }
+		T.Mode->RequestStoredPairActivation(Player, Effect); T.Advance();
+		Turns->SkipCurrentPhase(Player);
+		TestTrue(TEXT("First draw is allowed even without a second source"), Turns->CanDrawCardFromHand(Player, Source));
+		// In PIE, Blueprint card-movement timelines can still hold a presentation
+		// block when the final draw automatically completes the deferred effect.
+		Turns->BeginTurnTransitionBlock(TEXT("DrawPresentation"));
+		T.Draw(Player, Source, First);
+		TestEqual(TEXT("Impossible extra draw automatically advances to second pairing"), T.State->GetTurnPhase(), ETurnPhase::SecondPairing);
+		TestFalse(TEXT("Impossible extra draw releases its waiting flag"), Turns->bWaitingForAdditionalDraw);
+		TestTrue(TEXT("Effect completion or its Pancho repeat waits for the outstanding presentation"), T.Mode->HasActiveEffectTasks());
+		Turns->FinishTurnTransitionBlock(TEXT("DrawPresentation")); T.Advance();
+		if (WithCapture)
+		{
+			const auto* Offer = T.Mode->ActiveReactionOffers.Find(T.Players[1]);
+			if (TestNotNull(TEXT("Completed Crumo can be captured even when its extra draw was unavailable"), Offer))
+			{
+				T.Mode->RespondToCardReaction(T.Players[1], Offer->OfferId, false); T.Advance();
+			}
+		}
+		TestFalse(TEXT("Impossible extra draw releases all effect and response locks"), T.Mode->HasActiveEffectTasks() || T.State->bReactionPending);
+		TestTrue(TEXT("Finishing the draw presentation restores second-pairing controls"), Player->GetHand()->LocallyActivatablePairs.Contains(*Player->GetHand()->FindActivationPair(StillReady)));
+		TestEqual(TEXT("Crumo is consumed exactly once without an extra draw"), Player->GetHand()->GetVictoryStack()->GetPairCount(), Doubled ? 2 : 1);
+		Turns->SkipCurrentPhase(Player);
+		TestEqual(TEXT("Player can end the turn after the unavailable extra draw"), T.State->GetCurrentPlayer(), T.Players[1]);
+	}
+	int32 ExchangesReturningOldCards = 0;
+	for (int32 Seed = 1; Seed <= 12; ++Seed)
+	{
+		FSHNewEffectsWorld T;
+		ASHPlayerState* Player = T.Players[0];
+		ASHHand* Hand = Player->GetHand();
+		ASHHand* Stack = T.Hands[1];
+		TArray<ASHCard*> Original;
+		for (int32 I = 0; I < 8; ++I) { Original.Add(T.Card(Stack)); }
+		TArray<ASHCard*> Offered;
+		for (int32 I = 0; I < 3; ++I) { Offered.Add(T.Card(Hand)); }
+		ASHCard* Effect = T.Pair(Hand, Kurt);
+		T.Mode->RequestStoredPairActivation(Player, Effect);
+		T.Mode->SubmitHandCardsSelection(Player, Offered);
+		T.Mode->SubmitParticipantSelection(Player, Stack);
+		FMath::RandInit(Seed);
+		T.Advance();
+		const TArray<ASHCard*> Shuffled = Stack->GetCards();
+		TestEqual(TEXT("Shuffle includes both old BN cards and all three offered cards"), Shuffled.Num(), 11);
+		bool bDrewOld = false;
+		for (int32 I = 0; I < 3; ++I)
+		{
+			ASHCard* Top = Stack->GetTopCard();
+			const auto* Pending = T.Mode->PendingHandCardSelections.Find(Player);
+			if (!TestNotNull(TEXT("Exchange offers the next card after shuffling"), Pending)) { break; }
+			TestTrue(TEXT("Only current shuffled top can be selected"), Pending->CandidateCards.Num() == 1 && Pending->CandidateCards[0] == Top);
+			TestEqual(TEXT("Draw follows the shuffled stack order"), Top, Shuffled[Shuffled.Num() - 1 - I]);
+			bDrewOld |= Original.Contains(Top);
+			T.Mode->SubmitHandCardSelection(Player, Top);
+		}
+		ExchangesReturningOldCards += bDrewOld ? 1 : 0;
+		TestEqual(TEXT("Exchange returns three cards"), Hand->GetCardCount(), 3);
+		TestEqual(TEXT("BN keeps its original card count"), Stack->GetCardCount(), 8);
+		TestFalse(TEXT("Exchange fully resolves"), T.Mode->HasActiveEffectTasks());
+	}
+	TestTrue(TEXT("BN exchange shuffles into the old stack rather than returning every offered trio"), ExchangesReturningOldCards > 0);
+	return true;
+}
+#if WITH_EDITOR
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSHCardSelectionWidgetTest, "SeaHorse.Gameplay.Effects.ConfigurableCardSelectionWidget",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FSHCardSelectionWidgetTest::RunTest(const FString& Parameters)
+{
+	TGuardValue<bool> ScriptGuard(GAllowActorScriptExecutionInEditor, true);
+	UClass* Kurt = LoadClass<UCardDefinition>(nullptr, TEXT("/Game/SeaHorse/Cards/Definitions/Card_KurtPriest.Card_KurtPriest_C"));
+	auto* Fragment = const_cast<UCardEffectFragment*>(Cast<UCardEffectFragment>(UCardDefinition::FindFragmentByClass(Kurt, UCardEffectFragment::StaticClass())));
+	if (!TestNotNull(TEXT("Kurt effect exists"), Fragment)) { return false; }
+	TestTrue(TEXT("Selection base is abstract and intended for Designer subclasses"), UCardSelectionPrompt::StaticClass()->HasAnyClassFlags(CLASS_Abstract));
+	UWidgetBlueprint* BP = CastChecked<UWidgetBlueprint>(FKismetEditorUtilities::CreateBlueprint(
+		UCardSelectionPrompt::StaticClass(), GetTransientPackage(), MakeUniqueObjectName(GetTransientPackage(), UWidgetBlueprint::StaticClass(), TEXT("TestCardSelection")),
+		BPTYPE_Normal, UWidgetBlueprint::StaticClass(), UWidgetBlueprintGeneratedClass::StaticClass()));
+	if (!BP->WidgetTree) { BP->WidgetTree = NewObject<UWidgetTree>(BP); }
+	BP->WidgetTree->RootWidget = BP->WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("CustomConfirm"));
+	FKismetEditorUtilities::CompileBlueprint(BP);
+	if (!TestNotNull(TEXT("A custom selection Widget Blueprint compiles"), BP->GeneratedClass.Get())) { return false; }
+	TGuardValue<TSubclassOf<UCardSelectionPrompt>> ClassGuard(Fragment->SelectionWidgetClass, BP->GeneratedClass.Get());
+	FSHNewEffectsWorld T;
+	ASHPlayerState* Player = T.Players[0];
+	ASHPlayerController* PC = CastChecked<ASHPlayerController>(Player->GetOwner());
+	T.World->AddController(PC);
+	ULocalPlayer* LocalPlayer = NewObject<ULocalPlayer>(GEngine);
+	LocalPlayer->PlayerController = PC; PC->Player = LocalPlayer;
+	UGameViewportClient* Viewport = NewObject<UGameViewportClient>(GEngine);
+	const TSharedRef<SOverlay> ViewportOverlay = SNew(SOverlay);
+	Viewport->SetViewportOverlayWidget(nullptr, ViewportOverlay);
+	FWorldContext& Context = GEngine->GetWorldContextFromWorldChecked(T.World);
+	Context.GameViewport = Viewport;
+	TArray<ASHCard*> Cards;
+	for (int32 I = 0; I < 3; ++I) { Cards.Add(T.Card(Player->GetHand())); }
+	ASHCard* Effect = T.Pair(Player->GetHand(), Kurt);
+	T.Mode->RequestStoredPairActivation(Player, Effect);
+	UCardSelectionPrompt* Prompt = PC->SelectionPromptWidget;
+	if (TestNotNull(TEXT("Effect-assigned widget opens on the selecting controller"), Prompt))
+	{
+		TestEqual(TEXT("Widget reports minimum from current request"), Prompt->GetMinimumCards(), 1);
+		TestEqual(TEXT("Widget reports maximum from current request"), Prompt->GetMaximumCards(), 3);
+		TestEqual(TEXT("Widget exposes the server's candidate list"), Prompt->GetCandidateCards().Num(), 3);
+		UButton* Confirm = Cast<UButton>(Prompt->GetWidgetFromName(TEXT("CustomConfirm")));
+		if (TestNotNull(TEXT("Custom Designer layout is retained"), Confirm))
+		{
+			Confirm->OnClicked.AddDynamic(Prompt, &UCardSelectionPrompt::ConfirmSelection);
+			Confirm->OnClicked.Broadcast();
+			TestTrue(TEXT("Button cannot confirm an empty selection"), T.Mode->PendingHandCardSelections.Contains(Player));
+			Prompt->ToggleCardSelection(Effect);
+			TestEqual(TEXT("Widget cannot select a card outside the candidates"), Prompt->GetSelectedCardCount(), 0);
+			Prompt->ToggleCardSelection(Cards[0]);
+			TestTrue(TEXT("Selecting one card enables confirmation"), Prompt->CanConfirmSelection());
+			Prompt->ClearSelection();
+			TestFalse(TEXT("Clear only deselects cards"), Prompt->CanConfirmSelection());
+			Prompt->ToggleCardSelection(Cards[1]);
+			Confirm->OnClicked.Broadcast();
+			TestTrue(TEXT("Custom button submits one card and advances to recipient selection"), T.Mode->PendingParticipantSelections.Contains(Player));
+			TestNull(TEXT("Widget is released after submitting"), PC->SelectionPromptWidget.Get());
+			T.Mode->SubmitParticipantSelection(Player, T.Hands[1]); T.Advance();
+			TestNotNull(TEXT("The same effect can provide UI for its next selection step"), PC->SelectionPromptWidget.Get());
+			Prompt->ToggleCardSelection(T.Hands[1]->GetTopCard()); Prompt->ConfirmSelection(); Prompt->ClearSelection();
+			TestTrue(TEXT("Closed widget cannot respond to the new draw request"), T.Mode->PendingHandCardSelections.Contains(Player));
+			T.Mode->SubmitHandCardSelection(Player, T.Hands[1]->GetTopCard());
+			TestNull(TEXT("Effect completion removes its custom widget"), PC->SelectionPromptWidget.Get());
+		}
+	}
+	Fragment->SelectionWidgetClass = nullptr;
+	PC->ClientRequestHandCardsSelection_Implementation(Cards, 1, 3, nullptr);
+	TestNull(TEXT("No configured UI means no fallback overlay"), PC->SelectionPromptWidget.Get());
+	PC->ClearLocalEffectSelectionState();
+	Context.GameViewport = nullptr;
+	PC->Player = nullptr; LocalPlayer->PlayerController = nullptr;
+	return true;
+}
+#endif
 #endif

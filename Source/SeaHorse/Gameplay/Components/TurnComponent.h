@@ -101,6 +101,8 @@ private:
 #if WITH_DEV_AUTOMATION_TESTS
 	friend class FSHSixPlayerSeatsTest;
 	friend class FSHExpansionEffectsTest;
+	friend class FSHReportedEffectRegressionsTest;
+	friend class FSHPanchoAllCardsTest;
 #endif
 #if WITH_DEV_AUTOMATION_TESTS
 	friend class FSHDrawRulesTest;
@@ -135,6 +137,7 @@ private:
 
 	EAdditionalDrawSourceRule AdditionalDrawSourceRule = EAdditionalDrawSourceRule::SamePlayer;
 	bool bWaitingForAdditionalDraw = false;
+	int32 RemainingSequenceDraws = 1;
 
 	UPROPERTY(Transient)
 	TArray<FPendingAdditionalDraw> PendingAdditionalDraws;

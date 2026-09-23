@@ -4,11 +4,33 @@
 #include "SeaHorse/Gameplay/Core/SHPlayerState.h"
 #include "SeaHorse/Gameplay/SHHand.h"
 #include "Engine/Texture2D.h"
+#include "Components/WidgetComponent.h"
 
 ASHPlayerRepresentation::ASHPlayerRepresentation()
 {
 	PrimaryActorTick.bCanEverTick = false;
 	bReplicates = false;
+}
+
+void ASHPlayerRepresentation::BeginPlay()
+{
+	Super::BeginPlay();
+	RefreshInteractionCollision();
+}
+
+void ASHPlayerRepresentation::RefreshInteractionCollision()
+{
+	// The world widget's rectangular hit surface includes transparent padding
+	// and can grow with its content. Use the representation mesh for selection.
+	TInlineComponentArray<UWidgetComponent*> Widgets(this);
+	for (UWidgetComponent* Widget : Widgets)
+	{
+		Widget->SetCollisionResponseToChannel(ECC_Visibility, ECR_Ignore);
+	}
+
+	// Pickers and table layouts are local. Applying this locally also covers
+	// engine/BP hover traces, not just the native effect-selection trace.
+	SetActorEnableCollision(bSelectable);
 }
 
 void ASHPlayerRepresentation::NotifyActorOnClicked(FKey ButtonPressed)
@@ -79,13 +101,13 @@ void ASHPlayerRepresentation::EndPlay(const EEndPlayReason::Type EndPlayReason)
 void ASHPlayerRepresentation::SetSelectable(bool bInSelectable)
 {
 	const bool bNewSelectable = bInSelectable && IsValid(GetRepresentedHand());
-	if (bSelectable == bNewSelectable)
-	{
-		return;
-	}
-
+	const bool bChanged = bSelectable != bNewSelectable;
 	bSelectable = bNewSelectable;
-	OnPickerStateChanged.Broadcast(bSelectable);
+	if (bChanged)
+	{
+		OnPickerStateChanged.Broadcast(bSelectable);
+	}
+	RefreshInteractionCollision();
 }
 
 FText ASHPlayerRepresentation::GetPlayerDisplayName() const

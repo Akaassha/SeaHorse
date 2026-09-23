@@ -51,6 +51,7 @@ void USHSessionSubsystem::Deinitialize()
 		GEngine->OnTravelFailure().Remove(TravelFailureHandle);
 	}
 	StartCompletion = nullptr;
+	MapChangeCompletion = nullptr;
 	auto PendingSearchCompletion = MoveTemp(SearchCompletion);
 	SearchCompletion = nullptr;
 	if (PendingSearchCompletion) { PendingSearchCompletion(false, {}, TEXT("The game instance is shutting down.")); }
@@ -115,12 +116,21 @@ void USHSessionSubsystem::ClearOnlineDelegates()
 	Sessions->ClearOnJoinSessionCompleteDelegate_Handle(JoinHandle);
 	Sessions->ClearOnDestroySessionCompleteDelegate_Handle(DestroyHandle);
 	Sessions->ClearOnStartSessionCompleteDelegate_Handle(StartHandle);
-	CreateHandle.Reset(); FindHandle.Reset(); JoinHandle.Reset(); DestroyHandle.Reset(); StartHandle.Reset();
+	Sessions->ClearOnUpdateSessionCompleteDelegate_Handle(UpdateMapHandle);
+	CreateHandle.Reset(); FindHandle.Reset(); JoinHandle.Reset(); DestroyHandle.Reset(); StartHandle.Reset(); UpdateMapHandle.Reset();
 }
 
 void USHSessionSubsystem::Finish(bool bSuccess, const FString& Error)
 {
 	const ESHSessionOperation Completed = Operation == ESHSessionOperation::Travel ? TravelOrigin : Operation;
+	if (Completed == ESHSessionOperation::UpdateLobbyMap)
+	{
+		if (!bSuccess && PreviousLobbySettings.IsSet() && Sessions.IsValid())
+		{
+			if (auto* Settings = Sessions->GetSessionSettings(NAME_GameSession)) { *Settings = PreviousLobbySettings.GetValue(); }
+		}
+		PreviousLobbySettings.Reset();
+	}
 	ClearOnlineDelegates();
 	FTSTicker::GetCoreTicker().RemoveTicker(TimeoutHandle);
 	TimeoutHandle.Reset();
@@ -129,11 +139,14 @@ void USHSessionSubsystem::Finish(bool bSuccess, const FString& Error)
 	LastError = Error;
 	auto Completion = MoveTemp(StartCompletion);
 	StartCompletion = nullptr;
+	auto CompletedMapChange = MoveTemp(MapChangeCompletion);
+	MapChangeCompletion = nullptr;
 	auto CompletedSearch = Completed == ESHSessionOperation::Find ? MoveTemp(SearchCompletion) : nullptr;
 	if (Completed == ESHSessionOperation::Find) { SearchCompletion = nullptr; }
 	const TArray<FSHSessionResult> CompletedResults = bSuccess && Completed == ESHSessionOperation::Find ? SearchResults : TArray<FSHSessionResult>();
 	OnOperationChanged.Broadcast(Operation);
 	if (Completion) { Completion(bSuccess, Error); }
+	if (CompletedMapChange) { CompletedMapChange(bSuccess, Error); }
 	if (CompletedSearch) { CompletedSearch(bSuccess, CompletedResults, Error); }
 	if (Completed != ESHSessionOperation::None) { OnOperationComplete.Broadcast(Completed, bSuccess, Error); }
 }
@@ -142,9 +155,9 @@ void USHSessionSubsystem::CreateMatch(const FString& ServerName, int32 MaxPlayer
 {
 	if (!Prepare(ESHSessionOperation::Create)) { return; }
 	const FString Name = ServerName.TrimStartAndEnd();
-	if (Name.IsEmpty() || Name.Len() > 64 || MaxPlayers < 2 || MaxPlayers > 4)
+	if (Name.IsEmpty() || Name.Len() > 64 || MaxPlayers < 2 || MaxPlayers > 6)
 	{
-		Reject(ESHSessionOperation::Create, TEXT("Use a server name of 1-64 characters and 2-4 player slots.")); return;
+		Reject(ESHSessionOperation::Create, TEXT("Use a server name of 1-64 characters and 2-6 player slots.")); return;
 	}
 	if (HasSession() || GetWorld()->GetNetMode() != NM_Standalone)
 	{
@@ -152,6 +165,13 @@ void USHSessionSubsystem::CreateMatch(const FString& ServerName, int32 MaxPlayer
 	}
 	const auto* Settings = GetDefault<USHOnlineSettings>();
 	if (!IsAvailableMap(Settings->LobbyMap)) { Reject(ESHSessionOperation::Create, TEXT("Lobby map is missing.")); return; }
+	ESHMatchMap InitialMap = Settings->DefaultMatchMap;
+	if (InitialMap == ESHMatchMap::Small && MaxPlayers > 4) { InitialMap = ESHMatchMap::Medium; }
+	FString InitialURL, InitialError;
+	if (!Settings->BuildMatchURL(InitialMap, MaxPlayers, InitialURL, InitialError))
+	{
+		Reject(ESHSessionOperation::Create, InitialError); return;
+	}
 	if (!Settings->LobbyGameMode.IsNull())
 	{
 		UClass* Mode = Settings->LobbyGameMode.LoadSynchronous();
@@ -162,6 +182,7 @@ void USHSessionSubsystem::CreateMatch(const FString& ServerName, int32 MaxPlayer
 	}
 	HostedServerName = Name;
 	HostedMaxPlayers = MaxPlayers;
+	HostedMatchMap = InitialMap;
 	FOnlineSessionSettings SessionSettings;
 	SessionSettings.NumPublicConnections = MaxPlayers;
 	SessionSettings.bIsLANMatch = bLAN;
@@ -367,20 +388,58 @@ void USHSessionSubsystem::ReturnToMenu()
 	UGameplayStatics::OpenLevel(GetGameInstance(), FName(*Settings->MainMenuMap.GetLongPackageName()), true, MainMenuOptions());
 }
 
-void USHSessionSubsystem::StartLobbyMatch(int32 PlayerCount, TFunction<void(bool, const FString&)> Completion)
+void USHSessionSubsystem::StartLobbyMatch(ESHMatchMap Map, int32 PlayerCount, TFunction<void(bool, const FString&)> Completion)
 {
-	if (IsBusy() || !Sessions.IsValid() || !HasSession() || GetWorld()->GetNetMode() != NM_ListenServer || PlayerCount < 2 || PlayerCount > 4)
+	if (IsBusy() || !Sessions.IsValid() || !HasSession() || GetWorld()->GetNetMode() != NM_ListenServer ||
+		Map != HostedMatchMap || PlayerCount < 2 || PlayerCount > HostedMaxPlayers)
 	{
-		Completion(false, TEXT("A hosted session with 2-4 players is required.")); return;
+		Completion(false, TEXT("A hosted session with a confirmed map and a valid player count is required.")); return;
 	}
 	const auto* Settings = GetDefault<USHOnlineSettings>();
-	if (!IsAvailableMap(Settings->MatchMap)) { Completion(false, TEXT("Match map is missing.")); return; }
+	FString URL, Error;
+	if (!Settings->BuildMatchURL(Map, PlayerCount, URL, Error)) { Completion(false, Error); return; }
 	StartingPlayerCount = PlayerCount;
-	PendingMatchURL = Settings->MatchMap.GetLongPackageName() + FString::Printf(TEXT("?SHExpectedPlayers=%d"), PlayerCount);
+	PendingMatchURL = URL;
 	StartCompletion = MoveTemp(Completion);
 	BeginOperation(ESHSessionOperation::Start);
 	StartHandle = Sessions->AddOnStartSessionCompleteDelegate_Handle(FOnStartSessionCompleteDelegate::CreateUObject(this, &ThisClass::HandleStart));
 	if (!Sessions->StartSession(NAME_GameSession) && Operation == ESHSessionOperation::Start) { HandleStart(NAME_GameSession, false); }
+}
+
+void USHSessionSubsystem::UpdateLobbyMap(ESHMatchMap Map, TFunction<void(bool, const FString&)> Completion)
+{
+	FString URL, Error;
+	if (!GetDefault<USHOnlineSettings>()->BuildMatchURL(Map, 2, URL, Error)) { Completion(false, Error); return; }
+	if (IsBusy() || !Sessions.IsValid() || !HasSession() || GetWorld()->GetNetMode() != NM_ListenServer)
+	{
+		Completion(false, TEXT("The hosted session is unavailable or busy.")); return;
+	}
+	const FOnlineSessionSettings* Current = Sessions->GetSessionSettings(NAME_GameSession);
+	if (!Current) { Completion(false, TEXT("Session settings are unavailable.")); return; }
+	PreviousLobbySettings = *Current;
+	FOnlineSessionSettings Updated = *Current;
+	// Lobby capacity must not shrink around connected players when choosing a smaller table.
+	Updated.NumPublicConnections = FMath::Max(HostedMaxPlayers, USHOnlineSettings::GetMapSeatCount(Map));
+	PendingLobbyMap = Map;
+	MapChangeCompletion = MoveTemp(Completion);
+	BeginOperation(ESHSessionOperation::UpdateLobbyMap);
+	UpdateMapHandle = Sessions->AddOnUpdateSessionCompleteDelegate_Handle(
+		FOnUpdateSessionCompleteDelegate::CreateUObject(this, &ThisClass::HandleUpdateLobbyMap));
+	if (!Sessions->UpdateSession(NAME_GameSession, Updated, true) && Operation == ESHSessionOperation::UpdateLobbyMap)
+	{
+		HandleUpdateLobbyMap(NAME_GameSession, false);
+	}
+}
+
+void USHSessionSubsystem::HandleUpdateLobbyMap(FName Name, bool bSuccess)
+{
+	if (Name != NAME_GameSession || Operation != ESHSessionOperation::UpdateLobbyMap) { return; }
+	if (bSuccess)
+	{
+		HostedMatchMap = PendingLobbyMap;
+		HostedMaxPlayers = FMath::Max(HostedMaxPlayers, USHOnlineSettings::GetMapSeatCount(PendingLobbyMap));
+	}
+	Finish(bSuccess, bSuccess ? FString() : TEXT("The online service could not update the map's player limit."));
 }
 
 void USHSessionSubsystem::HandleStart(FName Name, bool bSuccess)
@@ -418,6 +477,7 @@ bool USHSessionSubsystem::HandleTimeout(float DeltaTime)
 		Finish(false, TEXT("Leaving the session timed out."));
 		UGameplayStatics::OpenLevel(GetGameInstance(), FName(*GetDefault<USHOnlineSettings>()->MainMenuMap.GetLongPackageName()), true, MainMenuOptions());
 	}
+	else if (Operation == ESHSessionOperation::UpdateLobbyMap) { Finish(false, TEXT("Updating the map timed out. Please retry.")); }
 	else { HandleConnectionFailure(TEXT("The session operation timed out.")); }
 	return false;
 }

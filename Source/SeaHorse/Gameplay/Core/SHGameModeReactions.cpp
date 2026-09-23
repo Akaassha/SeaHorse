@@ -8,6 +8,68 @@
 #include "Gameplay/Components/TurnComponent.h"
 #include "Gameplay/SHHand.h"
 
+void ASHGameMode::QueueSuccessfulActivation(ASHPlayerState* Player, ASHCard* A, ASHCard* B)
+{
+	if (!IsValid(Player) || !IsValid(Player->GetHand()) || !IsValid(A) || !IsValid(B) ||
+		PendingSuccessfulActivations.ContainsByPredicate([A](const FSuccessfulActivation& Entry) { return Entry.Activation.CardA == A; })) { return; }
+	FSuccessfulActivation& Completion = PendingSuccessfulActivations.AddDefaulted_GetRef();
+	Completion.Activation.ActivatingPlayer = Player;
+	Completion.Activation.CardA = A;
+	Completion.Activation.CardB = B;
+	Player->GetHand()->SetActivationPairQueued(A, B, true);
+	GetGameState<ASHGameState>()->SetReactionPending(true);
+}
+
+void ASHGameMode::ProcessSuccessfulActivations()
+{
+	if (!HasAuthority() || bReactionWindowOpen || bProcessingSuccessfulActivations || PendingSuccessfulActivations.IsEmpty()) { return; }
+	{
+		TGuardValue<bool> CompletionGuard(bProcessingSuccessfulActivations, true);
+		TGuardValue<bool> ActivationGuard(bProcessingPairActivations, true);
+		while (!PendingSuccessfulActivations.IsEmpty())
+		{
+			// The effect (including both Pancho executions) and its presentation must finish first.
+			if (TurnComponent && TurnComponent->HasNamedTurnTransitionBlocks()) { return; }
+			const FPendingPairActivation Activation = PendingSuccessfulActivations[0].Activation;
+			ASHPlayerState* Player = Activation.ActivatingPlayer;
+			ASHHand* Hand = IsValid(Player) ? Player->GetHand() : nullptr;
+			ASHCard* A = Activation.CardA;
+			ASHCard* B = Activation.CardB;
+			const FActivatedPair* Pair = IsValid(Hand) && IsValid(A) && IsValid(B) ? Hand->FindActivationPair(A) : nullptr;
+			if (!Pair || Pair->CardB != B)
+			{
+				PendingSuccessfulActivations.RemoveAt(0);
+				PairCaptureRecipients.Remove(A);
+				CompleteQueuedPairActivation(A, B);
+				continue;
+			}
+			if (!PendingSuccessfulActivations[0].bCaptureChecked)
+			{
+				PendingSuccessfulActivations[0].bCaptureChecked = true;
+				ReactionRootActivation = Activation;
+				ReactionChain.Reset();
+				bPostActivationWindow = true;
+				bReactionWindowOpen = true;
+				OpenCardReactionWindow(Player, A, B);
+				if (bReactionWindowOpen) { return; }
+				// A synchronous answer can append completed reactions and start presentation locks.
+				continue;
+			}
+			PendingSuccessfulActivations.RemoveAt(0);
+			CompletedEffectPairsWaitingForPresentation.RemoveAll([A](const FCompletedEffectPair& Entry) { return Entry.CardA == A; });
+			if (!TryUseVictorySubstitute(Player, A, B))
+			{
+				Hand->SetActivationPairState(A, B, EActivationPairState::VictoryPresentation);
+				Hand->MulticastPairReadyForVictory(A, B);
+				MovePairToVictoryStack(Player, A, B);
+			}
+		}
+		GetGameState<ASHGameState>()->SetReactionPending(false);
+	}
+	TryProcessQueuedPairActivations();
+	if (TurnComponent) { TurnComponent->NotifyEffectTaskFinished(); }
+}
+
 bool ASHGameMode::IsReactionOptionValid(const FReactionOption& Option) const
 {
 	const ASHGameState* State = GetGameState<ASHGameState>();
@@ -17,15 +79,19 @@ bool ASHGameMode::IsReactionOptionValid(const FReactionOption& Option) const
 		Target->IsProtectedFromCardEffects() || !IsValid(Player->GetOwner()) || !IsValid(Player->GetHand()) || !IsValid(Target->GetHand())) { return false; }
 	const FActivatedPair* Pair = Player->GetHand()->FindActivationPair(Option.CardA.Get());
 	const FActivatedPair* TargetPair = Target->GetHand()->FindActivationPair(ReactionTargetA.Get());
+	const auto* Rule = Pair && IsValid(Pair->CardA) ? Cast<UCardReactionFragment>(UCardDefinition::FindFragmentByClass(
+		Pair->CardA->GetCardDefinition(), UCardReactionFragment::StaticClass())) : nullptr;
+	const bool bCaptureWindow = bPostActivationWindow && ReactionChain.IsEmpty();
 	return Pair && TargetPair && TargetPair->CardB == ReactionTargetB && IsValid(Pair->CardA) && IsValid(Pair->CardB) && Pair->CardB == Option.CardB &&
 		!Pair->bActivated && !Pair->bActivationQueued && Pair->State == EActivationPairState::Ready &&
-		UCardDefinition::FindFragmentByClass(Pair->CardA->GetCardDefinition(), UCardReactionFragment::StaticClass());
+		Rule && Rule->ReactionKind == (bCaptureWindow ? ECardReactionKind::CaptureAfterActivation : ECardReactionKind::CancelActivation);
 }
 
 bool ASHGameMode::BeginCardReactions(const FPendingPairActivation& Activation)
 {
 	check(HasAuthority());
 	ReactionRootActivation = Activation;
+	bPostActivationWindow = false;
 	ReactionChain.Reset();
 	bReactionWindowOpen = true;
 	GetGameState<ASHGameState>()->SetReactionPending(true);
@@ -108,7 +174,7 @@ void ASHGameMode::CloseCardReactions()
 {
 	ClearCardReactionOffers();
 	bReactionWindowOpen = false;
-	GetGameState<ASHGameState>()->SetReactionPending(false);
+	GetGameState<ASHGameState>()->SetReactionPending(!PendingSuccessfulActivations.IsEmpty());
 }
 
 void ASHGameMode::ConsumeReactionPair(const FReactionOption& Option, bool bExecuteEffect)
@@ -117,12 +183,18 @@ void ASHGameMode::ConsumeReactionPair(const FReactionOption& Option, bool bExecu
 	const auto* Fragment = Cast<UCardReactionFragment>(UCardDefinition::FindFragmentByClass(Option.CardA->GetCardDefinition(), UCardReactionFragment::StaticClass()));
 	if (bExecuteEffect)
 	{
+		Hand->MulticastBeginPairEffectExecution(Option.CardA.Get(), Option.CardB.Get());
 		Hand->SetActivationPairState(Option.CardA.Get(), Option.CardB.Get(), EActivationPairState::AbilityEffect);
 		Hand->MulticastPairEffectActivated(Option.CardA.Get(), Option.CardB.Get());
 		if (Fragment && Fragment->ActivationVFX)
 		{
 			Hand->MulticastPlayActivationVFX(Option.CardA.Get(), Option.CardB.Get(), Fragment->ActivationVFX, Fragment->ActivationVFXDuration);
 		}
+	}
+	if (bExecuteEffect)
+	{
+		QueueSuccessfulActivation(Option.Player.Get(), Option.CardA.Get(), Option.CardB.Get());
+		return;
 	}
 	Hand->SetActivationPairState(Option.CardA.Get(), Option.CardB.Get(), EActivationPairState::VictoryPresentation);
 	Hand->MulticastPairReadyForVictory(Option.CardA.Get(), Option.CardB.Get());
@@ -182,13 +254,13 @@ void ASHGameMode::ResolveCardReactionChain()
 				}
 				else if (Fragment)
 				{
-					// The parent executes next, then its normal victory move transfers it instead.
+					// The parent's effect has already completed; only its destination changes.
 					PairCaptureRecipients.Add(ParentA, Player);
 				}
 			}
 			ConsumeReactionPair(Option, !Reaction.bCancelled);
 		}
-		if (bRootCancelled && IsValid(ReactionRootActivation.ActivatingPlayer))
+		if (bRootCancelled && !bPostActivationWindow && IsValid(ReactionRootActivation.ActivatingPlayer))
 		{
 			ASHPlayerState* Player = ReactionRootActivation.ActivatingPlayer;
 			ASHCard* A = ReactionRootActivation.CardA;
@@ -204,9 +276,11 @@ void ASHGameMode::ResolveCardReactionChain()
 		}
 		ReactionChain.Reset();
 		ReactionRootActivation = FPendingPairActivation{};
+		bPostActivationWindow = false;
 		// Keep gameplay paused throughout the unwind, including Blueprint callbacks.
 		CloseCardReactions();
 	}
+	ProcessSuccessfulActivations();
 	if (!bProcessingPairActivations)
 	{
 		TryProcessQueuedPairActivations();

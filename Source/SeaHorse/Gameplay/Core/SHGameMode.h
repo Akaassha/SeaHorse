@@ -12,6 +12,7 @@ class ASHPlayerState;
 class UCardEffectFragment;
 class UCardEffectTask;
 enum class EPlayerSelectionPurpose : uint8;
+enum class ECardEffectPairDisposition : uint8;
 
 class UTurnComponent;
 class UDeckComponent;
@@ -68,7 +69,7 @@ public:
 		return bReactionWindowOpen || !PendingPlayerSelections.IsEmpty() || !PendingParticipantSelections.IsEmpty() ||
 			!PendingPairSelections.IsEmpty() || !PendingHandCardSelections.IsEmpty();
 	}
-	bool HasActiveEffectTasks() const { return bReactionWindowOpen || !ActiveEffectTasks.IsEmpty(); }
+	bool HasActiveEffectTasks() const { return bReactionWindowOpen || !ActiveEffectTasks.IsEmpty() || !PendingSuccessfulActivations.IsEmpty(); }
 	void PassHandsToLeft();
 	bool TransferStoredPair(ASHHand* Source, ASHHand* Target, ASHCard* Card);
 	void RotateActivationZonesRight(ASHCard* ExcludedCard);
@@ -96,7 +97,13 @@ private:
 	friend struct FSHNewEffectsWorld;
 	friend class FSHNewCardEffectsTest;
 	friend class FSHExpansionEffectsTest;
+	friend class FSHCardSelectionWidgetTest;
+	friend class FSHReportedEffectRegressionsTest;
 	friend class FSHCardReactionsTest;
+	friend class FSHSupportPairEffectsTest;
+	friend class FSHDoubledZoneRotationTest;
+	friend class FSHPanchoAllCardsTest;
+	friend class FSHDogsReactionChainTest;
 	friend class FSHActivationQueueReadinessTest;
 	friend class FSHBulkVictoryPresentationTest;
 	friend class FSHTargetedActivationPresentationTest;
@@ -128,6 +135,14 @@ private:
 
 	UPROPERTY()
 	TArray<TObjectPtr<UCardEffectTask>> ActiveEffectTasks;
+	struct FRepeatedPairEffect
+	{
+		int32 Remaining = 1;
+		ECardEffectPairDisposition Disposition;
+	};
+	TMap<TWeakObjectPtr<ASHCard>, FRepeatedPairEffect> RepeatedPairEffects;
+	void RestartRepeatedPairEffect(UCardEffectTask* PreviousTask);
+	bool TryUseVictorySubstitute(ASHPlayerState* Player, ASHCard* CardA, ASHCard* CardB);
 
 	struct FCompletedEffectPair
 	{
@@ -135,6 +150,7 @@ private:
 		TObjectPtr<ASHCard> CardA;
 		TObjectPtr<ASHCard> CardB;
 		bool bMoveToVictoryStack = true;
+		bool bRestoreReady = false;
 	};
 
 	TArray<FCompletedEffectPair> CompletedEffectPairsWaitingForPresentation;
@@ -150,6 +166,15 @@ private:
 	};
 
 	TArray<FPendingPairActivation> PendingPairActivations;
+	struct FSuccessfulActivation
+	{
+		FPendingPairActivation Activation;
+		bool bCaptureChecked = false;
+	};
+	TArray<FSuccessfulActivation> PendingSuccessfulActivations;
+	bool bProcessingSuccessfulActivations = false;
+	void QueueSuccessfulActivation(ASHPlayerState* Player, ASHCard* A, ASHCard* B);
+	void ProcessSuccessfulActivations();
 	bool bProcessingPairActivations = false;
 	struct FReactionOption
 	{
@@ -176,6 +201,7 @@ private:
 	int32 ReactionOfferSerial = 0;
 	int32 ReactionWindowSerial = 0;
 	bool bReactionWindowOpen = false;
+	bool bPostActivationWindow = false;
 	bool BeginCardReactions(const FPendingPairActivation& Activation);
 	void OpenCardReactionWindow(ASHPlayerState* Player, ASHCard* CardA, ASHCard* CardB);
 	void OfferNextCardReaction(ASHPlayerState* Player);

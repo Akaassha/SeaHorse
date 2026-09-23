@@ -31,3 +31,15 @@ void ASHLobbyPlayerController::ClientLobbyRequestRejected_Implementation(const F
 {
 	OnLobbyRequestRejected.Broadcast(Reason);
 }
+
+bool ASHLobbyPlayerController::CanSelectMatchMap(ESHMatchMap Map) const
+{
+	const auto* State = GetWorld() ? GetWorld()->GetGameState<ASHLobbyGameState>() : nullptr;
+	return IsLobbyHost() && State && State->CanSelectMatchMap(Map);
+}
+
+void ASHLobbyPlayerController::ServerSelectMatchMap_Implementation(ESHMatchMap Map)
+{
+	if (auto* Mode = GetWorld()->GetAuthGameMode<ASHLobbyGameMode>()) { Mode->RequestSelectMatchMap(this, Map); }
+	else { ClientLobbyRequestRejected(TEXT("Maps can only be selected in the lobby.")); }
+}

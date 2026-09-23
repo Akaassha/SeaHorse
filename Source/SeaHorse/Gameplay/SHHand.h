@@ -51,6 +51,9 @@ public:
 	bool bTransferred = false;
 	UPROPERTY(BlueprintReadOnly, VisibleAnywhere)
 	int64 CreationOrder = 0;
+	/** Pancho's bonus expires at the end of the current turn. */
+	UPROPERTY(BlueprintReadOnly, VisibleAnywhere)
+	bool bDoubleEffectThisTurn = false;
 
 	bool operator==(const FActivatedPair& Other) const
 	{
@@ -71,6 +74,7 @@ class SEAHORSE_API ASHHand : public AActor
 #if WITH_DEV_AUTOMATION_TESTS
 	friend struct FSHNewEffectsWorld;
 	friend class FSHActivationQueueReadinessTest;
+	friend class FSHReportedEffectRegressionsTest;
 	friend class FSHStandardEffectPresentationTest;
 	friend class FSHBulkVictoryPresentationTest;
 	friend class FSHTargetedActivationPresentationTest;
@@ -102,6 +106,10 @@ public:
 	/** Server supplies the public VFX asset; clients never inspect another player's card definition. */
 	UFUNCTION(NetMulticast, Reliable)
 	void MulticastPlayActivationVFX(ASHCard* CardA, ASHCard* CardB, UNiagaraSystem* System, float Duration);
+
+	/** A new execution may replay its VFX; duplicate notifications within it remain suppressed. */
+	UFUNCTION(NetMulticast, Reliable)
+	void MulticastBeginPairEffectExecution(ASHCard* CardA, ASHCard* CardB);
 
 	UFUNCTION(NetMulticast, Reliable)
 	void MulticastPairActivationCancelled(ASHCard* CardA, ASHCard* CardB);

@@ -1,6 +1,7 @@
 #include "Frontend/Lobby/SHLobbyGameState.h"
 #include "Frontend/Lobby/SHLobbyPlayerState.h"
 #include "Net/UnrealNetwork.h"
+#include "Online/SHOnlineSettings.h"
 
 void ASHLobbyGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
@@ -22,12 +23,20 @@ TArray<ASHLobbyPlayerState*> ASHLobbyGameState::GetLobbyPlayers() const
 bool ASHLobbyGameState::AreAllPlayersReady() const
 {
 	const auto Players = GetLobbyPlayers();
-	if (Players.Num() < 2 || Players.Num() > Info.MaxPlayers || !IsValid(Info.Host) || !Players.Contains(Info.Host)) { return false; }
+	if (Players.Num() < 2 || Players.Num() > Info.MaxPlayers ||
+		Players.Num() > USHOnlineSettings::GetMapSeatCount(Info.SelectedMap) ||
+		!IsValid(Info.Host) || !Players.Contains(Info.Host)) { return false; }
 	for (const auto* Player : Players) { if (!Player->IsReady()) { return false; } }
 	return true;
 }
 
-bool ASHLobbyGameState::CanStartMatch() const { return !Info.bStartingMatch && AreAllPlayersReady(); }
+bool ASHLobbyGameState::CanStartMatch() const { return !Info.bStartingMatch && !Info.bChangingMap && AreAllPlayersReady(); }
+
+bool ASHLobbyGameState::CanSelectMatchMap(ESHMatchMap Map) const
+{
+	const int32 Capacity = USHOnlineSettings::GetMapSeatCount(Map);
+	return !Info.bStartingMatch && !Info.bChangingMap && Capacity > 0;
+}
 
 void ASHLobbyGameState::SetLobbyInfo(const FSHLobbyInfo& Value)
 {

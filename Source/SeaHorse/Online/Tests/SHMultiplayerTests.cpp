@@ -65,7 +65,7 @@ bool FSHMultiplayerConfigurationTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Lobby uses player readiness state"), Lobby->PlayerStateClass.Get(), ASHLobbyPlayerState::StaticClass());
 	TestNull(TEXT("Lobby does not spawn gameplay pawns"), Lobby->DefaultPawnClass.Get());
 	TestTrue(TEXT("Lobby preserves connections during match travel"), Lobby->bUseSeamlessTravel);
-	for (FName FunctionName : { FName(TEXT("ServerSetReady")), FName(TEXT("ServerStartMatch")) })
+	for (FName FunctionName : { FName(TEXT("ServerSetReady")), FName(TEXT("ServerStartMatch")), FName(TEXT("ServerSelectMatchMap")) })
 	{
 		const UFunction* Function = ASHLobbyPlayerController::StaticClass()->FindFunctionByName(FunctionName);
 		if (TestNotNull(TEXT("Blueprint RPC exists"), Function))

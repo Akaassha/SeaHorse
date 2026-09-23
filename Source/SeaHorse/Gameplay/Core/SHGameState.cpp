@@ -24,8 +24,25 @@ void ASHGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLife
 void ASHGameState::SetReactionPending(bool bPending)
 {
 	check(HasAuthority());
+	if (bReactionPending == bPending) { return; }
 	bReactionPending = bPending;
+	OnRep_ReactionPending();
 	ForceNetUpdate();
+}
+
+void ASHGameState::OnRep_ReactionPending()
+{
+	// The phase does not change here. Refresh availability without rebroadcasting
+	// a turn change, which would replay the Blueprint HUD's new-turn animation.
+	ASHPlayerController* PC = Cast<ASHPlayerController>(GetWorld()->GetFirstPlayerController());
+	ASHPlayerState* Player = IsValid(PC) ? PC->GetPlayerState<ASHPlayerState>() : nullptr;
+	if (IsValid(PC) && PC->IsLocalController() && IsValid(Player))
+	{
+		if (ASHHand* VisualHand = PC->FindVisualHandForLogicalHand(Player->GetHand()))
+		{
+			VisualHand->RefreshPairActivationAvailability();
+		}
+	}
 }
 
 TArray<ASHHand*> ASHGameState::GetNPCHands() const

@@ -34,3 +34,21 @@ public:
 protected:
 	virtual void ResolveAbility() override;
 };
+
+UCLASS()
+class SEAHORSE_API UDoubleStoredPairEffectTask : public UResolvedCardEffectTask
+{
+	GENERATED_BODY()
+public:
+	virtual bool RequiresTargetSelection() const override { return true; }
+	virtual void StartEffect_Implementation() override;
+	virtual void HandleActivationPairSelected(ASHPlayerState* Owner, ASHCard* A, ASHCard* B) override;
+	virtual ECardEffectPairDisposition GetPairDisposition_Implementation() const override
+	{ return bApplied ? ECardEffectPairDisposition::MoveToVictoryStack : ECardEffectPairDisposition::KeepOnTable; }
+protected:
+	virtual void ResolveAbility() override;
+private:
+	TArray<ASHCard*> GetCandidates() const;
+	UPROPERTY() TObjectPtr<ASHCard> SelectedCard;
+	bool bApplied = false;
+};

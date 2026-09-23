@@ -40,6 +40,20 @@ Automation coverage: `SeaHorse.Gameplay.Effects.SixNewAbilities`.
 
 ## Kurt, Paulus Wu and Ratfolk
 
+The old native Slate selection overlay is removed. An effect can optionally set
+`CardEffectFragment.SelectionWidgetClass` to a Widget Blueprint derived from
+`CardSelectionPrompt`; leaving it empty shows no selection panel. The native base
+is abstract and has no fixed layout. Use `OnSelectionChanged` to refresh the UI,
+`GetSelectedCardCount`, `GetMinimumCards`, `GetMaximumCards`, `GetSelectedCards`
+and `GetCandidateCards` for presentation, and `CanConfirmSelection` to enable a
+button calling `ConfirmSelection`. Optional custom card controls can call
+`ToggleCardSelection` and `ClearSelection`. The widget closes between selection
+steps and on cancellation; old widget references cannot confirm a newer request.
+Selection state stays in the controller and the server validates every submission.
+Table clicks, automatic confirmation of three cards, and Enter for fewer cards
+continue to work with or without the widget. Use a root with visibility
+`Not Hit-Testable (Self Only)` if the panel should let clicks through to the table.
+
 `configure_expansion_definitions.py` creates Card_KurtPriest,
 Card_PaulusWitchHunterWu and Card_RatfolkUnderground, without changing the deck.
 It also migrates BP_Hand.CheckPairCompatibility to the shared native pairing rule.
@@ -52,7 +66,8 @@ the transfer is committed; empty hands do not consume Kurt's pair.
 
 Paulus Wu grants replicated protection until the start of the owner's next
 actual turn. Protected players cannot be drawn from or targeted by activations;
-bulk hand/zone rotations, redeals and collection effects skip them.
+bulk hand rotations, redeals and collection effects skip them. Hans is an
+exception: his zone rotation includes protected human players as well.
 
 Ratfolk pair only with a definition in AllowedPartners (currently Paulus Silent
 and Paulus Witch Hunter Wu). Pairing works in either order and awards a victory
@@ -76,9 +91,11 @@ server wins that response window and closes its prompts. Pair creation order and
 priority between players. If a player owns multiple eligible pairs, their prompt
 offers their oldest pair first; declining offers their next pair while everyone
 else can still accept. A declined or slower pair remains unspent.
-An accepted reaction opens a fresh concurrent response window targeting that
-reaction pair. Other eligible pairs can counter or capture it, and their reactions
-can receive further reactions. Already accepted pairs are reserved in their zones
+The Apprentice is offered before an effect executes; the Apologist is offered
+only after the effect and its presentation finish, immediately before the pair's
+victory move. An accepted reaction opens a fresh counter-only response window
+targeting that reaction pair. A successfully completed reaction can subsequently
+receive its own capture window. Already accepted pairs are reserved in their zones
 and cannot be reused in the same chain. The outside-own-turn restriction still
 applies at every step, so the current turn's owner cannot use these reaction cards.
 When everyone declines or no eligible pairs remain, the server resolves the chain
@@ -96,14 +113,17 @@ unlocked, visible cursor during dragging, so card dragging and the HUD phase
 button remain available on the responding player's next turn.
 
 The Apprentice sends the cancelled pair to its owner's victory stack without
-executing its effect. The Apologist lets the original effect finish, including
-mandatory selections and additional draws, then receives the pair ready in their
+executing its effect. The Apologist's decision waits for the entire original effect,
+including mandatory selections, returns, additional draws and both executions
+from Pancho. If accepted, the player receives the pair ready in their
 own activation zone instead of its normal victory destination. The Apologist can
 also capture a reaction pair: that reaction resolves before its pair transfers.
-Countering the Apologist prevents the capture. A pair removed from the game by
-its own effect cannot be captured. Accepted reaction pairs, including cancelled
-ones, are consumed once to their owners' victory stacks unless captured by a
-later reaction.
+Countering the Apologist prevents the capture without undoing the original effect.
+Cancelled activations and pairs removed from the game or kept on the table by
+their own effects receive no capture window. Eligible Apologists are determined
+from the table after the effect (including Hans's zone rotation). Uncaptured
+reaction pairs are consumed once; a successful Gieselbrecht can use Jamniki as
+its victory substitute after the capture decision.
 
 To customize either prompt, assign a subclass of `UCardReactionPrompt` to
 `CardReactionFragment.PromptWidgetClass` in the card definition. The native base
@@ -122,3 +142,58 @@ the server validates and resolves it. Rerunning the configuration script
 replaces the initial card fragment configuration.
 
 Automation coverage: `SeaHorse.Gameplay.Effects.OutOfTurnReactions`.
+
+## Jamniki and Pancho
+
+`configure_support_definitions.py` creates these definitions without modifying the deck:
+
+- `Card_DachshundsSpectralHounds`: Jamniki – Upiorne ogary szorstkowłose.
+- `Card_Pancho`: Pancho – Arcykapłan. This path already belongs to the Living
+  Herald's allowed pair definitions.
+
+Jamniki use `VictorySubstituteFragment.AllowedCardDefinitions`, configured for
+both Gieselbrecht variants. They are passive, not manually activatable. After a
+successful Gieselbrecht activation, the oldest ready Jamniki pair in the same
+zone goes to victory and Gieselbrecht becomes ready again after presentation.
+A cancelled Gieselbrecht does not consume Jamniki. Capturing Gieselbrecht takes
+precedence: he changes zones instead of paying a victory cost, so Jamniki stay.
+Add future Gieselbrecht definitions to the fragment's allowed list.
+
+Pancho uses `DoubleStoredPairEffectTask`. Select a pair directly in your own
+activation zone. Pancho goes to victory; the selected pair remains ready and
+is not automatically activated. Candidates must be currently legal to activate,
+have a task-based effect, and not already have the bonus. Thus passive and
+outside-turn reaction pairs cannot be selected. The replicated
+`FActivatedPair.bDoubleEffectThisTurn` is Blueprint-readable and expires at turn
+end, including on pairs transferred to another zone.
+
+Activating the selected pair opens one normal reaction window. If it is not
+cancelled, its effect runs twice in sequence, with fresh target selection each
+time. The pair is consumed once after both executions. Capture waits for both
+executions; a counter cancels the entire activation. Cancelling initial target
+selection with ESC preserves the bonus; the second execution cannot roll back
+the first. If the second execution has no target, a successful first execution
+still consumes the pair. Self-removing effects retain their final removal rule.
+Bodgy performs two draw-and-return sequences (four draws and two returns when
+enough cards are available), with separate return candidates for each sequence.
+
+Automation coverage: `SeaHorse.Gameplay.Effects.SupportPairs`, including
+reaction chains, capture, presentation locks, repeated targeting, deferred
+draws, bulk collection, removal, and expiry.
+
+Each effect execution resets only its VFX notification cache via
+`MulticastBeginPairEffectExecution`; duplicate VFX notifications within that
+execution still produce one circle. A repeated Hans additionally waits
+`RotateActivationZonesRightEffectTask.TransferPresentationDuration` (1.5 seconds)
+after the first transfer before starting the second circle. The activation stays
+pending during this interval, while local card movement remains enabled.
+`SeaHorse.Gameplay.Effects.DoubledZoneRotation` verifies each intermediate and
+final destination for 2–6 human players, including BN and protected seats.
+
+Before any repeated task starts, pending presentation locks must finish and
+their victory moves must flush. In particular, Olga's second selection excludes
+pairs already sent to victory. `PanchoAllDefinitions` exercises all 18 saved
+activatable card definitions, including `BP_DefaultCardEffect`. See
+`PanchoCompatibility.md` for the checked outcomes and limits. The read-only
+`audit_pancho_definitions.py` exports the current card/task inventory to
+`Saved/ContextReview/PanchoDefinitions.json` without saving assets.
