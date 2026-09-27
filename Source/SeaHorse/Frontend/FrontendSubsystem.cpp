@@ -115,7 +115,7 @@ void UFrontendSubsystem::PushConfirmScreenToModalStackAsync(EConfirmScreenType I
 	TStrongObjectPtr<UConfirmScreenInfoObject> Info(CreatedInfoObject);
 
 	PushSoftWidgetToStackAsync(
-		FrontendGameplayTags::Frontend_WidgetStack_Modal,
+		FrontendGameplayTags::Frontend_WidgetStack_GameMenu,
 		UFrontendFunctionLibrary::GetFrontendSoftWidgetClassByTag(FrontendGameplayTags::Frontend_Widget_ConfirmScreen),
 		[Info, ButtonClickedCallback](EAsyncPushWdgetState InPushState, UWidgetActivatableBase* PushedWidget)
 		{
