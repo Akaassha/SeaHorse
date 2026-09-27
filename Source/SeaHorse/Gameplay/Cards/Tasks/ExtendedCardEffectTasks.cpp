@@ -5,6 +5,7 @@
 #include "Gameplay/Core/SHGameMode.h"
 #include "Gameplay/Core/SHGameState.h"
 #include "Gameplay/Core/SHPlayerState.h"
+#include "Gameplay/Core/SHPlayerController.h"
 #include "Gameplay/SHHand.h"
 #include "TimerManager.h"
 
@@ -84,10 +85,23 @@ void UTakeSpecifiedCardEffectTask::ResolveAbility()
 		GetCardA()->GetCardDefinition(), UTransferCardEffectFragment::StaticClass()));
 	if (IsValid(Source) && IsValid(Fragment))
 	{
-		GetTypedOuter<ASHGameMode>()->TransferCardToHand(Source, GetActivatingPlayer()->GetHand(), Fragment->CardDefinitionToTransfer);
+		bTransferredCard = GetTypedOuter<ASHGameMode>()->TransferCardToHand(Source, GetActivatingPlayer()->GetHand(), Fragment->CardDefinitionToTransfer);
 	}
 	// Shuffle even when Bodgy was absent, so targeting does not preserve known stack order.
 	if (IsValid(Source) && Source->IsLogicalNPC()) { Source->ShuffleStack(); }
+	if (!bTransferredCard)
+	{
+		ASHHand* Hand = GetActivatingPlayer()->GetHand();
+		if (FActivatedPair* Pair = IsValid(Hand) ? Hand->FindActivationPair(GetCardA()) : nullptr)
+		{
+			Pair->ActivationRetryBlockedUntilTurnOf = GetActivatingPlayer();
+			Hand->ForceNetUpdate();
+		}
+		if (auto* PC = Cast<ASHPlayerController>(GetActivatingPlayer()->GetOwner()))
+		{
+			PC->ClientShowCardEffectMessage(NSLOCTEXT("CardEffects", "TryNextTurn", "Spróbuj w następnej turze"));
+		}
+	}
 	FinishEffect();
 }
 

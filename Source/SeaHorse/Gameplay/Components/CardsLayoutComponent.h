@@ -92,6 +92,11 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category="Cards Layout")
 	void SetSelectedCardIndex(int32 SelectedCardIndex);
+	/** Local selection follows the card when its replicated hand order changes. */
+	ASHCard* GetSelectedCard() const;
+	int32 GetSelectedCardIndex() const;
+	/** Used after a shuffle so card picking cannot start on the old visible positions. */
+	bool AreCardsAtLayoutPositions(const TArray<ASHCard*>& Cards) const;
 
 	UFUNCTION(BlueprintCallable, Category="Cards Layout")
 	void RemoveCardFromLayout(ASHCard* Card);
@@ -135,6 +140,7 @@ protected:
 
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Cards Layout")
 	int32 SelectedCardIndexValue = INDEX_NONE;
+	TWeakObjectPtr<ASHCard> SelectedCard;
 
 	/** Prevents hover focus from fighting the temporary gap shown for a dragged card. */
 	bool bSuppressFocusedCardPresentation = false;

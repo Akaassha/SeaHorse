@@ -6,6 +6,7 @@
 #include "OnlineSessionSettings.h"
 #include "Containers/Ticker.h"
 #include "Online/SHSessionTypes.h"
+#include "Gameplay/Rules/SHOptionalRules.h"
 #include "SHSessionSubsystem.generated.h"
 
 // Local online-service coordination, persistent across maps. Replicated lobby data lives in GameState.
@@ -35,7 +36,7 @@ public:
 	UPROPERTY(BlueprintAssignable) FSHConnectionError OnConnectionError;
 
 	// Server-only C++ entry point; the lobby GameMode validates host and readiness first.
-	void StartLobbyMatch(ESHMatchMap Map, int32 PlayerCount, TFunction<void(bool, const FString&)> Completion);
+	void StartLobbyMatch(ESHMatchMap Map, int32 PlayerCount, const FSHOptionalRules& Rules, TFunction<void(bool, const FString&)> Completion);
 	void UpdateLobbyMap(ESHMatchMap Map, TFunction<void(bool, const FString&)> Completion);
 	// Called by the authoritative match GameMode once every participant has a hand and the match is ready.
 	void NotifyMatchReady(UWorld* MatchWorld);

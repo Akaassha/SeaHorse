@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/GameStateBase.h"
 #include "Online/SHSessionTypes.h"
+#include "Gameplay/Rules/SHOptionalRules.h"
 #include "SHLobbyGameState.generated.h"
 
 class ASHLobbyPlayerState;
@@ -15,6 +16,7 @@ struct FSHLobbyInfo
 	UPROPERTY(BlueprintReadOnly) FString ServerName;
 	UPROPERTY(BlueprintReadOnly) int32 MaxPlayers = 4;
 	UPROPERTY(BlueprintReadOnly) ESHMatchMap SelectedMap = ESHMatchMap::Small;
+	UPROPERTY(BlueprintReadOnly) FSHOptionalRules OptionalRules;
 	UPROPERTY(BlueprintReadOnly) bool bChangingMap = false;
 	UPROPERTY(BlueprintReadOnly) bool bStartingMatch = false;
 	UPROPERTY(BlueprintReadOnly) TObjectPtr<ASHLobbyPlayerState> Host;

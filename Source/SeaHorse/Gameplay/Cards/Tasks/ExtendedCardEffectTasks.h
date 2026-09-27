@@ -38,10 +38,13 @@ public:
 	virtual bool RequiresTargetSelection() const override { return true; }
 	virtual void StartEffect_Implementation() override;
 	virtual void HandleParticipantSelected(ASHHand* Hand) override;
+	virtual ECardEffectPairDisposition GetPairDisposition_Implementation() const override
+	{ return bTransferredCard ? ECardEffectPairDisposition::MoveToVictoryStack : ECardEffectPairDisposition::KeepOnTable; }
 protected:
 	virtual void ResolveAbility() override;
 private:
 	UPROPERTY() TObjectPtr<ASHHand> Source;
+	bool bTransferredCard = false;
 };
 
 UCLASS()

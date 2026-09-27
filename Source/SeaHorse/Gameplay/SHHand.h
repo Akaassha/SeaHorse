@@ -54,6 +54,9 @@ public:
 	/** Pancho's bonus expires at the end of the current turn. */
 	UPROPERTY(BlueprintReadOnly, VisibleAnywhere)
 	bool bDoubleEffectThisTurn = false;
+	/** A failed activation can be retried when this player's next turn begins. */
+	UPROPERTY(BlueprintReadOnly, VisibleAnywhere)
+	TObjectPtr<ASHPlayerState> ActivationRetryBlockedUntilTurnOf = nullptr;
 
 	bool operator==(const FActivatedPair& Other) const
 	{
@@ -73,6 +76,7 @@ class SEAHORSE_API ASHHand : public AActor
 
 #if WITH_DEV_AUTOMATION_TESTS
 	friend struct FSHNewEffectsWorld;
+	friend struct FSHOptionalRulesWorld;
 	friend class FSHActivationQueueReadinessTest;
 	friend class FSHReportedEffectRegressionsTest;
 	friend class FSHStandardEffectPresentationTest;
@@ -89,6 +93,12 @@ public:
 	/** Index of the card captured on mouse-down, never a nearest-center estimate. */
 	UFUNCTION(BlueprintPure, Category = "Cards|Interaction")
 	int32 GetPointerPressedHandCardIndex() const;
+	/** Selection is local to this visual seat and follows card identity through reordering. */
+	UFUNCTION(BlueprintPure, Category = "Cards|Interaction")
+	int32 GetSelectedHandCardIndex() const;
+	/** Deselecting one's own card is presentation-only and is allowed outside one's turn. */
+	UFUNCTION(BlueprintCallable, Category = "Cards|Interaction")
+	bool TryDeselectLocalHandCard(ASHCard* Card);
 
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 

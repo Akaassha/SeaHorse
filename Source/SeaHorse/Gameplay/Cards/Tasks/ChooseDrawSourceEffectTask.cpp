@@ -65,7 +65,9 @@ void UChooseDrawSourceEffectTask::HandleParticipantSelected(ASHHand* SelectedHan
 	UTurnComponent* TurnComponent = GameMode->GetTurnComponent();
 	checkf(IsValid(TurnComponent), TEXT("GameMode has no TurnComponent"));
 
-	if (IsValid(DrawingPlayer) && IsValid(SelectedHand) && SelectedHand != DrawingPlayer->GetHand())
+	if (IsValid(DrawingPlayer) && IsValid(DrawingPlayer->GetHand()) &&
+		GetWorld()->GetGameState<ASHGameState>()->PlayerArray.Contains(DrawingPlayer) &&
+		IsValid(SelectedHand) && SelectedHand != DrawingPlayer->GetHand())
 	{
 		PlayActivationVFX();
 		TurnComponent->SetForcedDrawSourceHand(DrawingPlayer, SelectedHand);

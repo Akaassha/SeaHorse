@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerController.h"
 #include "Online/SHSessionTypes.h"
+#include "Gameplay/Rules/SHOptionalRules.h"
 #include "SHLobbyPlayerController.generated.h"
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FSHLobbyRequestRejected, const FString&, Reason);
@@ -16,6 +17,8 @@ public:
 	UFUNCTION(BlueprintCallable, Server, Reliable, Category="SeaHorse|Lobby") void ServerSetReady(bool bReady);
 	UFUNCTION(BlueprintCallable, Server, Reliable, Category="SeaHorse|Lobby") void ServerStartMatch();
 	UFUNCTION(BlueprintCallable, Server, Reliable, Category="SeaHorse|Lobby") void ServerSelectMatchMap(ESHMatchMap Map);
+	UFUNCTION(BlueprintCallable, Server, Reliable, Category="SeaHorse|Lobby") void ServerSetOptionalRules(const FSHOptionalRules& Rules);
+	UFUNCTION(BlueprintPure, Category="SeaHorse|Lobby") bool CanSetOptionalRules() const;
 	UFUNCTION(BlueprintPure, Category="SeaHorse|Lobby") bool CanSelectMatchMap(ESHMatchMap Map) const;
 	UFUNCTION(BlueprintPure, Category="SeaHorse|Lobby") bool IsLobbyHost() const;
 	UPROPERTY(BlueprintAssignable) FSHLobbyRequestRejected OnLobbyRequestRejected;

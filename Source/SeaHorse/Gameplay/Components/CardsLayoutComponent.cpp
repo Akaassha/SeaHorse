@@ -85,6 +85,8 @@ void USHHandCardsLayoutComponent::UpdateCardsPositions(const TArray<ASHCard*>& C
 	ASHCard* HoveredCard = IsValid(PC) ? PC->GetHandCardUnderCursor() : nullptr;
 	FocusedCardIndexValue = !bSuppressFocusedCardForTargeting && CanLayoutHandCard(HoveredCard)
 		? Cards.IndexOfByKey(HoveredCard) : INDEX_NONE;
+	SelectedCardIndexValue = GetSelectedCardIndex();
+	if (SelectedCardIndexValue == INDEX_NONE) { SelectedCard.Reset(); }
 
 	ASHCard* PreviewCard = nullptr;
 	int32 PreviewInsertIndex = INDEX_NONE;
@@ -217,7 +219,40 @@ void USHHandCardsLayoutComponent::SetTargetingFocusSuppressed(bool bSuppressed)
 
 void USHHandCardsLayoutComponent::SetSelectedCardIndex(int32 SelectedCardIndex)
 {
-	SelectedCardIndexValue = SelectedCardIndex;
+	ASHHand* VisualHand = Cast<ASHHand>(GetOwner());
+	ASHHand* LogicalHand = IsValid(VisualHand) ? VisualHand->GetRepresentedHand() : nullptr;
+	const TArray<ASHCard*> Cards = IsValid(LogicalHand) ? LogicalHand->GetCards() : TArray<ASHCard*>();
+	SelectedCard = Cards.IsValidIndex(SelectedCardIndex) ? Cards[SelectedCardIndex] : nullptr;
+	SelectedCardIndexValue = GetSelectedCardIndex();
+}
+
+ASHCard* USHHandCardsLayoutComponent::GetSelectedCard() const
+{
+	ASHCard* Card = SelectedCard.Get();
+	const ASHHand* VisualHand = Cast<ASHHand>(GetOwner());
+	ASHHand* LogicalHand = IsValid(VisualHand) ? VisualHand->GetRepresentedHand() : nullptr;
+	return IsValid(Card) && IsValid(LogicalHand) && !LogicalHand->IsLogicalNPC() &&
+		Card->GetCardZone() == ECardZone::Hand && Card->GetOwningHand() == LogicalHand &&
+		LogicalHand->ContainsCard(Card) ? Card : nullptr;
+}
+
+int32 USHHandCardsLayoutComponent::GetSelectedCardIndex() const
+{
+	ASHCard* Card = GetSelectedCard();
+	return IsValid(Card) ? Card->GetOwningHand()->GetCards().IndexOfByKey(Card) : INDEX_NONE;
+}
+
+bool USHHandCardsLayoutComponent::AreCardsAtLayoutPositions(const TArray<ASHCard*>& Cards) const
+{
+	if (!bInitialized) { return true; }
+	for (const ASHCard* Card : Cards)
+	{
+		const FTransform* Target = CardsTransforms.Find(Card);
+		if (!IsValid(Card) || !Target || !Card->GetActorLocation().Equals(Target->GetLocation(), 0.5) ||
+			!Card->GetActorQuat().Equals(Target->GetRotation(), 0.01) ||
+			!Card->GetActorScale3D().Equals(Target->GetScale3D(), 0.01)) { return false; }
+	}
+	return true;
 }
 
 void USHHandCardsLayoutComponent::RemoveCardFromLayout(ASHCard* Card)
@@ -230,6 +265,7 @@ void USHHandCardsLayoutComponent::SetDraggedCard(ASHCard* Card)
 {
 	ASHCard* PreviousCard = DraggedCard;
 	DraggedCard = Card;
+	if (IsValid(Card)) { SetSelectedCardIndex(INDEX_NONE); }
 	if (ASHPlayerController* PC = GetWorld() ? Cast<ASHPlayerController>(GetWorld()->GetFirstPlayerController()) : nullptr;
 		IsValid(PC) && PC->IsLocalController())
 	{

@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/GameState.h"
+#include "Gameplay/Rules/SHOptionalRules.h"
 #include "SHGameState.generated.h"
 
 class ASHPlayerState;
@@ -63,6 +64,9 @@ class SEAHORSE_API ASHGameState : public AGameState
 	GENERATED_BODY()
 	
 public:
+	UFUNCTION(BlueprintPure, Category = "Match|Rules")
+	FSHOptionalRules GetOptionalRules() const { return OptionalRules; }
+	void SetOptionalRules(const FSHOptionalRules& Rules);
 	UPROPERTY(ReplicatedUsing = OnRep_ReactionPending, BlueprintReadOnly, Category = "Reaction")
 	bool bReactionPending = false;
 	void SetReactionPending(bool bPending);
@@ -159,6 +163,9 @@ public:
 	void SetTurnPhase(ETurnPhase NewTurnPhase);
 
 protected:
+	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Match|Rules")
+	FSHOptionalRules OptionalRules;
+
 	UPROPERTY(ReplicatedUsing = OnRep_ParticipantHands, BlueprintReadOnly, Category = "Participants")
 	TArray<TObjectPtr<ASHHand>> ParticipantHands;
 

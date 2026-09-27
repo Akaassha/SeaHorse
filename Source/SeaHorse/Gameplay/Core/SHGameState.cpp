@@ -19,6 +19,14 @@ void ASHGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLife
     DOREPLIFETIME(ASHGameState, FinishedMatch);
     DOREPLIFETIME(ASHGameState, ParticipantHands);
 	DOREPLIFETIME(ASHGameState, bReactionPending);
+	DOREPLIFETIME(ASHGameState, OptionalRules);
+}
+
+void ASHGameState::SetOptionalRules(const FSHOptionalRules& Rules)
+{
+	if (!HasAuthority()) { return; }
+	OptionalRules = Rules;
+	ForceNetUpdate();
 }
 
 void ASHGameState::SetReactionPending(bool bPending)
@@ -201,6 +209,22 @@ void ASHGameState::OnRep_TurnPhase()
 void ASHGameState::SetCurrentPlayer(ASHPlayerState* PlayerState)
 {
     checkf(HasAuthority(), TEXT("CurrentPlayer can only be changed by server"));
+	// SetCurrentPlayer marks a turn start, also when only one human remains.
+	if (IsValid(PlayerState))
+	{
+		for (ASHHand* Hand : GetParticipantHands())
+		{
+			if (!IsValid(Hand)) { continue; }
+			for (const FActivatedPair& Pair : Hand->GetLogicalActivationPairs())
+			{
+				if (Pair.ActivationRetryBlockedUntilTurnOf == PlayerState)
+				{
+					Hand->FindActivationPair(Pair.CardA)->ActivationRetryBlockedUntilTurnOf = nullptr;
+					Hand->ForceNetUpdate();
+				}
+			}
+		}
+	}
 
     CurrentPlayer = PlayerState;
 

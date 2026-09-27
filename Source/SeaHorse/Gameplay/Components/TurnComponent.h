@@ -81,6 +81,8 @@ public:
 	void RegisterPendingPairSettlement(ASHCard* CardA, ASHCard* CardB);
 	void NotifyPairSettled(ASHCard* CardA, ASHCard* CardB);
 	void NotifyEffectTaskFinished();
+	/** Called while Logout holds a transition block and after its hand becomes a BN. */
+	void HandlePlayerDisconnected(ASHPlayerState* Player, ASHHand* ConvertedHand);
 
 	/** Server-side named lock for BP presentation that must finish before the next turn. */
 	void BeginTurnTransitionBlock(FName EffectId);

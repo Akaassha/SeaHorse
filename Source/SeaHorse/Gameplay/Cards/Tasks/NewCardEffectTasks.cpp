@@ -127,7 +127,7 @@ void UTransferSpecifiedCardEffectTask::HandleParticipantSelected(ASHHand* Select
 	if (IsValid(GameMode) && IsValid(Fragment))
 	{
 		PlayActivationVFX();
-		GameMode->TransferCardToHand(
+		bTransferredCard = GameMode->TransferCardToHand(
 			GetActivatingPlayer()->GetHand(),
 			SelectedHand,
 			Fragment->CardDefinitionToTransfer);

@@ -38,6 +38,10 @@ public:
 	virtual bool RequiresTargetSelection() const override { return true; }
 	virtual void StartEffect_Implementation() override;
 	virtual void HandleParticipantSelected(ASHHand* SelectedHand) override;
+	virtual ECardEffectPairDisposition GetPairDisposition_Implementation() const override
+	{ return bTransferredCard ? ECardEffectPairDisposition::MoveToVictoryStack : ECardEffectPairDisposition::KeepOnTable; }
+private:
+	bool bTransferredCard = false;
 };
 
 UCLASS()

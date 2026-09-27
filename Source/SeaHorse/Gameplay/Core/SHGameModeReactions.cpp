@@ -291,26 +291,51 @@ void ASHGameMode::ResolveCardReactionChain()
 void ASHGameMode::Logout(AController* Exiting)
 {
 	ASHPlayerState* Player = Exiting ? Exiting->GetPlayerState<ASHPlayerState>() : nullptr;
-	if (bReactionWindowOpen && Player)
+	ASHGameState* State = GetGameState<ASHGameState>();
+	ASHHand* Hand = IsValid(Player) ? Player->GetHand() : nullptr;
+	const bool bConvertToNPC = IsValid(Hand) && IsValid(State) && !State->IsGameEnded() &&
+		State->GetParticipantHands().Contains(Hand) && !Hand->IsLogicalNPC();
+	const FName DisconnectBlock(TEXT("DisconnectParticipant"));
+	if (bConvertToNPC && TurnComponent) { TurnComponent->BeginTurnTransitionBlock(DisconnectBlock); }
 	{
-		if (ReactionRootActivation.ActivatingPlayer == Player)
+		TGuardValue<bool> ActivationGuard(bProcessingPairActivations, true);
+		TGuardValue<bool> CompletionGuard(bProcessingSuccessfulActivations, true);
+		if (bConvertToNPC) { ConvertDisconnectedPlayerToNPC(Player); }
+		if (bReactionWindowOpen && Player)
 		{
-			TGuardValue<bool> Guard(bProcessingPairActivations, true);
-			PendingPairActivations.RemoveAll([Player](const FPendingPairActivation& Entry) { return Entry.ActivatingPlayer == Player; });
-			ReactionRootActivation = FPendingPairActivation{};
-			ResolveCardReactionChain();
-		}
-		else
-		{
-			ReactionOptions.RemoveAll([Player](const FReactionOption& Option) { return Option.Player == Player; });
-			FReactionOption Offer;
-			if (ActiveReactionOffers.RemoveAndCopyValue(Player, Offer))
+			if (ReactionRootActivation.ActivatingPlayer == Player)
 			{
-				if (ASHPlayerController* PC = Cast<ASHPlayerController>(Player->GetOwner())) { PC->ClientCloseCardReaction(Offer.OfferId); }
+				TGuardValue<bool> Guard(bProcessingPairActivations, true);
+				PendingPairActivations.RemoveAll([Player](const FPendingPairActivation& Entry) { return Entry.ActivatingPlayer == Player; });
+				ReactionRootActivation = FPendingPairActivation{};
+				ResolveCardReactionChain();
 			}
-			OfferNextCardReaction(Player); // Resume only if nobody else can still answer.
+			else if (ReactionTargetPlayer == Player)
+			{
+				// An accepted responder left while their own counter-window was open.
+				// Its cards are now in BN; settle the remaining chain without them.
+				ResolveCardReactionChain();
+			}
+			else
+			{
+				ReactionOptions.RemoveAll([Player](const FReactionOption& Option) { return Option.Player == Player; });
+				FReactionOption Offer;
+				if (ActiveReactionOffers.RemoveAndCopyValue(Player, Offer))
+				{
+					if (ASHPlayerController* PC = Cast<ASHPlayerController>(Player->GetOwner())) { PC->ClientCloseCardReaction(Offer.OfferId); }
+				}
+				OfferNextCardReaction(Player); // Resume only if nobody else can still answer.
+			}
+		}
+		if (bConvertToNPC)
+		{
+			RefreshSelectionsAfterPlayerDisconnected(Player, Hand);
+			if (TurnComponent) { TurnComponent->HandlePlayerDisconnected(Player, Hand); }
 		}
 	}
+	if (IsValid(State)) { State->SetReactionPending(bReactionWindowOpen || !PendingSuccessfulActivations.IsEmpty()); }
+	ProcessSuccessfulActivations();
+	if (bConvertToNPC && TurnComponent) { TurnComponent->FinishTurnTransitionBlock(DisconnectBlock); }
 	Super::Logout(Exiting);
 	TryProcessQueuedPairActivations();
 	if (TurnComponent) { TurnComponent->NotifyEffectTaskFinished(); }

@@ -122,7 +122,7 @@ void ASHLobbyGameMode::RequestStartMatch(ASHLobbyPlayerController* Player)
 	State->SetLobbyInfo(Info);
 	TWeakObjectPtr<ASHLobbyGameMode> WeakThis(this);
 	TWeakObjectPtr<ASHLobbyPlayerController> WeakPlayer(Player);
-	Sessions->StartLobbyMatch(Info.SelectedMap, State->GetLobbyPlayers().Num(), [WeakThis, WeakPlayer](bool bSuccess, const FString& Error)
+	Sessions->StartLobbyMatch(Info.SelectedMap, State->GetLobbyPlayers().Num(), Info.OptionalRules, [WeakThis, WeakPlayer](bool bSuccess, const FString& Error)
 	{
 		if (!bSuccess && WeakThis.IsValid())
 		{
@@ -166,6 +166,28 @@ void ASHLobbyGameMode::RequestSelectMatchMap(ASHLobbyPlayerController* Player, E
 	{
 		if (WeakThis.IsValid()) { WeakThis->FinishMapSelection(WeakPlayer.Get(), Map, bSuccess, Failure); }
 	});
+}
+
+void ASHLobbyGameMode::RequestSetOptionalRules(ASHLobbyPlayerController* Player, const FSHOptionalRules& Rules)
+{
+	auto* State = GetGameState<ASHLobbyGameState>();
+	if (!HasAuthority() || !IsValid(Player) || !State) { return; }
+	if (!Player->IsLocalController() || !Player->IsLobbyHost() || !State->GetLobbyPlayers().Contains(Player->GetPlayerState<ASHLobbyPlayerState>()))
+	{
+		Player->ClientLobbyRequestRejected(TEXT("Only the host can change optional rules.")); return;
+	}
+	if (!Player->CanSetOptionalRules())
+	{
+		Player->ClientLobbyRequestRejected(TEXT("Optional rules cannot change while the map is changing or the match is starting.")); return;
+	}
+	FSHLobbyInfo Info = State->GetLobbyInfo();
+	if (Info.OptionalRules == Rules) { return; }
+	Info.OptionalRules = Rules;
+	for (ASHLobbyPlayerState* Guest : State->GetLobbyPlayers())
+	{
+		if (Guest != Info.Host) { Guest->SetReady(false); }
+	}
+	State->SetLobbyInfo(Info);
 }
 
 void ASHLobbyGameMode::FinishMapSelection(ASHLobbyPlayerController* Player, ESHMatchMap Map, bool bSuccess, const FString& Error)

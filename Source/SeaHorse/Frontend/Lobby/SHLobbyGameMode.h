@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/GameModeBase.h"
 #include "Online/SHSessionTypes.h"
+#include "Gameplay/Rules/SHOptionalRules.h"
 #include "SHLobbyGameMode.generated.h"
 
 class ASHLobbyPlayerController;
@@ -21,6 +22,7 @@ public:
 	void SetPlayerReady(ASHLobbyPlayerController* Player, bool bReady);
 	void RequestStartMatch(ASHLobbyPlayerController* Player);
 	void RequestSelectMatchMap(ASHLobbyPlayerController* Player, ESHMatchMap Map);
+	void RequestSetOptionalRules(ASHLobbyPlayerController* Player, const FSHOptionalRules& Rules);
 	bool IsStartingRosterValid(int32 ExpectedPlayers) const;
 private:
 #if WITH_DEV_AUTOMATION_TESTS

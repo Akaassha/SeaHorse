@@ -57,6 +57,8 @@ public:
 	void UpdateCardVisual(bool bShowFront);
 
 	void Reveal();
+	/** A departing player's public cards become hidden cards in the replacement BN. */
+	void ConcealInNPCStack();
 
 	UFUNCTION()
 	void OnRep_RevealedCardDefinition();

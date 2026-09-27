@@ -25,9 +25,16 @@
 #include "Settings/LevelEditorPlaySettings.h"
 #endif
 
+void ASHGameMode::InitGameState()
+{
+    Super::InitGameState();
+    if (ASHGameState* State = GetGameState<ASHGameState>()) { State->SetOptionalRules(PendingOptionalRules); }
+}
+
 void ASHGameMode::InitGame(const FString& MapName, const FString& Options, FString& ErrorMessage)
 {
     Super::InitGame(MapName, Options, ErrorMessage);
+    PendingOptionalRules = FSHOptionalRules::FromTravelOptions(Options);
     if (!ErrorMessage.IsEmpty() || !DiscoverTableSeats(ErrorMessage)) return;
     // Supplied by the authoritative lobby's ServerTravel, never by an individual login URL.
     if (UGameplayStatics::HasOption(Options, TEXT("SHExpectedPlayers")))
@@ -569,7 +576,16 @@ void ASHGameMode::FinishEffectTask(UCardEffectTask* CardEffectTask)
 	ECardEffectPairDisposition PairDisposition = CardEffectTask->GetPairDisposition();
 	if (FRepeatedPairEffect* Repeat = RepeatedPairEffects.Find(CardA))
 	{
-		if (PairDisposition == ECardEffectPairDisposition::RemoveFromGame ||
+		ASHHand* Hand = ActivatingPlayer->GetHand();
+		const FActivatedPair* Pair = IsValid(Hand) ? Hand->FindActivationPair(CardA) : nullptr;
+		if (PairDisposition == ECardEffectPairDisposition::KeepOnTable && Pair &&
+			IsValid(Pair->ActivationRetryBlockedUntilTurnOf))
+		{
+			// A failed Herald attempt retains the pair even if Pancho's first
+			// execution succeeded. The retry notice must refer to a usable pair.
+			Repeat->Disposition = ECardEffectPairDisposition::KeepOnTable;
+		}
+		else if (PairDisposition == ECardEffectPairDisposition::RemoveFromGame ||
 			(Repeat->Disposition == ECardEffectPairDisposition::KeepOnTable && PairDisposition == ECardEffectPairDisposition::MoveToVictoryStack))
 		{
 			Repeat->Disposition = PairDisposition;
@@ -993,7 +1009,7 @@ bool ASHGameMode::RequestHandCardSelection(UCardEffectTask* Task, ASHPlayerState
 	return RequestHandCardsSelection(Task, Player, IsValid(Player) ? Player->GetHand() : nullptr, Cards, 1, 1);
 }
 
-bool ASHGameMode::RequestHandCardsSelection(UCardEffectTask* Task, ASHPlayerState* Player, ASHHand* Source, const TArray<ASHCard*>& Cards, int32 Min, int32 Max)
+bool ASHGameMode::RequestHandCardsSelection(UCardEffectTask* Task, ASHPlayerState* Player, ASHHand* Source, const TArray<ASHCard*>& Cards, int32 Min, int32 Max, bool bWaitForShuffledHand)
 {
 	if (!HasAuthority() || !IsValid(Task) || !ActiveEffectTasks.Contains(Task) || !IsValid(Player) || !IsValid(Source) ||
 		Min < 1 || Max < Min || Max > 3 || IsWaitingForPlayerSelection()) { return false; }
@@ -1018,7 +1034,12 @@ bool ASHGameMode::RequestHandCardsSelection(UCardEffectTask* Task, ASHPlayerStat
 	SetPairTargetSelectionPresentation(Task, Player, true);
 	const auto* Fragment = IsValid(Task->GetCardA()) ? Cast<UCardEffectFragment>(UCardDefinition::FindFragmentByClass(
 		Task->GetCardA()->GetCardDefinition(), UCardEffectFragment::StaticClass())) : nullptr;
-	PC->ClientRequestHandCardsSelection(Candidates, Min, Max, Fragment ? Fragment->SelectionWidgetClass : nullptr);
+	if (bWaitForShuffledHand)
+	{
+		PC->ClientRequestHandCardsSelectionAfterShuffle(Source, Source->GetCards(), Candidates, Min, Max,
+			Fragment ? Fragment->SelectionWidgetClass : nullptr);
+	}
+	else { PC->ClientRequestHandCardsSelection(Candidates, Min, Max, Fragment ? Fragment->SelectionWidgetClass : nullptr); }
 	return true;
 }
 bool ASHGameMode::HasOtherActiveEffects(const UCardEffectTask* Except) const
@@ -1433,6 +1454,7 @@ void ASHGameMode::ActivatePair(ASHPlayerState* PlayerState, ASHCard* CardA, ASHC
         Hand->RemoveCard(CardB);
         Hand->GetVictoryStack()->AddPair(CardA, CardB);
         CardA->Reveal(); CardB->Reveal();
+        if (GetGameState<ASHGameState>()->GetOptionalRules().bRemoveOtherPaulusAfterRatfolkPair)
         for (TActorIterator<ASHCard> It(GetWorld()); It; ++It)
         {
             ASHCard* Other = *It;

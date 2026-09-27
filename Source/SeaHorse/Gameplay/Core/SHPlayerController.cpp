@@ -868,6 +868,7 @@ void ASHPlayerController::ClientRequestPlayerSelection_Implementation(
     const TArray<ASHPlayerState*>& Candidates,
     EPlayerSelectionPurpose Purpose)
 {
+	ClearShuffledHandSelectionWait();
 	bAwaitingPlayerSelectionResponse = false;
 	ClearLocalPlayerSelection();
 	for (ASHPlayerState* Candidate : Candidates)
@@ -960,6 +961,7 @@ void ASHPlayerController::ClearLocalPlayerSelection()
 
 void ASHPlayerController::ClearLocalEffectSelectionState()
 {
+	ClearShuffledHandSelectionWait();
 	++LocalCardSelectionSerial;
 	LocalHandCardSelectionCandidates.Reset();
 	LocallySelectedEffectCards.Reset();

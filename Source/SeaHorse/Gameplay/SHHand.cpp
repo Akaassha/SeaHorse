@@ -10,6 +10,7 @@
 #include "SeaHorse/Gameplay/Core/SHGameState.h"
 #include "SeaHorse/Gameplay/Core/SHGameMode.h"
 #include "SeaHorse/Gameplay/Components/TurnComponent.h"
+#include "SeaHorse/Gameplay/Components/CardsLayoutComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "SeaHorse/Gameplay/Core/SHPlayerState.h"
 #include "SeaHorse/Gameplay/Player/SHPlayerRepresentation.h"
@@ -883,12 +884,27 @@ void ASHHand::OnRep_Cards()
 
 void ASHHand::OnRep_IsNPC()
 {
-	RefreshLocalCardsPresentation();
 	if (ASHPlayerController* PC = Cast<ASHPlayerController>(GetWorld()->GetFirstPlayerController());
 		IsValid(PC) && PC->IsLocalController())
 	{
+		const ASHGameState* State = GetWorld()->GetGameState<ASHGameState>();
+		const ASHPlayerState* LocalPlayer = PC->GetPlayerState<ASHPlayerState>();
+		if (bIsNPC && State && LocalPlayer && LayoutSeatIndex != INDEX_NONE &&
+			LocalPlayer->GetSeatIndex() != INDEX_NONE && State->GetParticipantCount() > 0)
+		{
+			// Table setup runs once. Replication of a disconnected participant's
+			// NPC mode must also detach its old PlayerState from the local slot.
+			const int32 Seat = (LayoutSeatIndex - LocalPlayer->GetSeatIndex() + State->GetParticipantCount()) % State->GetParticipantCount();
+			if (ASHHand* VisualHand = State->FindParticipantHandBySeat(Seat))
+			{
+				VisualHand->SetRepresentedHand(this);
+				VisualHand->SetShowCardFronts(false);
+				VisualHand->RefreshActivationPairsPresentation();
+			}
+		}
 		PC->TrySetupTableView();
 	}
+	RefreshLocalCardsPresentation();
 }
 
 void ASHHand::RefreshLocalCardsPresentation()
@@ -1141,4 +1157,25 @@ int32 ASHHand::GetPointerPressedHandCardIndex() const
 	ASHHand* LogicalHand = GetRepresentedHand();
 	return IsValid(Card) && Card->GetCardZone() == ECardZone::Hand && IsValid(LogicalHand) && Card->GetOwningHand() == LogicalHand
 		? LogicalHand->GetCards().IndexOfByKey(Card) : INDEX_NONE;
+}
+
+int32 ASHHand::GetSelectedHandCardIndex() const
+{
+	const auto* Layout = FindComponentByClass<USHHandCardsLayoutComponent>();
+	return IsValid(Layout) ? Layout->GetSelectedCardIndex() : INDEX_NONE;
+}
+
+bool ASHHand::TryDeselectLocalHandCard(ASHCard* Card)
+{
+	auto* PC = GetWorld() ? Cast<ASHPlayerController>(GetWorld()->GetFirstPlayerController()) : nullptr;
+	const ASHPlayerState* LocalPS = IsValid(PC) && PC->IsLocalController() ? PC->GetPlayerState<ASHPlayerState>() : nullptr;
+	auto* Layout = FindComponentByClass<USHHandCardsLayoutComponent>();
+	if (!IsValid(LocalPS) || LocalPS->GetHand() != GetRepresentedHand() ||
+		!IsValid(Card) || !IsValid(Layout) || Layout->GetSelectedCard() != Card)
+	{
+		return false;
+	}
+	Layout->SetSelectedCardIndex(INDEX_NONE);
+	UpdateCardPositions();
+	return true;
 }

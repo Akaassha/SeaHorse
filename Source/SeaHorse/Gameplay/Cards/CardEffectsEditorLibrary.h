@@ -11,6 +11,9 @@ public:
 	/** Migrate hand hover and click selection to the shared pointer resolver. Validates both Blueprints before saving. */
 	UFUNCTION(BlueprintCallable, Category = "Card Effects|Editor")
 	static bool UpgradeCardPointerBlueprints(bool bSave = false);
+	/** Allow deselection before the hand's turn gate and use card-identity selection queries. */
+	UFUNCTION(BlueprintCallable, Category = "Card Effects|Editor")
+	static bool UpgradeHandSelectionBlueprint(bool bSave = false);
 	/** One-time migration of BP_Hand's pairing predicate to the shared native rule. */
 	UFUNCTION(BlueprintCallable, Category = "Card Effects|Editor")
 	static bool UpgradeHandPairingBlueprint();

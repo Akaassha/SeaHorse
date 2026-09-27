@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/GameMode.h"
+#include "Gameplay/Rules/SHOptionalRules.h"
 #include "SHGameMode.generated.h"
 
 class ASHHand;
@@ -27,6 +28,7 @@ class SEAHORSE_API ASHGameMode : public AGameMode
 	
 public:
 	virtual void InitGame(const FString& MapName, const FString& Options, FString& ErrorMessage) override;
+	virtual void InitGameState() override;
 	virtual void PreLogin(const FString& Options, const FString& Address, const FUniqueNetIdRepl& UniqueId, FString& ErrorMessage) override;
 	//Begin AGameMode Interface
 	virtual void HandleStartingNewPlayer_Implementation(APlayerController* NewPlayer) override;
@@ -36,6 +38,8 @@ public:
 	//End AGameMode Interface
 
 	bool AreCardsPairCompatible(ASHCard* CardA, ASHCard* CardB);
+	bool CanRemoveOrphanedRatfolk(ASHPlayerState* Player, ASHCard* Card) const;
+	bool RequestRemoveOrphanedRatfolk(ASHPlayerState* Player, ASHCard* Card);
 
 	void ActivatePair(ASHPlayerState* PlayerState, ASHCard* CardA, ASHCard* CardB);
 
@@ -62,7 +66,7 @@ public:
 	bool SubmitActivationPairSelection(ASHPlayerState* SelectingPlayer, ASHCard* SelectedCard);
 	bool RequestHandCardSelection(UCardEffectTask* Task, ASHPlayerState* SelectingPlayer, const TArray<ASHCard*>& Cards);
 	void SubmitHandCardSelection(ASHPlayerState* SelectingPlayer, ASHCard* Card);
-	bool RequestHandCardsSelection(UCardEffectTask* Task, ASHPlayerState* Player, ASHHand* Source, const TArray<ASHCard*>& Cards, int32 Min, int32 Max);
+	bool RequestHandCardsSelection(UCardEffectTask* Task, ASHPlayerState* Player, ASHHand* Source, const TArray<ASHCard*>& Cards, int32 Min, int32 Max, bool bWaitForShuffledHand = false);
 	void SubmitHandCardsSelection(ASHPlayerState* Player, const TArray<ASHCard*>& Cards);
 	bool IsWaitingForPlayerSelection() const
 	{
@@ -93,8 +97,13 @@ protected:
 	int32 ExpectedPlayerCount = 2;
 
 private:
+	FSHOptionalRules PendingOptionalRules;
+	void ConvertDisconnectedPlayerToNPC(ASHPlayerState* Player);
+	void RefreshSelectionsAfterPlayerDisconnected(ASHPlayerState* Player, ASHHand* ConvertedHand);
 #if WITH_DEV_AUTOMATION_TESTS
+	friend class FSHDisconnectedParticipantTest;
 	friend struct FSHNewEffectsWorld;
+	friend struct FSHOptionalRulesWorld;
 	friend class FSHNewCardEffectsTest;
 	friend class FSHExpansionEffectsTest;
 	friend class FSHCardSelectionWidgetTest;

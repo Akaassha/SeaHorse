@@ -119,6 +119,15 @@ void ASHCard::Reveal()
 	OnRep_RevealedCardDefinition();
 }
 
+void ASHCard::ConcealInNPCStack()
+{
+	checkf(HasAuthority() && IsValid(GetOwningHand()) && GetOwningHand()->IsLogicalNPC(),
+		TEXT("Only the server can conceal a card that belongs to a BN stack"));
+	RevealedCardDefinition = nullptr;
+	SetFaceUp(false);
+	ForceNetUpdate();
+}
+
 void ASHCard::OnRep_RevealedCardDefinition()
 {
 	UE_LOG(LogTemp, Warning,
@@ -130,7 +139,8 @@ void ASHCard::OnRep_RevealedCardDefinition()
 
 	// Replicated reveals may arrive before the local widget has initialized.
 	if (GetNetMode() != NM_DedicatedServer && IsValid(CardFaceWidget)) { RefreshCardFace(); }
-	SetFaceUp(true);
+	// Null is an explicit re-conceal after converting a disconnected seat to BN.
+	SetFaceUp(IsValid(RevealedCardDefinition));
 }
 
 void ASHCard::ApplyOwnerCardDefinition(TSubclassOf<UCardDefinition> InCardDefinition)

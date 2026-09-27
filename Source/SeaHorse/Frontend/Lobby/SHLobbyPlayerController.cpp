@@ -9,6 +9,18 @@ ASHLobbyPlayerController::ASHLobbyPlayerController()
 	PrimaryActorTick.bCanEverTick = false;
 }
 
+bool ASHLobbyPlayerController::CanSetOptionalRules() const
+{
+	const auto* State = GetWorld() ? GetWorld()->GetGameState<ASHLobbyGameState>() : nullptr;
+	return IsLobbyHost() && State && !State->GetLobbyInfo().bStartingMatch && !State->GetLobbyInfo().bChangingMap;
+}
+
+void ASHLobbyPlayerController::ServerSetOptionalRules_Implementation(const FSHOptionalRules& Rules)
+{
+	if (auto* Mode = GetWorld()->GetAuthGameMode<ASHLobbyGameMode>()) { Mode->RequestSetOptionalRules(this, Rules); }
+	else { ClientLobbyRequestRejected(TEXT("Optional rules can only be selected in the lobby.")); }
+}
+
 bool ASHLobbyPlayerController::IsLobbyHost() const
 {
 	const auto* State = GetWorld() ? GetWorld()->GetGameState<ASHLobbyGameState>() : nullptr;

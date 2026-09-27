@@ -16,6 +16,8 @@ class UCardDefinition;
 class UMeshComponent;
 class UCardInfoWidget;
 
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FSHOrphanedRatfolkRemovalResult, bool, bRemoved);
+
 struct FEffectOutlineMeshState
 {
 	bool bRenderCustomDepth = false;
@@ -60,6 +62,13 @@ class SEAHORSE_API ASHPlayerController : public APlayerController
 
 public:
 	ASHPlayerController();
+	/** Optional discard of an unpairable Ratfolk in your own pairing phase; validated by the server. */
+	UFUNCTION(BlueprintCallable, Server, Reliable, Category = "Cards|Optional Rules")
+	void ServerRemoveOrphanedRatfolk(ASHCard* Card);
+	UPROPERTY(BlueprintAssignable, Category = "Cards|Optional Rules")
+	FSHOrphanedRatfolkRemovalResult OnOrphanedRatfolkRemovalResult;
+	UFUNCTION(Client, Reliable)
+	void ClientOrphanedRatfolkRemovalResult(bool bRemoved);
 	virtual void Tick(float DeltaSeconds) override;
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
@@ -173,8 +182,26 @@ public:
 	UFUNCTION(Client, Reliable)
 	void ClientRequestHandCardsSelection(const TArray<ASHCard*>& Cards, int32 Min, int32 Max,
 		TSubclassOf<class UCardSelectionPrompt> WidgetClass);
+	/** Wait for the hand's shuffled order to replicate and finish moving before enabling draws. */
+	UFUNCTION(Client, Reliable)
+	void ClientRequestHandCardsSelectionAfterShuffle(ASHHand* SourceHand, const TArray<ASHCard*>& ShuffledOrder,
+		const TArray<ASHCard*>& Candidates, int32 Min, int32 Max, TSubclassOf<class UCardSelectionPrompt> WidgetClass);
 	UFUNCTION(Server, Reliable)
 	void ServerSubmitHandCardsSelection(const TArray<ASHCard*>& Cards);
+
+	UFUNCTION(Client, Reliable)
+	void ClientShowCardEffectMessage(const FText& Message);
+	/** Override to show a game-specific notice; default is a nonblocking four-second message. */
+	UFUNCTION(BlueprintNativeEvent, Category="Card Effects")
+	void ShowCardEffectMessage(const FText& Message);
+	virtual void ShowCardEffectMessage_Implementation(const FText& Message);
+	/** Designer-authored layout. Unassigned uses the simple native notice. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Card Effects|Messages")
+	TSubclassOf<class UCardEffectMessageWidget> CardEffectMessageWidgetClass;
+	UFUNCTION(BlueprintCallable, Category = "Card Effects|Messages")
+	void CloseCardEffectMessage();
+	UFUNCTION(BlueprintPure, Category = "Card Effects|Messages")
+	UCardEffectMessageWidget* GetActiveCardEffectMessage() const { return ActiveCardEffectMessage; }
 
 	UFUNCTION(Client, Reliable)
 	void ClientSetPairTargetSelection(ASHCard* CardA, ASHCard* CardB,
@@ -244,6 +271,8 @@ protected:
 
 private:
 	friend class FSHHandCursorHoverTest;
+	friend class FSHHandSelectionTest;
+	friend class FSHShuffleSelectionBarrierTest;
 	friend class FSHHandHoverMotionTest;
 	friend class FSHHandHoverCorridorTest;
 	friend class FSHHandHoverMapTest;
@@ -306,6 +335,9 @@ private:
 	bool TryRoutePairPresentation(const FPendingPairPresentationEvent& Event);
 	void FlushPendingPairPresentationEvents();
 	FTimerHandle TableSetupRetryTimer;
+	UPROPERTY(Transient)
+	TObjectPtr<UCardEffectMessageWidget> ActiveCardEffectMessage;
+	FTimerHandle CardEffectMessageTimer;
 	FTimerHandle RotatedHandsReconcileTimer;
 	int32 RemainingRotatedHandsReconciles = 0;
 	UPROPERTY(Transient)
@@ -316,6 +348,16 @@ private:
 	TArray<TObjectPtr<ASHCard>> LocalActivationPairSelectionCandidates;
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<ASHCard>> LocalHandCardSelectionCandidates;
+	UPROPERTY(Transient) TObjectPtr<ASHHand> WaitingForShuffleHand;
+	UPROPERTY(Transient) TArray<TObjectPtr<ASHCard>> WaitingForShuffleOrder;
+	UPROPERTY(Transient) TArray<TObjectPtr<ASHCard>> WaitingForShuffleCandidates;
+	UPROPERTY(Transient) TSubclassOf<class UCardSelectionPrompt> WaitingForShuffleWidget;
+	int32 WaitingForShuffleMin = 1;
+	int32 WaitingForShuffleMax = 1;
+	FTimerHandle ShuffleSelectionWaitTimer;
+	double ShuffleLayoutWaitStartedAt = -1.0;
+	void PollShuffledHandSelection();
+	void ClearShuffledHandSelectionWait();
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<ASHCard>> LocallySelectedEffectCards;
 	int32 LocalSelectionMin = 1;

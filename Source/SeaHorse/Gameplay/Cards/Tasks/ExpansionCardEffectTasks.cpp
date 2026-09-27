@@ -64,7 +64,8 @@ void UExchangeHandCardsEffectTask::RequestNextDraw()
 {
 	if (RemainingDraws <= 0) { FinishEffect(); return; }
 	TArray<ASHCard*> Candidates = Recipient->IsLogicalNPC() ? TArray<ASHCard*>{Recipient->GetTopCard()} : Recipient->GetCards();
-	if (!GetTypedOuter<ASHGameMode>()->RequestHandCardsSelection(this, GetActivatingPlayer(), Recipient, Candidates, 1, 1)) { FinishEffect(); }
+	if (!GetTypedOuter<ASHGameMode>()->RequestHandCardsSelection(this, GetActivatingPlayer(), Recipient, Candidates, 1, 1,
+		RemainingDraws == OfferedCards.Num())) { FinishEffect(); }
 }
 
 void UProtectUntilNextTurnEffectTask::ResolveAbility()

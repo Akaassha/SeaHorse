@@ -6,6 +6,8 @@
 #include "Gameplay/Cards/Fragments/CardReactionFragment.h"
 #include "SeaHorse/Gameplay/Cards/SHCard.h"
 #include "SeaHorse/Gameplay/Cards/Tasks/CardEffectTask.h"
+#include "Gameplay/Cards/Tasks/NewCardEffectTasks.h"
+#include "Gameplay/Cards/Tasks/ExtendedCardEffectTasks.h"
 #include "SeaHorse/Gameplay/Core/SHPlayerController.h"
 #include "SeaHorse/Gameplay/Core/SHPlayerState.h"
 #include "SeaHorse/Gameplay/Core/SHGameMode.h"
@@ -73,7 +75,8 @@ bool UTurnComponent::CanActivatePairForState(const ASHGameState* GameState,
 	const ASHPlayerState* RequestingPlayer, const FActivatedPair& ActivatedPair)
 {
 	if (!IsValid(RequestingPlayer) || !IsValid(ActivatedPair.CardA) ||
-		!IsValid(ActivatedPair.CardB) || ActivatedPair.bActivated || ActivatedPair.bActivationQueued)
+		!IsValid(ActivatedPair.CardB) || ActivatedPair.bActivated || ActivatedPair.bActivationQueued ||
+		IsValid(ActivatedPair.ActivationRetryBlockedUntilTurnOf))
 	{
 		return false;
 	}
@@ -84,6 +87,37 @@ bool UTurnComponent::CanActivatePairForState(const ASHGameState* GameState,
 	}
 
 	const bool bIsOwnTurn = GameState->CurrentPlayer == RequestingPlayer;
+	const auto* Effect = Cast<UCardEffectFragment>(UCardDefinition::FindFragmentByClass(
+		ActivatedPair.CardA->GetKnownCardDefinition(), UCardEffectFragment::StaticClass()));
+	if (Effect && Effect->EffectTaskClass)
+	{
+		if (Effect->EffectTaskClass->IsChildOf(UTransferSpecifiedCardEffectTask::StaticClass()))
+		{
+			const auto* Transfer = Cast<UTransferCardEffectFragment>(Effect);
+			ASHHand* Hand = RequestingPlayer->GetHand();
+			if (!Transfer || !Transfer->CardDefinitionToTransfer || !IsValid(Hand) ||
+				!Hand->GetCards().ContainsByPredicate([Transfer](const ASHCard* Card)
+				{
+					return IsValid(Card) && Card->GetKnownCardDefinition() == Transfer->CardDefinitionToTransfer;
+				})) { return false; }
+		}
+		if (Effect->EffectTaskClass->IsChildOf(URotateActivationZonesRightEffectTask::StaticClass()))
+		{
+			bool bHasOtherPair = false;
+			for (ASHHand* Hand : GameState->GetParticipantHands())
+			{
+				if (!IsValid(Hand) || Hand->IsLogicalNPC()) { continue; }
+				for (const FActivatedPair& Pair : Hand->GetLogicalActivationPairs())
+				{
+					if (Pair.CardA != ActivatedPair.CardA && Pair.CardB != ActivatedPair.CardA &&
+						IsValid(Pair.CardA) && IsValid(Pair.CardB) && Pair.State < EActivationPairState::VictoryPresentation)
+					{ bHasOtherPair = true; break; }
+				}
+				if (bHasOtherPair) { break; }
+			}
+			if (!bHasOtherPair) { return false; }
+		}
+	}
 	// Reaction pairs are offered by the server, never activated by ordinary clicks.
 	if (UCardDefinition::FindFragmentByClass(ActivatedPair.CardA->GetKnownCardDefinition(), UCardReactionFragment::StaticClass())) { return false; }
 	const auto* PairFilter = Cast<UStoredPairFilterEffectFragment>(UCardDefinition::FindFragmentByClass(

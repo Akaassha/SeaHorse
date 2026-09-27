@@ -655,13 +655,15 @@ bool FSHCardReactionsTest::RunTest(const FString& Parameters)
 		T.Mode->RequestStoredPairActivation(T.Players[0], Target);
 		T.Mode->RespondToCardReaction(T.Players[1], OfferId(T, T.Players[1]), true);
 		TestTrue(TEXT("Accepted counter waits for the other player's counter decision"), T.State->bReactionPending);
+		ASHHand* DepartingHand = T.Players[2]->GetHand();
 		T.Mode->Logout(CastChecked<ASHPlayerController>(T.Players[2]->GetOwner()));
 		T.Advance();
 		TestFalse(TEXT("Last pending responder disconnecting resolves the accepted counter"), T.Mode->HasActiveEffectTasks());
 		TestFalse(TEXT("Disconnect during a counter window releases the global pause"), T.State->bReactionPending);
 		TestEqual(TEXT("Disconnect does not undo the accepted counter"), T.Players[0]->GetHand()->GetVictoryStack()->GetPairCount(), 1);
 		TestEqual(TEXT("Accepted counter is consumed once after the disconnect"), T.Players[1]->GetHand()->GetVictoryStack()->GetPairCount(), 1);
-		TestEqual(TEXT("Disconnecting without accepting does not consume a pair"), T.Players[2]->GetHand()->GetVictoryStack()->GetPairCount(), 0);
+		TestEqual(TEXT("Disconnecting without accepting does not score a pair"), DepartingHand->GetVictoryStack()->GetPairCount(), 0);
+		TestTrue(TEXT("Unaccepted pair becomes cards in the disconnected player's BN"), DepartingHand->IsLogicalNPC() && DepartingHand->GetCardCount() == 2);
 	}
 	{
 		FSHNewEffectsWorld T;
@@ -858,6 +860,8 @@ bool FSHCardReactionsTest::RunTest(const FString& Parameters)
 	for (int32 ExitMode : {0, 1, 2})
 	{
 		FSHNewEffectsWorld T;
+		ASHHand* RootHand = T.Players[0]->GetHand();
+		ASHHand* RespondingHand = T.Players[1]->GetHand();
 		ASHCard* Apologist = T.Pair(T.Players[1]->GetHand(), Capture);
 		ASHCard* Target = T.Pair(T.Players[0]->GetHand(), Dead);
 		ASHCard* Requested = T.Card(T.Players[2]->GetHand(), Bodgy);
@@ -871,8 +875,12 @@ bool FSHCardReactionsTest::RunTest(const FString& Parameters)
 		else { T.Mode->Logout(CastChecked<ASHPlayerController>(T.Players[ExitMode == 1 ? 1 : 0]->GetOwner())); }
 		T.Advance();
 		T.Mode->RespondToCardReaction(T.Players[1], PostOffer, true);
-		TestEqual(TEXT("Decline or disconnect finalizes completed root once"), T.Players[0]->GetHand()->GetVictoryStack()->GetPairCount(), 1);
-		TestNotNull(TEXT("Unaccepted Apologist remains unspent"), T.Players[1]->GetHand()->FindActivationPair(Apologist));
+		TestEqual(TEXT("A connected root scores once; a disconnected root joins BN"), RootHand->GetVictoryStack()->GetPairCount(), ExitMode == 2 ? 0 : 1);
+		if (ExitMode == 1)
+		{
+			TestTrue(TEXT("Disconnected responder's unspent Apologist joins BN"), RespondingHand->IsLogicalNPC() && RespondingHand->ContainsCard(Apologist));
+		}
+		else { TestNotNull(TEXT("Connected responder's unaccepted Apologist remains unspent"), RespondingHand->FindActivationPair(Apologist)); }
 		TestTrue(TEXT("Post-effect cleanup clears completion queue"), T.Mode->PendingSuccessfulActivations.IsEmpty());
 		TestFalse(TEXT("Post-effect cleanup releases all response and task locks"), T.State->bReactionPending || T.Mode->HasActiveEffectTasks());
 	}
@@ -1015,6 +1023,8 @@ bool FSHSupportPairEffectsTest::RunTest(const FString& Parameters)
 		ASHCard* SecondDogs = T.Pair(Hand, Dogs);
 		ASHCard* Gieselbrecht = T.Pair(Hand, Reaction);
 		ASHCard* Root = T.Pair(T.Players[0]->GetHand(), Dead);
+		// Each Apologist needs a successful Herald to reach the post-effect window.
+		if (Reaction == Capture) { T.Card(T.Hands[1], Bodgy); T.Card(T.Hands[1], Bodgy); }
 		TestFalse(TEXT("Dogs are passive and cannot be manually activated"), T.Mode->GetTurnComponent()->CanActivatePair(Reactor, *Hand->FindActivationPair(DogPair)));
 		T.Mode->RequestStoredPairActivation(T.Players[0], Root);
 		if (Reaction == Capture) { T.Mode->SubmitParticipantSelection(T.Players[0], T.Hands[1]); T.Advance(); }
@@ -1395,9 +1405,10 @@ bool FSHDogsReactionChainTest::RunTest(const FString& Parameters)
 	UClass* Counter = Load(TEXT("Card_GieselbrechtWizardApprentice"));
 	UClass* Capture = Load(TEXT("Card_GieselbrechtApologist"));
 	UClass* Dead = Load(TEXT("Card_GniewDeadHerald"));
+	UClass* Bodgy = Load(TEXT("Card_BodgyVampireHunter"));
 	UClass* Hans = Load(TEXT("Card_HansCaptain"));
 	UClass* Collector = Load(TEXT("Card_Gnushor"));
-	if (!Dogs || !Counter || !Capture || !Dead || !Hans || !Collector) { return false; }
+	if (!Dogs || !Counter || !Capture || !Dead || !Bodgy || !Hans || !Collector) { return false; }
 	for (int32 First : {1, 2})
 	for (bool DogsWithFirst : {true, false})
 	for (bool SecondCaptures : {false, true})
@@ -1415,6 +1426,8 @@ bool FSHDogsReactionChainTest::RunTest(const FString& Parameters)
 		ASHCard* A = T.Pair(T.Players[First]->GetHand(), FirstCaptures ? Capture : Counter);
 		ASHCard* B = T.Pair(T.Players[Second]->GetHand(), SecondCaptures ? Capture : Counter);
 		ASHCard* Hounds = T.Pair(T.Players[DogsOwner]->GetHand(), Dogs);
+		// This test exercises successful root destinations, not the Herald's retry rule.
+		if (RootDefinition == Dead) { T.Card(T.Hands[1], Bodgy); }
 		T.Mode->RequestStoredPairActivation(T.Players[0], Root);
 		if (FirstCaptures)
 		{
@@ -1559,12 +1572,13 @@ bool FSHReportedEffectRegressionsTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("Player can end the turn after the unavailable extra draw"), T.State->GetCurrentPlayer(), T.Players[1]);
 	}
 	int32 ExchangesReturningOldCards = 0;
+	for (bool bNPCRecipient : {false, true})
 	for (int32 Seed = 1; Seed <= 12; ++Seed)
 	{
 		FSHNewEffectsWorld T;
 		ASHPlayerState* Player = T.Players[0];
 		ASHHand* Hand = Player->GetHand();
-		ASHHand* Stack = T.Hands[1];
+		ASHHand* Stack = bNPCRecipient ? T.Hands[1] : T.Players[1]->GetHand();
 		TArray<ASHCard*> Original;
 		for (int32 I = 0; I < 8; ++I) { Original.Add(T.Card(Stack)); }
 		TArray<ASHCard*> Offered;
@@ -1576,14 +1590,18 @@ bool FSHReportedEffectRegressionsTest::RunTest(const FString& Parameters)
 		FMath::RandInit(Seed);
 		T.Advance();
 		const TArray<ASHCard*> Shuffled = Stack->GetCards();
-		TestEqual(TEXT("Shuffle includes both old BN cards and all three offered cards"), Shuffled.Num(), 11);
+		TestEqual(TEXT("Shuffle includes both old recipient cards and all three offered cards"), Shuffled.Num(), 11);
 		bool bDrewOld = false;
 		for (int32 I = 0; I < 3; ++I)
 		{
-			ASHCard* Top = Stack->GetTopCard();
+			ASHCard* Top = bNPCRecipient ? Stack->GetTopCard() : Stack->GetCards().Last();
 			const auto* Pending = T.Mode->PendingHandCardSelections.Find(Player);
 			if (!TestNotNull(TEXT("Exchange offers the next card after shuffling"), Pending)) { break; }
-			TestTrue(TEXT("Only current shuffled top can be selected"), Pending->CandidateCards.Num() == 1 && Pending->CandidateCards[0] == Top);
+			if (bNPCRecipient)
+			{
+				TestTrue(TEXT("Only current shuffled top can be selected from BN"), Pending->CandidateCards.Num() == 1 && Pending->CandidateCards[0] == Top);
+			}
+			else { TestEqual(TEXT("Human hand offers its shuffled cards in order"), Pending->CandidateCards.Num(), Stack->GetCardCount()); }
 			TestEqual(TEXT("Draw follows the shuffled stack order"), Top, Shuffled[Shuffled.Num() - 1 - I]);
 			bDrewOld |= Original.Contains(Top);
 			T.Mode->SubmitHandCardSelection(Player, Top);
@@ -1668,4 +1686,82 @@ bool FSHCardSelectionWidgetTest::RunTest(const FString& Parameters)
 	return true;
 }
 #endif
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSHCardRuleCorrectionsTest, "SeaHorse.Gameplay.Effects.ActivationPrerequisitesAndRetry",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FSHCardRuleCorrectionsTest::RunTest(const FString& Parameters)
+{
+	auto Load = [](const TCHAR* Name) { return LoadClass<UCardDefinition>(nullptr, *FString::Printf(TEXT("/Game/SeaHorse/Cards/Definitions/%s.%s_C"), Name, Name)); };
+	UClass* Wilhelm = Load(TEXT("Card_Wilhelm"));
+	UClass* SeaHorse = Load(TEXT("Card_SeaHorse"));
+	UClass* Hans = Load(TEXT("Card_HansCaptain"));
+	UClass* Dead = Load(TEXT("Card_GniewDeadHerald"));
+	UClass* Bodgy = Load(TEXT("Card_BodgyVampireHunter"));
+	if (!Wilhelm || !SeaHorse || !Hans || !Dead || !Bodgy) { AddError(TEXT("Required card definitions unavailable")); return false; }
+	{
+		FSHNewEffectsWorld T;
+		ASHPlayerState* Player = T.Players[0];
+		ASHHand* Hand = Player->GetHand();
+		ASHCard* A = T.Pair(Hand, Wilhelm);
+		auto CanActivate = [&]() { return T.Mode->GetTurnComponent()->CanActivatePair(Player, *Hand->FindActivationPair(A)); };
+		TestFalse(TEXT("Wilhelm cannot activate without SeaHorse in own hand"), CanActivate());
+		ASHCard* Required = T.Card(T.Players[1]->GetHand(), SeaHorse);
+		TestFalse(TEXT("Another player's SeaHorse does not enable Wilhelm"), CanActivate());
+		T.Players[1]->GetHand()->RemoveCard(Required); Hand->AddCard(Required, 0);
+		TestTrue(TEXT("Own SeaHorse enables Wilhelm"), CanActivate());
+		Hand->RemoveCard(Required);
+		TestFalse(TEXT("Losing SeaHorse disables Wilhelm again"), CanActivate());
+	}
+	{
+		FSHNewEffectsWorld T;
+		ASHPlayerState* Player = T.Players[0]; ASHHand* Hand = Player->GetHand();
+		ASHCard* A = T.Pair(Hand, Hans);
+		TestFalse(TEXT("Hans alone cannot be activated"), T.Mode->GetTurnComponent()->CanActivatePair(Player, *Hand->FindActivationPair(A)));
+		ASHCard* Other = T.Pair(Hand);
+		TestTrue(TEXT("Another own stored pair enables Hans"), T.Mode->GetTurnComponent()->CanActivatePair(Player, *Hand->FindActivationPair(A)));
+		const FActivatedPair Pair = *Hand->FindActivationPair(Other);
+		Hand->RemoveActivationPair(Pair.CardA, Pair.CardB);
+		TestFalse(TEXT("Removing the last other pair disables Hans"), T.Mode->GetTurnComponent()->CanActivatePair(Player, *Hand->FindActivationPair(A)));
+		T.Pair(T.Players[1]->GetHand());
+		TestTrue(TEXT("Opponent's pair also enables Hans"), T.Mode->GetTurnComponent()->CanActivatePair(Player, *Hand->FindActivationPair(A)));
+	}
+	for (bool bNPC : {false, true})
+	for (bool bDouble : {false, true})
+	{
+		FSHNewEffectsWorld T;
+		ASHPlayerState* Player = T.Players[0]; ASHHand* Hand = Player->GetHand();
+		ASHHand* Source = bNPC ? T.Hands[1] : T.Players[1]->GetHand();
+		T.Card(Source); T.Card(Source);
+		ASHCard* A = T.Pair(Hand, Dead);
+		ASHCard* B = Hand->FindActivationPair(A)->CardB;
+		Hand->FindActivationPair(A)->bDoubleEffectThisTurn = bDouble;
+		T.Mode->CardActivateEffect(Player, A, B);
+		if (bDouble)
+		{
+			ASHHand* FirstSource = T.Players[2]->GetHand();
+			ASHCard* FirstBodgy = T.Card(FirstSource, Bodgy);
+			T.Mode->SubmitParticipantSelection(Player, FirstSource); T.Advance();
+			TestTrue(TEXT("Pancho's first successful execution still transfers Bodgy"), Hand->ContainsCard(FirstBodgy));
+			TestNotNull(TEXT("Doubled Herald waits on table for its second execution"), Hand->FindActivationPair(A));
+		}
+		T.Mode->SubmitParticipantSelection(Player, Source); T.Advance();
+		const FActivatedPair* Pair = Hand->FindActivationPair(A);
+		if (!TestNotNull(TEXT("Failed Dead Herald remains in activation zone"), Pair)) { continue; }
+		TestEqual(TEXT("Failed search awards no victory point"), Hand->GetVictoryStack()->GetPairCount(), 0);
+		TestFalse(TEXT("Failed search is disabled for this turn"), T.Mode->GetTurnComponent()->CanActivatePair(Player, *Pair));
+		T.Mode->RequestStoredPairActivation(Player, A);
+		TestFalse(TEXT("Repeated click cannot start a second attempt"), T.Mode->HasActiveEffectTasks());
+		T.State->SetCurrentPlayer(T.Players[1]);
+		TestEqual(TEXT("Other player's turn keeps the retry lock"), Hand->FindActivationPair(A)->ActivationRetryBlockedUntilTurnOf.Get(), Player);
+		T.State->SetCurrentPlayer(Player);
+		TestTrue(TEXT("Next own turn enables retry"), T.Mode->GetTurnComponent()->CanActivatePair(Player, *Hand->FindActivationPair(A)));
+		ASHCard* Requested = T.Card(Source, Bodgy);
+		T.Mode->CardActivateEffect(Player, A, B);
+		T.Mode->SubmitParticipantSelection(Player, Source); T.Advance();
+		TestTrue(TEXT("Successful retry transfers Bodgy"), Hand->ContainsCard(Requested));
+		TestNull(TEXT("Successful retry consumes Herald"), Hand->FindActivationPair(A));
+		TestEqual(TEXT("Successful retry scores once"), Hand->GetVictoryStack()->GetPairCount(), 1);
+	}
+	return true;
+}
 #endif

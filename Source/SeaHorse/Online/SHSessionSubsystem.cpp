@@ -388,7 +388,7 @@ void USHSessionSubsystem::ReturnToMenu()
 	UGameplayStatics::OpenLevel(GetGameInstance(), FName(*Settings->MainMenuMap.GetLongPackageName()), true, MainMenuOptions());
 }
 
-void USHSessionSubsystem::StartLobbyMatch(ESHMatchMap Map, int32 PlayerCount, TFunction<void(bool, const FString&)> Completion)
+void USHSessionSubsystem::StartLobbyMatch(ESHMatchMap Map, int32 PlayerCount, const FSHOptionalRules& Rules, TFunction<void(bool, const FString&)> Completion)
 {
 	if (IsBusy() || !Sessions.IsValid() || !HasSession() || GetWorld()->GetNetMode() != NM_ListenServer ||
 		Map != HostedMatchMap || PlayerCount < 2 || PlayerCount > HostedMaxPlayers)
@@ -399,7 +399,7 @@ void USHSessionSubsystem::StartLobbyMatch(ESHMatchMap Map, int32 PlayerCount, TF
 	FString URL, Error;
 	if (!Settings->BuildMatchURL(Map, PlayerCount, URL, Error)) { Completion(false, Error); return; }
 	StartingPlayerCount = PlayerCount;
-	PendingMatchURL = URL;
+	PendingMatchURL = URL + Rules.ToTravelOptions();
 	StartCompletion = MoveTemp(Completion);
 	BeginOperation(ESHSessionOperation::Start);
 	StartHandle = Sessions->AddOnStartSessionCompleteDelegate_Handle(FOnStartSessionCompleteDelegate::CreateUObject(this, &ThisClass::HandleStart));
