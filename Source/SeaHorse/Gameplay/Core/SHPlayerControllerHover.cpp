@@ -100,7 +100,7 @@ bool ASHPlayerController::GetCardInteractionUnderCursor(ASHCard*& Card, FVector&
 	Card = nullptr; Location = FVector::ZeroVector;
 	float X = 0.0f, Y = 0.0f;
 	FVector Start, Direction;
-	if (!IsLocalController() || !bShowMouseCursor || !GetMousePosition(X, Y) ||
+	if (!IsLocalController() || IsViewingRevealedHand() || !bShowMouseCursor || !GetMousePosition(X, Y) ||
 		!DeprojectScreenPositionToWorld(X, Y, Start, Direction) ||
 		(ActiveCardInfoWidget && ActiveCardInfoWidget->IsHovered()))
 	{

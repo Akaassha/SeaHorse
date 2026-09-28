@@ -37,6 +37,18 @@ public:
 	float ActivationVFXDuration = 1.5f;
 };
 
+/** Private, temporary hand presentation. Both classes may be subclassed in Blueprint. */
+UCLASS(BlueprintType, EditInlineNew)
+class SEAHORSE_API URevealHandEffectFragment : public UCardEffectFragment
+{
+	GENERATED_BODY()
+public:
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Hand Reveal")
+	TSubclassOf<class ASHHandRevealPawn> RevealPawnClass;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Hand Reveal")
+	TSubclassOf<class UHandRevealWidget> RevealWidgetClass;
+};
+
 UCLASS(BlueprintType, EditInlineNew)
 class SEAHORSE_API UTransferCardEffectFragment : public UCardEffectFragment
 {

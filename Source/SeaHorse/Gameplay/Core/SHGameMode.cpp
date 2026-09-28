@@ -12,6 +12,7 @@
 #include "SeaHorse/Gameplay/Cards/Fragments/CardEffectFragment.h"
 #include "SeaHorse/Gameplay/Cards/Fragments/CardEndGameRulesFragment.h"
 #include "SeaHorse/Gameplay/Cards/Tasks/CardEffectTask.h"
+#include "Gameplay/Cards/Tasks/RevealHandEffectTask.h"
 #include "SeaHorse/Gameplay/Components/DeckComponent.h"
 #include "SeaHorse/Gameplay/Components/TurnComponent.h"
 #include "EngineUtils.h"
@@ -24,6 +25,16 @@
 #if WITH_EDITOR
 #include "Settings/LevelEditorPlaySettings.h"
 #endif
+
+void ASHGameMode::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	const auto Tasks = ActiveEffectTasks;
+	for (UCardEffectTask* Task : Tasks)
+	{
+		if (auto* Reveal = Cast<URevealHandEffectTask>(Task)) { Reveal->AbandonEffect(); }
+	}
+	Super::EndPlay(EndPlayReason);
+}
 
 void ASHGameMode::InitGameState()
 {

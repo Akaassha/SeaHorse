@@ -29,12 +29,19 @@ class SEAHORSE_API ASHGameMode : public AGameMode
 public:
 	virtual void InitGame(const FString& MapName, const FString& Options, FString& ErrorMessage) override;
 	virtual void InitGameState() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	virtual void PreLogin(const FString& Options, const FString& Address, const FUniqueNetIdRepl& UniqueId, FString& ErrorMessage) override;
 	//Begin AGameMode Interface
 	virtual void HandleStartingNewPlayer_Implementation(APlayerController* NewPlayer) override;
 	virtual void Logout(AController* Exiting) override;
 	void RespondToCardReaction(ASHPlayerState* Player, int32 OfferId, bool bAccept);
 	bool HasPendingCardReaction() const { return bReactionWindowOpen; }
+	void FinishHandReveal(ASHPlayerState* Player, FGuid SessionId);
+	void AcknowledgeHandReveal(ASHPlayerState* Player, FGuid SessionId);
+	void ReorderRevealedHand(ASHPlayerState* Player, FGuid SessionId, ASHCard* Card, int32 InsertIndex);
+	bool IsPlayerInHandReveal(const ASHPlayerState* Player) const;
+	bool HasActiveHandReveal() const;
+	void CloseHandRevealsForDisconnect(ASHPlayerState* Player);
 	//End AGameMode Interface
 
 	bool AreCardsPairCompatible(ASHCard* CardA, ASHCard* CardB);
@@ -70,7 +77,7 @@ public:
 	void SubmitHandCardsSelection(ASHPlayerState* Player, const TArray<ASHCard*>& Cards);
 	bool IsWaitingForPlayerSelection() const
 	{
-		return bReactionWindowOpen || !PendingPlayerSelections.IsEmpty() || !PendingParticipantSelections.IsEmpty() ||
+		return bReactionWindowOpen || HasActiveHandReveal() || !PendingPlayerSelections.IsEmpty() || !PendingParticipantSelections.IsEmpty() ||
 			!PendingPairSelections.IsEmpty() || !PendingHandCardSelections.IsEmpty();
 	}
 	bool HasActiveEffectTasks() const { return bReactionWindowOpen || !ActiveEffectTasks.IsEmpty() || !PendingSuccessfulActivations.IsEmpty(); }
@@ -101,6 +108,7 @@ private:
 	void ConvertDisconnectedPlayerToNPC(ASHPlayerState* Player);
 	void RefreshSelectionsAfterPlayerDisconnected(ASHPlayerState* Player, ASHHand* ConvertedHand);
 #if WITH_DEV_AUTOMATION_TESTS
+	friend class FSHHandRevealTest;
 	friend class FSHDisconnectedParticipantTest;
 	friend struct FSHNewEffectsWorld;
 	friend struct FSHOptionalRulesWorld;

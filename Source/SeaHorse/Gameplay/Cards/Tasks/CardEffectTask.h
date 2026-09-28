@@ -18,7 +18,8 @@ enum class EPlayerSelectionPurpose : uint8
     PlayerToSkipTurn,
     CardTransferRecipient,
     CardTransferSource,
-    ActivationZoneOwner
+    ActivationZoneOwner,
+    HandRevealTarget
 };
 
 UENUM(BlueprintType)
@@ -68,7 +69,7 @@ public:
     FName GetEffectPresentationId() const { return EffectPresentationId; }
 	bool IsFinished() const { return bFinished; }
 	/** Server teardown: invalidate delayed callbacks without resolving or consuming the pair. */
-	void AbandonEffect() { bFinished = true; }
+	virtual void AbandonEffect() { bFinished = true; }
 	/** Only targeting before gameplay resolution can be cancelled without rollback. */
 	bool CancelPendingTargetSelection();
 	virtual bool RequiresTargetSelection() const { return false; }

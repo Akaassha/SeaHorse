@@ -8,6 +8,7 @@
 #include "SeaHorse/Gameplay/Cards/Tasks/CardEffectTask.h"
 #include "Gameplay/Cards/Tasks/NewCardEffectTasks.h"
 #include "Gameplay/Cards/Tasks/ExtendedCardEffectTasks.h"
+#include "Gameplay/Cards/Tasks/RevealHandEffectTask.h"
 #include "SeaHorse/Gameplay/Core/SHPlayerController.h"
 #include "SeaHorse/Gameplay/Core/SHPlayerState.h"
 #include "SeaHorse/Gameplay/Core/SHGameMode.h"
@@ -91,6 +92,15 @@ bool UTurnComponent::CanActivatePairForState(const ASHGameState* GameState,
 		ActivatedPair.CardA->GetKnownCardDefinition(), UCardEffectFragment::StaticClass()));
 	if (Effect && Effect->EffectTaskClass)
 	{
+		if (Effect->EffectTaskClass->IsChildOf(URevealHandEffectTask::StaticClass()))
+		{
+			const bool bHasTarget = GameState->GetParticipantHands().ContainsByPredicate([RequestingPlayer](ASHHand* Hand)
+			{
+				return IsValid(Hand) && Hand != RequestingPlayer->GetHand() &&
+					Hand->GetCardCount() > 0 && !Hand->IsProtectedFromCardEffects();
+			});
+			if (!bHasTarget) { return false; }
+		}
 		if (Effect->EffectTaskClass->IsChildOf(UTransferSpecifiedCardEffectTask::StaticClass()))
 		{
 			const auto* Transfer = Cast<UTransferCardEffectFragment>(Effect);

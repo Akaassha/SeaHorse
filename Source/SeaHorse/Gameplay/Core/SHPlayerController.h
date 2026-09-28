@@ -6,6 +6,7 @@
 #include "GameFramework/PlayerController.h"
 #include "SeaHorse/Gameplay/Cards/Tasks/CardEffectTask.h"
 #include "SeaHorse/Gameplay/Presentation/PairTargetingIndicator.h"
+#include "Gameplay/Presentation/HandRevealTypes.h"
 #include "SHPlayerController.generated.h"
 
 class ASHHand;
@@ -15,6 +16,8 @@ class ASHCard;
 class UCardDefinition;
 class UMeshComponent;
 class UCardInfoWidget;
+class ASHHandRevealPawn;
+class UHandRevealWidget;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FSHOrphanedRatfolkRemovalResult, bool, bRemoved);
 
@@ -73,6 +76,29 @@ public:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	virtual bool InputKey(const FInputKeyEventArgs& Params) override;
+	virtual void AutoManageActiveCameraTarget(AActor* SuggestedTarget) override;
+
+	/** Private, temporary view of the hand revealed by Bodgy. Real cards stay on the table. */
+	UFUNCTION(Client, Reliable)
+	void ClientBeginHandReveal(FGuid SessionId, ASHHand* SourceHand, ASHHandRevealPawn* RevealPawn,
+		const TArray<FSHRevealedHandCard>& Cards, bool bCanReorder, bool bCanFinish,
+		TSubclassOf<UHandRevealWidget> WidgetClass);
+	UFUNCTION(Client, Reliable)
+	void ClientUpdateHandReveal(FGuid SessionId, const TArray<FSHRevealedHandCard>& Cards, bool bCanReorder);
+	UFUNCTION(Client, Reliable)
+	void ClientEndHandReveal(FGuid SessionId);
+	UFUNCTION(Server, Reliable)
+	void ServerReorderRevealedHand(FGuid SessionId, ASHCard* Card, int32 InsertIndex);
+	UFUNCTION(Server, Reliable)
+	void ServerFinishHandReveal(FGuid SessionId);
+	UFUNCTION(Server, Reliable)
+	void ServerAcknowledgeHandReveal(FGuid SessionId);
+	UFUNCTION(BlueprintCallable, Category = "Cards|Hand Reveal")
+	void FinishHandReveal();
+	UFUNCTION(BlueprintPure, Category = "Cards|Hand Reveal")
+	ASHHandRevealPawn* GetActiveHandRevealPawn() const { return ActiveHandRevealPawn; }
+	UFUNCTION(BlueprintPure, Category = "Cards|Hand Reveal")
+	bool IsViewingRevealedHand() const { return ActiveHandRevealSession.IsValid(); }
 
 	/** Local hand hover; the area between resting and raised poses retains focus while the card lifts. */
 	UFUNCTION(BlueprintCallable, Category = "Cards|Hover")
@@ -270,6 +296,15 @@ protected:
 	bool bLocalMatchUIInitialized = false;
 
 private:
+	FGuid ActiveHandRevealSession;
+	UPROPERTY(Transient) TObjectPtr<ASHHandRevealPawn> ActiveHandRevealPawn;
+	UPROPERTY(Transient) TObjectPtr<UHandRevealWidget> ActiveHandRevealWidget;
+	UPROPERTY(Transient) TWeakObjectPtr<AActor> ViewTargetBeforeHandReveal;
+	bool bCanFinishHandReveal = false;
+	bool bCursorBeforeHandReveal = false;
+	bool bAutoCameraBeforeHandReveal = true;
+	bool bClickEventsBeforeHandReveal = false;
+	bool bMouseOverBeforeHandReveal = false;
 	friend class FSHHandCursorHoverTest;
 	friend class FSHHandSelectionTest;
 	friend class FSHShuffleSelectionBarrierTest;

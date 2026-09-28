@@ -300,6 +300,7 @@ void ASHGameMode::Logout(AController* Exiting)
 	{
 		TGuardValue<bool> ActivationGuard(bProcessingPairActivations, true);
 		TGuardValue<bool> CompletionGuard(bProcessingSuccessfulActivations, true);
+		CloseHandRevealsForDisconnect(Player);
 		if (bConvertToNPC) { ConvertDisconnectedPlayerToNPC(Player); }
 		if (bReactionWindowOpen && Player)
 		{

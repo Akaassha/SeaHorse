@@ -22,6 +22,7 @@
 #include "Components/WidgetComponent.h"
 #include "Gameplay/Presentation/CardReactionPrompt.h"
 #include "Gameplay/Presentation/CardSelectionPrompt.h"
+#include "Gameplay/Presentation/SHHandRevealPawn.h"
 #include "Engine/GameViewportClient.h"
 #include "Widgets/SViewport.h"
 
@@ -83,6 +84,7 @@ void ASHPlayerController::ServerRespondToCardReaction_Implementation(int32 Offer
 void ASHPlayerController::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
+	if (IsViewingRevealedHand()) { return; }
 	ValidateCardInfoAccess();
 	KeepDraggedCardAboveOtherCards();
 	UpdateLocalActivatablePairHover();
@@ -547,6 +549,7 @@ void ASHPlayerController::BeginPlay()
 
 void ASHPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	ClientEndHandReveal_Implementation(ActiveHandRevealSession);
 	CloseCardInfo();
 	ClientCloseCardReaction_Implementation(ActiveReactionOfferId);
 	ClearLocalEffectSelectionState();
@@ -558,6 +561,12 @@ void ASHPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 
 bool ASHPlayerController::InputKey(const FInputKeyEventArgs& Params)
 {
+	if (IsLocalController() && IsViewingRevealedHand())
+	{
+		if (Params.Key == EKeys::Escape && Params.Event == IE_Pressed) { FinishHandReveal(); return true; }
+		if (IsValid(ActiveHandRevealPawn)) { ActiveHandRevealPawn->HandlePointerInput(Params); }
+		return true;
+	}
 	if (IsLocalController() && Params.Key == EKeys::LeftMouseButton && Params.Event == IE_Pressed)
 	{
 		// Only clicks that reached the game arrive here. Close without consuming
@@ -1811,6 +1820,8 @@ void ASHPlayerController::ServerSetCardDropPreview_Implementation(ASHCard* Card,
 
 void ASHPlayerController::ServerReorderOwnCard_Implementation(ASHCard* Card, int32 InsertIndex)
 {
+	if (const ASHGameMode* Mode = GetWorld()->GetAuthGameMode<ASHGameMode>();
+		Mode && Mode->IsPlayerInHandReveal(GetPlayerState<ASHPlayerState>())) { return; }
 	if (const ASHGameState* State = GetWorld()->GetGameState<ASHGameState>(); State && State->bReactionPending) { return; }
     ASHPlayerState* PS = GetPlayerState<ASHPlayerState>();
     ASHHand* Hand = IsValid(PS) ? PS->GetHand() : nullptr;
