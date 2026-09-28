@@ -49,6 +49,13 @@ public:
 	TSubclassOf<class UHandRevealWidget> RevealWidgetClass;
 };
 
+/** Presentation settings for Diego's private two-hand comparison. */
+UCLASS(BlueprintType, EditInlineNew)
+class SEAHORSE_API UCompareHandsEffectFragment : public URevealHandEffectFragment
+{
+	GENERATED_BODY()
+};
+
 UCLASS(BlueprintType, EditInlineNew)
 class SEAHORSE_API UTransferCardEffectFragment : public UCardEffectFragment
 {

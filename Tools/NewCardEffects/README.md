@@ -25,6 +25,10 @@ directory. If those future assets use different names, update the filter paths.
 Living Herald can activate only while an opponent has an eligible ready pair.
 If the target disappears before resolution, Herald remains in its activation zone.
 
+`Card_Diego` now supplies the reserved Diego path used by Living Herald. It is
+configured by `configure_diego_brawler_definition.py`; the main deck contains
+two copies after running `add_diego_to_deck.py`.
+
 Hans moves ready stored pairs to the previous human seat, skipping BN. His own
 consumed pair goes to his activator's victory stack. Thronri removes both pairs
 without awarding victory points; without another eligible pair he remains ready.
@@ -192,8 +196,8 @@ final destination for 2–6 human players, including BN and protected seats.
 
 Before any repeated task starts, pending presentation locks must finish and
 their victory moves must flush. In particular, Olga's second selection excludes
-pairs already sent to victory. `PanchoAllDefinitions` exercises all 18 saved
-activatable card definitions, including `BP_DefaultCardEffect`. See
+pairs already sent to victory. `PanchoAllDefinitions` exercises all 19 saved
+activatable card definitions, including Diego and `BP_DefaultCardEffect`. See
 `PanchoCompatibility.md` for the checked outcomes and limits. The read-only
 `audit_pancho_definitions.py` exports the current card/task inventory to
 `Saved/ContextReview/PanchoDefinitions.json` without saving assets.

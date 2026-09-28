@@ -48,6 +48,22 @@ void ASHHandRevealPawn::InitializePresentation(ASHPlayerController* PC, FGuid Se
 	ApplySnapshot(Cards, bCanReorder);
 }
 
+void ASHHandRevealPawn::InitializeComparisonPresentation(ASHPlayerController* PC, FGuid SessionId,
+	const TArray<FSHRevealedHandCard>& LargerCards,
+	const TArray<FSHRevealedHandCard>& InReceivingCards,
+	int32 InRemainingTransfers, bool bCanTransfer)
+{
+	ClearPresentation();
+	if (!IsValid(PC) || !PC->IsLocalController() || PC->GetWorld() != GetWorld()) { return; }
+	PresentationController = PC;
+	CaptureTableView(PC);
+	RevealSessionId = SessionId;
+	bComparisonMode = true;
+	bFinishingAllowed = false;
+	SetActorTickEnabled(true);
+	ApplyComparisonSnapshot(LargerCards, InReceivingCards, InRemainingTransfers, bCanTransfer);
+}
+
 void ASHHandRevealPawn::CaptureTableView(ASHPlayerController* PC)
 {
 	// Match LocalPlayer's rendered view, including a camera blend and a locked FOV.
@@ -160,20 +176,35 @@ ASHCard* ASHHandRevealPawn::SpawnVisualCard(const FSHRevealedHandCard& Card)
 void ASHHandRevealPawn::ApplySnapshot(const TArray<FSHRevealedHandCard>& Cards, bool bCanReorder)
 {
 	if (!IsValid(PresentationController) || !PresentationController->IsLocalController()) { return; }
+	bComparisonMode = false;
+	bTransferAllowed = false;
+	RemainingTransfers = 0;
+	SynchronizeVisualCards({}, ReceivingCards, ReceivingVisualCards);
+	SynchronizeVisualCards(Cards, RevealedCards, VisualCards);
+	bReorderingAllowed = bCanReorder;
+	if (!bReorderingAllowed || !VisualCards.Contains(DraggedVisual.Get())) { DraggedVisual.Reset(); }
+	if (!VisualCards.Contains(HoveredVisual.Get())) { HoveredVisual.Reset(); }
+	RebuildLayout(true);
+	OnPresentationChanged();
+}
+
+void ASHHandRevealPawn::SynchronizeVisualCards(const TArray<FSHRevealedHandCard>& NewCards,
+	TArray<FSHRevealedHandCard>& StoredCards, TArray<TObjectPtr<ASHCard>>& StoredVisuals)
+{
 	TArray<TObjectPtr<ASHCard>> NewVisuals;
-	NewVisuals.Reserve(Cards.Num());
-	for (const FSHRevealedHandCard& Entry : Cards)
+	NewVisuals.Reserve(NewCards.Num());
+	for (const FSHRevealedHandCard& Entry : NewCards)
 	{
-		const int32 PreviousIndex = RevealedCards.IndexOfByPredicate([&Entry](const FSHRevealedHandCard& Old)
+		const int32 PreviousIndex = StoredCards.IndexOfByPredicate([&Entry](const FSHRevealedHandCard& Old)
 		{
 			return Old.SourceCard == Entry.SourceCard && Old.CardDefinition == Entry.CardDefinition &&
 				Old.CardActorClass == Entry.CardActorClass;
 		});
-		ASHCard* Visual = VisualCards.IsValidIndex(PreviousIndex) ? VisualCards[PreviousIndex].Get() : nullptr;
+		ASHCard* Visual = StoredVisuals.IsValidIndex(PreviousIndex) ? StoredVisuals[PreviousIndex].Get() : nullptr;
 		if (!IsValid(Visual)) { Visual = SpawnVisualCard(Entry); }
 		NewVisuals.Add(Visual);
 	}
-	for (ASHCard* OldVisual : VisualCards)
+	for (ASHCard* OldVisual : StoredVisuals)
 	{
 		if (IsValid(OldVisual) && !NewVisuals.Contains(OldVisual))
 		{
@@ -182,10 +213,22 @@ void ASHHandRevealPawn::ApplySnapshot(const TArray<FSHRevealedHandCard>& Cards, 
 			OldVisual->Destroy();
 		}
 	}
-	RevealedCards = Cards;
-	VisualCards = MoveTemp(NewVisuals);
-	bReorderingAllowed = bCanReorder;
-	if (!bReorderingAllowed || !VisualCards.Contains(DraggedVisual.Get())) { DraggedVisual.Reset(); }
+	StoredCards = NewCards;
+	StoredVisuals = MoveTemp(NewVisuals);
+}
+
+void ASHHandRevealPawn::ApplyComparisonSnapshot(const TArray<FSHRevealedHandCard>& LargerCards,
+	const TArray<FSHRevealedHandCard>& InReceivingCards,
+	int32 InRemainingTransfers, bool bCanTransfer)
+{
+	if (!IsValid(PresentationController) || !PresentationController->IsLocalController()) { return; }
+	bComparisonMode = true;
+	bReorderingAllowed = false;
+	bTransferAllowed = bCanTransfer && InRemainingTransfers > 0;
+	RemainingTransfers = FMath::Max(0, InRemainingTransfers);
+	SynchronizeVisualCards(LargerCards, RevealedCards, VisualCards);
+	SynchronizeVisualCards(InReceivingCards, ReceivingCards, ReceivingVisualCards);
+	if (!bTransferAllowed || !VisualCards.Contains(DraggedVisual.Get())) { DraggedVisual.Reset(); }
 	if (!VisualCards.Contains(HoveredVisual.Get())) { HoveredVisual.Reset(); }
 	RebuildLayout(true);
 	OnPresentationChanged();
@@ -194,32 +237,36 @@ void ASHHandRevealPawn::ApplySnapshot(const TArray<FSHRevealedHandCard>& Cards, 
 void ASHHandRevealPawn::RebuildLayout(bool bSnapNewCards)
 {
 	CardLayoutSpline->ClearSplinePoints(false);
-	const float Spacing = FMath::Min(PreferredCardSpacing,
-		MaximumFanWidth / FMath::Max(VisualCards.Num() - 1, 1));
-	const float CenterIndex = (VisualCards.Num() - 1) * 0.5f;
 	FBox LayoutBounds(ForceInit);
-	for (int32 Index = 0; Index < VisualCards.Num(); ++Index)
+	auto LayoutRow = [this, bSnapNewCards, &LayoutBounds](const TArray<TObjectPtr<ASHCard>>& Row,
+		float RowY, bool bWriteSpline)
 	{
-		ASHCard* Visual = VisualCards[Index];
-		const float Offset = Index - CenterIndex;
-		const float X = Offset * Spacing;
-		const FVector Position(X, X * X * FanCurvature, Index * 0.025f);
-		CardLayoutSpline->AddSplinePoint(Position, ESplineCoordinateSpace::Local, false);
-		if (!IsValid(Visual)) { continue; }
-		FRotator Rotation = CardRotation;
-		Rotation.Yaw += Offset * FanAnglePerCard;
-		const FTransform Resting(Rotation, Position, FVector(CardScale));
-		if (bSnapNewCards && !RestingTransforms.Contains(Visual))
+		const float Spacing = FMath::Min(PreferredCardSpacing,
+			MaximumFanWidth / FMath::Max(Row.Num() - 1, 1));
+		const float CenterIndex = (Row.Num() - 1) * 0.5f;
+		for (int32 Index = 0; Index < Row.Num(); ++Index)
 		{
-			Visual->SetActorRelativeTransform(Resting);
+			ASHCard* Visual = Row[Index];
+			const float Offset = Index - CenterIndex;
+			const float X = Offset * Spacing;
+			const FVector Position(X, RowY + X * X * FanCurvature, Index * 0.025f);
+			if (bWriteSpline) { CardLayoutSpline->AddSplinePoint(Position, ESplineCoordinateSpace::Local, false); }
+			if (!IsValid(Visual)) { continue; }
+			FRotator Rotation = CardRotation;
+			Rotation.Yaw += Offset * FanAnglePerCard;
+			const FTransform Resting(Rotation, Position, FVector(CardScale));
+			if (bSnapNewCards && !RestingTransforms.Contains(Visual)) { Visual->SetActorRelativeTransform(Resting); }
+			RestingTransforms.Add(Visual, Resting);
+			if (const FBox* Bounds = VisualBounds.Find(Visual))
+			{
+				LayoutBounds += Bounds->TransformBy(Resting);
+				LayoutBounds += Bounds->TransformBy(MakeHoveredTransform(Resting));
+			}
 		}
-		RestingTransforms.Add(Visual, Resting);
-		if (const FBox* Bounds = VisualBounds.Find(Visual))
-		{
-			LayoutBounds += Bounds->TransformBy(Resting);
-			LayoutBounds += Bounds->TransformBy(MakeHoveredTransform(Resting));
-		}
-	}
+	};
+	const float TopRowY = bComparisonMode ? -ComparisonRowSpacing * 0.5f : 0.f;
+	LayoutRow(VisualCards, TopRowY, true);
+	if (bComparisonMode) { LayoutRow(ReceivingVisualCards, ComparisonRowSpacing * 0.5f, false); }
 	CardLayoutSpline->UpdateSpline();
 	FitCardsToView(LayoutBounds);
 }
@@ -283,12 +330,13 @@ ASHCard* ASHHandRevealPawn::FindVisualUnderCursor(const FVector& LocalPoint) con
 void ASHHandRevealPawn::UpdateDrag(const FVector& Cursor)
 {
 	ASHCard* Visual = DraggedVisual.Get();
-	if (!Visual || !bReorderingAllowed) { return; }
+	if (!Visual || (!bReorderingAllowed && !bTransferAllowed)) { return; }
 	const int32 CurrentIndex = VisualCards.IndexOfByKey(Visual);
 	if (!RevealedCards.IsValidIndex(CurrentIndex)) { DraggedVisual.Reset(); return; }
 	FVector Position = Cursor + DragCursorOffset;
 	Position.Z = HoverLiftHeight + 2.f;
 	Visual->SetActorRelativeLocation(Position);
+	if (bComparisonMode) { return; }
 	const float Spacing = FMath::Min(PreferredCardSpacing,
 		MaximumFanWidth / FMath::Max(VisualCards.Num() - 1, 1));
 	const float FloatingIndex = Position.X / FMath::Max(Spacing, 0.01f) + (VisualCards.Num() - 1) * 0.5f;
@@ -305,6 +353,22 @@ void ASHHandRevealPawn::UpdateDrag(const FVector& Cursor)
 	}
 }
 
+void ASHHandRevealPawn::TryCommitComparisonDrop(const FVector& Cursor)
+{
+	if (!bComparisonMode || !bTransferAllowed || RemainingTransfers <= 0 || Cursor.Y <= 0.f) { return; }
+	ASHCard* Visual = DraggedVisual.Get();
+	const int32 SourceIndex = VisualCards.IndexOfByKey(Visual);
+	if (!RevealedCards.IsValidIndex(SourceIndex) || !IsValid(PresentationController)) { return; }
+	const float Spacing = FMath::Min(PreferredCardSpacing,
+		MaximumFanWidth / FMath::Max(ReceivingVisualCards.Num(), 1));
+	const float FloatingIndex = Cursor.X / FMath::Max(Spacing, 0.01f) + ReceivingVisualCards.Num() * 0.5f;
+	const int32 InsertIndex = FMath::Clamp(FMath::RoundToInt(FloatingIndex), 0, ReceivingVisualCards.Num());
+	if (ASHCard* Source = RevealedCards[SourceIndex].SourceCard)
+	{
+		PresentationController->ServerTransferComparedHandCard(RevealSessionId, Source, InsertIndex);
+	}
+}
+
 void ASHHandRevealPawn::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
@@ -314,6 +378,8 @@ void ASHHandRevealPawn::Tick(float DeltaSeconds)
 	if (DraggedVisual.IsValid() && FSlateApplication::IsInitialized() &&
 		!FSlateApplication::Get().GetPressedMouseButtons().Contains(EKeys::LeftMouseButton))
 	{
+		FVector ReleaseCursor;
+		if (GetCursorOnCardPlane(ReleaseCursor)) { TryCommitComparisonDrop(ReleaseCursor); }
 		DraggedVisual.Reset();
 	}
 	FVector Cursor;
@@ -323,7 +389,9 @@ void ASHHandRevealPawn::Tick(float DeltaSeconds)
 		else { HoveredVisual = FindVisualUnderCursor(Cursor); }
 	}
 	else { HoveredVisual.Reset(); }
-	for (ASHCard* Visual : VisualCards)
+	TArray<TObjectPtr<ASHCard>> AllVisuals = VisualCards;
+	AllVisuals.Append(ReceivingVisualCards);
+	for (ASHCard* Visual : AllVisuals)
 	{
 		if (!IsValid(Visual) || Visual == DraggedVisual.Get()) { continue; }
 		const FTransform* Resting = RestingTransforms.Find(Visual);
@@ -343,8 +411,13 @@ bool ASHHandRevealPawn::HandlePointerInput(const FInputKeyEventArgs& Params)
 	if (Params.Key != EKeys::LeftMouseButton && Params.Key != EKeys::RightMouseButton) { return false; }
 	if (Params.Key == EKeys::LeftMouseButton)
 	{
-		if (Params.Event == IE_Released) { DraggedVisual.Reset(); }
-		else if (Params.Event == IE_Pressed && bReorderingAllowed)
+		if (Params.Event == IE_Released)
+		{
+			FVector Cursor;
+			if (GetCursorOnCardPlane(Cursor)) { TryCommitComparisonDrop(Cursor); }
+			DraggedVisual.Reset();
+		}
+		else if (Params.Event == IE_Pressed && (bReorderingAllowed || bTransferAllowed))
 		{
 			FVector Cursor;
 			if (GetCursorOnCardPlane(Cursor))
@@ -366,6 +439,14 @@ TArray<ASHCard*> ASHHandRevealPawn::GetPresentationCards() const
 {
 	TArray<ASHCard*> Result;
 	for (ASHCard* Visual : VisualCards) { if (IsValid(Visual)) { Result.Add(Visual); } }
+	for (ASHCard* Visual : ReceivingVisualCards) { if (IsValid(Visual)) { Result.Add(Visual); } }
+	return Result;
+}
+
+TArray<ASHCard*> ASHHandRevealPawn::GetReceivingPresentationCards() const
+{
+	TArray<ASHCard*> Result;
+	for (ASHCard* Visual : ReceivingVisualCards) { if (IsValid(Visual)) { Result.Add(Visual); } }
 	return Result;
 }
 
@@ -378,8 +459,11 @@ void ASHHandRevealPawn::CalcCamera(float DeltaTime, FMinimalViewInfo& OutResult)
 void ASHHandRevealPawn::ClearPresentation()
 {
 	for (ASHCard* Visual : VisualCards) { if (IsValid(Visual)) { Visual->Destroy(); } }
+	for (ASHCard* Visual : ReceivingVisualCards) { if (IsValid(Visual)) { Visual->Destroy(); } }
 	VisualCards.Reset();
 	RevealedCards.Reset();
+	ReceivingVisualCards.Reset();
+	ReceivingCards.Reset();
 	RestingTransforms.Reset();
 	VisualBounds.Reset();
 	HoveredVisual.Reset();
@@ -388,6 +472,9 @@ void ASHHandRevealPawn::ClearPresentation()
 	RevealSessionId.Invalidate();
 	bReorderingAllowed = false;
 	bFinishingAllowed = false;
+	bComparisonMode = false;
+	bTransferAllowed = false;
+	RemainingTransfers = 0;
 	bHasPreservedView = false;
 	PreservedView = FMinimalViewInfo();
 	LastRequestedDropIndex = INDEX_NONE;

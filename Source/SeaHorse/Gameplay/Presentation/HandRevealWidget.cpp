@@ -51,7 +51,17 @@ void UHandRevealWidget::InitializeReveal(ASHHandRevealPawn* Pawn, ASHHand* Sourc
 {
 	RevealPawn = Pawn;
 	RevealedHand = SourceHand;
+	ComparisonReceivingHand = nullptr;
 	bShowFinishButton = bCanFinish;
+	RefreshReveal();
+}
+
+void UHandRevealWidget::InitializeComparison(ASHHandRevealPawn* Pawn, ASHHand* LargerHand, ASHHand* ReceivingHand)
+{
+	RevealPawn = Pawn;
+	RevealedHand = LargerHand;
+	ComparisonReceivingHand = ReceivingHand;
+	bShowFinishButton = false;
 	RefreshReveal();
 }
 
@@ -63,6 +73,11 @@ ASHHandRevealPawn* UHandRevealWidget::GetRevealPawn() const
 ASHHand* UHandRevealWidget::GetSourceHand() const
 {
 	return IsValid(RevealedHand) ? RevealedHand.Get() : nullptr;
+}
+
+ASHHand* UHandRevealWidget::GetReceivingHand() const
+{
+	return IsValid(ComparisonReceivingHand) ? ComparisonReceivingHand.Get() : nullptr;
 }
 
 bool UHandRevealWidget::CanFinishViewing() const
@@ -81,11 +96,23 @@ void UHandRevealWidget::RefreshReveal()
 	}
 	if (InformationText)
 	{
-		InformationText->SetText(CanFinishViewing()
-			? NSLOCTEXT("HandReveal", "Viewing", "Pokazana ręka. Wybierz Gotowe, aby zakończyć oglądanie.")
-			: IsValid(RevealPawn) && RevealPawn->CanReorderCards()
-				? NSLOCTEXT("HandReveal", "Reordering", "Pokazujesz swoją rękę. Możesz przeciągać karty, aby zmienić ich kolejność.")
-				: NSLOCTEXT("HandReveal", "Showing", "Pokazujesz swoją rękę. Oglądający zakończy podgląd."));
+		if (IsValid(RevealPawn) && RevealPawn->IsComparingHands())
+		{
+			const int32 Remaining = RevealPawn->GetRemainingTransfers();
+			InformationText->SetText(RevealPawn->CanTransferComparedCards()
+				? FText::Format(NSLOCTEXT("HandReveal", "ComparingDrawer",
+					"Przeciągnij jeszcze {0} kart z górnej talii do dolnej."), FText::AsNumber(Remaining))
+				: FText::Format(NSLOCTEXT("HandReveal", "ComparingObserver",
+					"Gracz z mniejszą talią dobiera jeszcze {0} kart z górnej talii."), FText::AsNumber(Remaining)));
+		}
+		else
+		{
+			InformationText->SetText(CanFinishViewing()
+				? NSLOCTEXT("HandReveal", "Viewing", "Pokazana ręka. Wybierz Gotowe, aby zakończyć oglądanie.")
+				: IsValid(RevealPawn) && RevealPawn->CanReorderCards()
+					? NSLOCTEXT("HandReveal", "Reordering", "Pokazujesz swoją rękę. Możesz przeciągać karty, aby zmienić ich kolejność.")
+					: NSLOCTEXT("HandReveal", "Showing", "Pokazujesz swoją rękę. Oglądający zakończy podgląd."));
+		}
 	}
 	OnRevealChanged();
 }

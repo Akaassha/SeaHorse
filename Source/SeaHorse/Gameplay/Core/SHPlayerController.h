@@ -85,6 +85,15 @@ public:
 		TSubclassOf<UHandRevealWidget> WidgetClass);
 	UFUNCTION(Client, Reliable)
 	void ClientUpdateHandReveal(FGuid SessionId, const TArray<FSHRevealedHandCard>& Cards, bool bCanReorder);
+	/** Private two-hand view used by Diego. Only the drawing player receives transfer permission. */
+	UFUNCTION(Client, Reliable)
+	void ClientBeginHandComparison(FGuid SessionId, ASHHand* LargerHand, ASHHand* ReceivingHand,
+		ASHHandRevealPawn* RevealPawn, const TArray<FSHRevealedHandCard>& LargerCards,
+		const TArray<FSHRevealedHandCard>& ReceivingCards, int32 RemainingTransfers,
+		bool bCanTransfer, TSubclassOf<UHandRevealWidget> WidgetClass);
+	UFUNCTION(Client, Reliable)
+	void ClientUpdateHandComparison(FGuid SessionId, const TArray<FSHRevealedHandCard>& LargerCards,
+		const TArray<FSHRevealedHandCard>& ReceivingCards, int32 RemainingTransfers, bool bCanTransfer);
 	UFUNCTION(Client, Reliable)
 	void ClientEndHandReveal(FGuid SessionId);
 	UFUNCTION(Server, Reliable)
@@ -93,6 +102,8 @@ public:
 	void ServerFinishHandReveal(FGuid SessionId);
 	UFUNCTION(Server, Reliable)
 	void ServerAcknowledgeHandReveal(FGuid SessionId);
+	UFUNCTION(Server, Reliable)
+	void ServerTransferComparedHandCard(FGuid SessionId, ASHCard* Card, int32 InsertIndex);
 	UFUNCTION(BlueprintCallable, Category = "Cards|Hand Reveal")
 	void FinishHandReveal();
 	UFUNCTION(BlueprintPure, Category = "Cards|Hand Reveal")

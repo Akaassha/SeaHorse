@@ -16,11 +16,14 @@ class SEAHORSE_API UHandRevealWidget : public UUserWidget
 	GENERATED_BODY()
 public:
 	void InitializeReveal(ASHHandRevealPawn* Pawn, ASHHand* SourceHand, bool bCanFinish);
+	void InitializeComparison(ASHHandRevealPawn* Pawn, ASHHand* LargerHand, ASHHand* ReceivingHand);
 	void RefreshReveal();
 	UFUNCTION(BlueprintPure, Category = "Hand Reveal")
 	ASHHandRevealPawn* GetRevealPawn() const;
 	UFUNCTION(BlueprintPure, Category = "Hand Reveal")
 	ASHHand* GetSourceHand() const;
+	UFUNCTION(BlueprintPure, Category = "Hand Comparison")
+	ASHHand* GetReceivingHand() const;
 	UFUNCTION(BlueprintPure, Category = "Hand Reveal")
 	bool CanFinishViewing() const;
 	UFUNCTION(BlueprintCallable, Category = "Hand Reveal")
@@ -41,5 +44,7 @@ private:
 	TObjectPtr<ASHHandRevealPawn> RevealPawn;
 	UPROPERTY(Transient)
 	TObjectPtr<ASHHand> RevealedHand;
+	UPROPERTY(Transient)
+	TObjectPtr<ASHHand> ComparisonReceivingHand;
 	bool bShowFinishButton = false;
 };

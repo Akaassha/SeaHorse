@@ -19,7 +19,8 @@ enum class EPlayerSelectionPurpose : uint8
     CardTransferRecipient,
     CardTransferSource,
     ActivationZoneOwner,
-    HandRevealTarget
+    HandRevealTarget,
+    HandComparisonTarget
 };
 
 UENUM(BlueprintType)

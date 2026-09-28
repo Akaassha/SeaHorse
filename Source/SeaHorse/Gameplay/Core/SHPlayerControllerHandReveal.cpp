@@ -19,6 +19,15 @@ bool IsRevealPresentationReady(const ASHHandRevealPawn* Pawn, const TArray<FSHRe
 	return IsValid(Pawn) && !Cards.IsEmpty() && Pawn->GetPresentationCards().Num() == Cards.Num() &&
 		!Cards.ContainsByPredicate([](const FSHRevealedHandCard& Entry) { return !IsValid(Entry.SourceCard); });
 }
+
+bool IsComparisonPresentationReady(const ASHHandRevealPawn* Pawn,
+	const TArray<FSHRevealedHandCard>& LargerCards, const TArray<FSHRevealedHandCard>& ReceivingCards)
+{
+	return IsValid(Pawn) && !LargerCards.IsEmpty() &&
+		Pawn->GetPresentationCards().Num() == LargerCards.Num() + ReceivingCards.Num() &&
+		!LargerCards.ContainsByPredicate([](const FSHRevealedHandCard& Entry) { return !IsValid(Entry.SourceCard); }) &&
+		!ReceivingCards.ContainsByPredicate([](const FSHRevealedHandCard& Entry) { return !IsValid(Entry.SourceCard); });
+}
 }
 
 void ASHPlayerController::AutoManageActiveCameraTarget(AActor* SuggestedTarget)
@@ -113,6 +122,105 @@ void ASHPlayerController::ClientUpdateHandReveal_Implementation(FGuid SessionId,
 	if (ActiveHandRevealWidget) { ActiveHandRevealWidget->RefreshReveal(); }
 }
 
+void ASHPlayerController::ClientBeginHandComparison_Implementation(FGuid SessionId,
+	ASHHand* LargerHand, ASHHand* ReceivingHand, ASHHandRevealPawn* RevealPawn,
+	const TArray<FSHRevealedHandCard>& LargerCards,
+	const TArray<FSHRevealedHandCard>& ReceivingCards, int32 RemainingTransfers,
+	bool bCanTransfer, TSubclassOf<UHandRevealWidget> WidgetClass)
+{
+	if (!IsLocalController() || !GetLocalPlayer() || !SessionId.IsValid() ||
+		!IsValid(LargerHand) || !IsValid(ReceivingHand) || !IsValid(RevealPawn))
+	{
+		return;
+	}
+	if (ActiveHandRevealSession == SessionId && ActiveHandRevealPawn == RevealPawn)
+	{
+		ClientUpdateHandComparison_Implementation(SessionId, LargerCards, ReceivingCards,
+			RemainingTransfers, bCanTransfer);
+		if (ActiveHandRevealSession == SessionId &&
+			IsComparisonPresentationReady(ActiveHandRevealPawn, LargerCards, ReceivingCards))
+		{
+			ServerAcknowledgeHandReveal(SessionId);
+		}
+		return;
+	}
+
+	ClientEndHandReveal_Implementation(ActiveHandRevealSession);
+	CloseCardInfo();
+	ClearLocalEffectSelectionState();
+	StopPairTargetingIndicator();
+	ResetHandCursorHover();
+	PointerPressedCard.Reset();
+	bConsumeEffectSelectionRelease = false;
+	if (PlayerInput && IsValid(LocallyDraggedCard))
+	{
+		PlayerInput->InputKey(FInputKeyEventArgs::CreateSimulated(EKeys::LeftMouseButton, IE_Released, 0.f));
+	}
+	LocallyDraggedCard = nullptr;
+	LastPreviewCard = nullptr;
+	LastPreviewInsertIndex = INDEX_NONE;
+	for (TActorIterator<ASHHand> It(GetWorld()); It; ++It)
+	{
+		if (auto* Layout = It->FindComponentByClass<USHHandCardsLayoutComponent>())
+		{
+			Layout->SetDraggedCard(nullptr);
+			Layout->SetSelectedCardIndex(INDEX_NONE);
+			Layout->SetFocusedCardIndex(INDEX_NONE);
+		}
+	}
+
+	ActiveHandRevealSession = SessionId;
+	ActiveHandRevealPawn = RevealPawn;
+	bCanFinishHandReveal = false;
+	ViewTargetBeforeHandReveal = GetViewTarget();
+	bCursorBeforeHandReveal = bShowMouseCursor;
+	bAutoCameraBeforeHandReveal = bAutoManageActiveCameraTarget;
+	bClickEventsBeforeHandReveal = bEnableClickEvents;
+	bMouseOverBeforeHandReveal = bEnableMouseOverEvents;
+	bAutoManageActiveCameraTarget = false;
+	bEnableClickEvents = false;
+	bEnableMouseOverEvents = false;
+	bShowMouseCursor = true;
+	RevealPawn->InitializeComparisonPresentation(this, SessionId, LargerCards, ReceivingCards,
+		RemainingTransfers, bCanTransfer);
+	if (ActiveHandRevealSession != SessionId || !IsValid(ActiveHandRevealPawn)) { return; }
+	SetViewTarget(RevealPawn);
+	if (GetWorld()->GetGameViewport())
+	{
+		if (!WidgetClass || WidgetClass->HasAnyClassFlags(CLASS_Abstract))
+		{
+			WidgetClass = UHandRevealWidget::StaticClass();
+		}
+		UHandRevealWidget* CreatedWidget = CreateWidget<UHandRevealWidget>(this, WidgetClass);
+		if (ActiveHandRevealSession != SessionId) { return; }
+		ActiveHandRevealWidget = CreatedWidget;
+		if (ActiveHandRevealWidget)
+		{
+			ActiveHandRevealWidget->InitializeComparison(RevealPawn, LargerHand, ReceivingHand);
+			if (ActiveHandRevealSession != SessionId || ActiveHandRevealWidget != CreatedWidget) { return; }
+			ActiveHandRevealWidget->AddToViewport(250);
+		}
+		FInputModeGameAndUI InputMode;
+		InputMode.SetHideCursorDuringCapture(false);
+		InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+		SetInputMode(InputMode);
+	}
+	if (ActiveHandRevealSession == SessionId &&
+		IsComparisonPresentationReady(ActiveHandRevealPawn, LargerCards, ReceivingCards))
+	{
+		ServerAcknowledgeHandReveal(SessionId);
+	}
+}
+
+void ASHPlayerController::ClientUpdateHandComparison_Implementation(FGuid SessionId,
+	const TArray<FSHRevealedHandCard>& LargerCards,
+	const TArray<FSHRevealedHandCard>& ReceivingCards, int32 RemainingTransfers, bool bCanTransfer)
+{
+	if (!SessionId.IsValid() || SessionId != ActiveHandRevealSession || !IsValid(ActiveHandRevealPawn)) { return; }
+	ActiveHandRevealPawn->ApplyComparisonSnapshot(LargerCards, ReceivingCards, RemainingTransfers, bCanTransfer);
+	if (ActiveHandRevealWidget) { ActiveHandRevealWidget->RefreshReveal(); }
+}
+
 void ASHPlayerController::ClientEndHandReveal_Implementation(FGuid SessionId)
 {
 	if (!SessionId.IsValid() || SessionId != ActiveHandRevealSession) { return; }
@@ -166,5 +274,13 @@ void ASHPlayerController::ServerReorderRevealedHand_Implementation(FGuid Session
 	if (ASHGameMode* Mode = GetWorld()->GetAuthGameMode<ASHGameMode>())
 	{
 		Mode->ReorderRevealedHand(GetPlayerState<ASHPlayerState>(), SessionId, Card, InsertIndex);
+	}
+}
+
+void ASHPlayerController::ServerTransferComparedHandCard_Implementation(FGuid SessionId, ASHCard* Card, int32 InsertIndex)
+{
+	if (ASHGameMode* Mode = GetWorld()->GetAuthGameMode<ASHGameMode>())
+	{
+		Mode->TransferComparedHandCard(GetPlayerState<ASHPlayerState>(), SessionId, Card, InsertIndex);
 	}
 }

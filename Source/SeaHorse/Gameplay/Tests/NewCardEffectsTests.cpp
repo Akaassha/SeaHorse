@@ -18,6 +18,7 @@
 #include "Gameplay/Cards/SHCard.h"
 #include "Gameplay/Cards/CardDefinition.h"
 #include "Gameplay/Cards/Tasks/ExtendedCardEffectTasks.h"
+#include "Gameplay/Cards/Tasks/CompareHandsEffectTask.h"
 #include "Gameplay/Cards/Fragments/CardReactionFragment.h"
 #include "Gameplay/Presentation/CardReactionPrompt.h"
 #include "Gameplay/Presentation/CardSelectionPrompt.h"
@@ -1278,7 +1279,7 @@ bool FSHPanchoAllCardsTest::RunTest(const FString& Parameters)
 	UClass* SeaHorse = Load(TEXT("Card_SeaHorse"));
 	if (!Pancho || !Gloria || !Otfried || !Bodgy || !SeaHorse) { return false; }
 	const TArray<FString> Names = {TEXT("Card_Aramdila"), TEXT("Card_BodgyVampireHunter"), TEXT("Card_CrumoUrsula"),
-		TEXT("Card_Fimarik"), TEXT("Card_Gloria"), TEXT("Card_GniewDeadHerald"), TEXT("Card_GniewLivingHerald"),
+		TEXT("Card_Diego"), TEXT("Card_Fimarik"), TEXT("Card_Gloria"), TEXT("Card_GniewDeadHerald"), TEXT("Card_GniewLivingHerald"),
 		TEXT("Card_Gnushor"), TEXT("Card_HansCaptain"), TEXT("Card_KurtPriest"), TEXT("Card_OlgaPriest"),
 		TEXT("Card_Otfried"), TEXT("Card_Pancho"), TEXT("Card_PaulusSilent"), TEXT("Card_PaulusWitchHunterWu"),
 		TEXT("Card_ThronriTrollSlayer"), TEXT("Card_Wilhelm"), TEXT("Card_YeHeshaNightMonk")};
@@ -1294,6 +1295,7 @@ bool FSHPanchoAllCardsTest::RunTest(const FString& Parameters)
 		UTurnComponent* Turns = T.Mode->GetTurnComponent();
 		TArray<ASHCard*> Anchors;
 		for (ASHHand* H : T.Hands) { Anchors.Add(T.Card(H)); for (int32 I = 1; I < 6; ++I) { T.Card(H); } }
+		if (Name == TEXT("Card_Diego")) { T.Card(T.Players[1]->GetHand()); }
 		ASHCard* Victim1 = T.Pair(T.Players[1]->GetHand(), Gloria);
 		ASHCard* Victim2 = T.Pair(T.Players[2]->GetHand(), Otfried);
 		if (Definition == Pancho)
@@ -1327,7 +1329,9 @@ bool FSHPanchoAllCardsTest::RunTest(const FString& Parameters)
 			}
 			else if (const auto* ParticipantSelection = T.Mode->PendingParticipantSelections.Find(Player))
 			{
-				ASHHand* Choice = Name == TEXT("Card_GniewDeadHerald") ? T.Players[1 + ParticipantChoices % 2]->GetHand() : T.Hands[1];
+				ASHHand* Choice = Name == TEXT("Card_GniewDeadHerald")
+					? T.Players[1 + ParticipantChoices % 2]->GetHand()
+					: Name == TEXT("Card_Diego") ? T.Players[1]->GetHand() : T.Hands[1];
 				TestTrue(TEXT("Each execution offers a fresh hand target"), ParticipantSelection->Candidates.Contains(Choice));
 				++ParticipantChoices; T.Mode->SubmitParticipantSelection(Player, Choice);
 			}
@@ -1353,6 +1357,30 @@ bool FSHPanchoAllCardsTest::RunTest(const FString& Parameters)
 			{
 				ASHHand* Source = Draws > 0 && Name == TEXT("Card_CrumoUrsula") ? T.Hands[1] : T.Players[1]->GetHand();
 				if (Turns->CanDrawCardFromHand(Player, Source)) { T.Draw(Player, Source, Source->GetCards()[0]); ++Draws; }
+			}
+			else if (Name == TEXT("Card_Diego"))
+			{
+				UCompareHandsEffectTask* Comparison = nullptr;
+				for (UCardEffectTask* ActiveTask : T.Mode->ActiveEffectTasks)
+				{
+					if (UCompareHandsEffectTask* Candidate = Cast<UCompareHandsEffectTask>(ActiveTask);
+						IsValid(Candidate) && Candidate->GetSessionId().IsValid())
+					{
+						Comparison = Candidate;
+						break;
+					}
+				}
+				if (Comparison)
+				{
+					const FGuid Session = Comparison->GetSessionId();
+					T.Mode->AcknowledgeHandReveal(T.Players[0], Session);
+					T.Mode->AcknowledgeHandReveal(T.Players[1], Session);
+					ASHHand* OtherHand = T.Players[1]->GetHand();
+					ASHHand* Larger = Hand->GetCardCount() > OtherHand->GetCardCount() ? Hand : OtherHand;
+					ASHPlayerState* Drawer = Larger == Hand ? T.Players[1] : T.Players[0];
+					T.Mode->TransferComparedHandCard(Drawer, Session, Larger->GetCards()[0],
+						Drawer->GetHand()->GetCardCount());
+				}
 			}
 		}
 		T.Advance();

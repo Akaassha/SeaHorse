@@ -39,6 +39,7 @@ public:
 	void FinishHandReveal(ASHPlayerState* Player, FGuid SessionId);
 	void AcknowledgeHandReveal(ASHPlayerState* Player, FGuid SessionId);
 	void ReorderRevealedHand(ASHPlayerState* Player, FGuid SessionId, ASHCard* Card, int32 InsertIndex);
+	void TransferComparedHandCard(ASHPlayerState* Player, FGuid SessionId, ASHCard* Card, int32 InsertIndex);
 	bool IsPlayerInHandReveal(const ASHPlayerState* Player) const;
 	bool HasActiveHandReveal() const;
 	void CloseHandRevealsForDisconnect(ASHPlayerState* Player);
@@ -109,6 +110,7 @@ private:
 	void RefreshSelectionsAfterPlayerDisconnected(ASHPlayerState* Player, ASHHand* ConvertedHand);
 #if WITH_DEV_AUTOMATION_TESTS
 	friend class FSHHandRevealTest;
+	friend class FSHCompareHandsEffectTest;
 	friend class FSHDisconnectedParticipantTest;
 	friend struct FSHNewEffectsWorld;
 	friend struct FSHOptionalRulesWorld;
