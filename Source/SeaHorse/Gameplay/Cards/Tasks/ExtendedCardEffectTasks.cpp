@@ -142,7 +142,7 @@ void UStealSelectedPairEffectTask::ResolveAbility()
 
 void URotateActivationZonesRightEffectTask::ResolveAbility()
 {
-	GetTypedOuter<ASHGameMode>()->RotateActivationZonesRight(GetCardA());
+	SetEffectSuccessful(GetTypedOuter<ASHGameMode>()->RotateActivationZonesRight(GetCardA()));
 	FinishEffect();
 }
 
@@ -189,6 +189,6 @@ ECardEffectPairDisposition URemoveSelectedPairEffectTask::GetPairDisposition_Imp
 
 void UShuffleAllHandsEffectTask::ResolveAbility()
 {
-	GetTypedOuter<ASHGameMode>()->ShuffleAndRedealHands();
+	SetEffectSuccessful(GetTypedOuter<ASHGameMode>()->ShuffleAndRedealHands());
 	FinishEffect();
 }

@@ -13,9 +13,13 @@ class SEAHORSE_API UAdditionalDrawEffectTask : public UCardEffectTask
 public:
 	virtual void StartEffect_Implementation() override;
 	virtual bool BlocksNextPairActivation() const override { return false; }
+	virtual void RecordAdditionalDrawnCard(ASHCard* Card) override { ++CompletedAdditionalDraws; }
+	virtual bool WasEffectSuccessful_Implementation() const override
+	{ return CompletedAdditionalDraws >= GetAdditionalDrawCount(); }
 
 protected:
 	EAdditionalDrawSourceRule SourceRule = EAdditionalDrawSourceRule::SamePlayer;
+	int32 CompletedAdditionalDraws = 0;
 };
 
 UCLASS()

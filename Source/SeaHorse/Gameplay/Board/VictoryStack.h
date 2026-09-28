@@ -23,6 +23,7 @@ public:
 
 	void AddPair(ASHCard* CardA, ASHCard* CardB);
 	bool RemoveCard(ASHCard* Card);
+	bool RemovePair(ASHCard* CardA, ASHCard* CardB);
 	void RefreshCardsPresentation();
 
 	UFUNCTION(BlueprintPure, Category = "Score")

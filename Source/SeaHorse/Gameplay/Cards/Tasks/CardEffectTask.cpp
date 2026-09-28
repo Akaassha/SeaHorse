@@ -15,6 +15,9 @@ void UCardEffectTask::Initialize(ASHPlayerState* InActivatingPlayer, ASHCard* In
 	bFinished = false;
 	bActivationVFXStarted = false;
 	bGameplayCommitted = false;
+	bRepeatedExecution = false;
+	bHasExplicitEffectOutcome = false;
+	bEffectSuccessful = false;
     ActivatingPlayer = InActivatingPlayer;
     CardA = InCardA;
     CardB = InCardB;
@@ -75,6 +78,14 @@ bool UCardEffectTask::CancelPendingTargetSelection()
 ECardEffectPairDisposition UCardEffectTask::GetPairDisposition_Implementation() const
 {
 	return ECardEffectPairDisposition::MoveToVictoryStack;
+}
+
+bool UCardEffectTask::WasEffectSuccessful_Implementation() const
+{
+	// Preserve existing Blueprint task behavior unless its implementation reports
+	// a more precise result. Native abilities with no-op paths report explicitly.
+	return bHasExplicitEffectOutcome ? bEffectSuccessful :
+		GetPairDisposition() != ECardEffectPairDisposition::KeepOnTable;
 }
 
 void UCardEffectTask::RequestPlayerSelection(

@@ -9,6 +9,7 @@
 #include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
 #include "Camera/PlayerCameraManager.h"
+#include "GameFramework/Pawn.h"
 #include "Components/Button.h"
 #include "Components/PrimitiveComponent.h"
 #include "Components/TextBlock.h"
@@ -186,14 +187,25 @@ bool FSHHandRevealPresentationTest::RunTest(const FString& Parameters)
 	ViewerStage->RevealCamera->SetRelativeRotation(FRotator(-90.f, -90.f, 0.f));
 	ViewerStage->RevealCamera->ProjectionMode = ECameraProjectionMode::Orthographic;
 	ViewerStage->RevealCamera->OrthoWidth = 41.f;
-	const FGuid SessionId = FGuid::NewGuid();
-	PC->ClientBeginHandReveal_Implementation(SessionId, SourceHand, nullptr, Cards, false, true, nullptr);
+	const FGuid UnmappedSessionId = FGuid::NewGuid();
+	PC->ClientBeginHandReveal_Implementation(UnmappedSessionId, SourceHand, nullptr, Cards, false, true, nullptr);
 	TestFalse(TEXT("Unmapped pawn waits for retry without opening a partial session"), PC->IsViewingRevealedHand());
 	TestNull(TEXT("Unmapped pawn does not create controls"), CurrentWidget());
 	TestEqual(TEXT("Unmapped pawn leaves the table camera intact"), PC->GetViewTarget(), static_cast<AActor*>(TableCamera));
 	PC->AutoManageActiveCameraTarget(ViewerStage);
 	TestEqual(TEXT("Possession camera automation preserves the table before snapshot initialization"),
 		PC->GetViewTarget(), static_cast<AActor*>(TableCamera));
+	APawn* UnmappedRestorePawn = World->SpawnActor<APawn>();
+	PC->SetViewTarget(UnmappedRestorePawn);
+	PC->ClientEndHandReveal_Implementation(UnmappedSessionId);
+	TestFalse(TEXT("Closing an unmapped pending reveal leaves no active session"), PC->IsViewingRevealedHand());
+	TestEqual(TEXT("Closing an unmapped pending reveal restores the captured table camera"),
+		PC->GetViewTarget(), static_cast<AActor*>(TableCamera));
+	PC->AutoManageActiveCameraTarget(UnmappedRestorePawn);
+	TestEqual(TEXT("A late possession restart after an unmapped reveal cannot replace the table camera"),
+		PC->GetViewTarget(), static_cast<AActor*>(TableCamera));
+	World->GetTimerManager().Tick(3.1f);
+	const FGuid SessionId = FGuid::NewGuid();
 	PC->ClientBeginHandReveal_Implementation(SessionId, SourceHand, ViewerStage, Cards, false, true, nullptr);
 	TestEqual(TEXT("Private stage becomes the active view target"), PC->GetViewTarget(), static_cast<AActor*>(ViewerStage));
 	FMinimalViewInfo RevealView;
@@ -304,6 +316,17 @@ bool FSHHandRevealPresentationTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("Prior click setting is restored"), PC->bEnableClickEvents);
 	TestTrue(TEXT("Prior mouse-over setting is restored"), PC->bEnableMouseOverEvents);
 	TestTrue(TEXT("Prior camera automation setting is restored"), PC->bAutoManageActiveCameraTarget);
+	APawn* LateRestoredPawn = World->SpawnActor<APawn>();
+	PC->AutoManageActiveCameraTarget(LateRestoredPawn);
+	TestEqual(TEXT("A late possession restart cannot replace the restored table camera"),
+		PC->GetViewTarget(), static_cast<AActor*>(TableCamera));
+	PC->SetViewTarget(LateRestoredPawn);
+	PC->Tick(1.f / 60.f);
+	TestEqual(TEXT("The settling guard also repairs a delayed direct camera change"),
+		PC->GetViewTarget(), static_cast<AActor*>(TableCamera));
+	World->GetTimerManager().Tick(1.1f);
+	TestEqual(TEXT("The final settling pass leaves the table camera restored"),
+		PC->GetViewTarget(), static_cast<AActor*>(TableCamera));
 	TestEqual(TEXT("Private snapshot is erased when the panel closes"), ViewerStage->GetCards().Num(), 0);
 	TestEqual(TEXT("Every local visual reference is released"), ViewerStage->GetPresentationCards().Num(), 0);
 	for (ASHCard* Visual : Visuals) { TestTrue(TEXT("Local visual actors are destroyed on close"), Visual->IsActorBeingDestroyed()); }

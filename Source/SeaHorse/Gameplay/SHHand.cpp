@@ -72,7 +72,7 @@ bool ASHHand::RemoveActivationPair(ASHCard* CardA, ASHCard* CardB)
 }
 
 // Called when the game starts or when spawned
-void ASHHand::ReceiveTransferredPair(const FActivatedPair& Pair)
+void ASHHand::ReceiveTransferredPair(const FActivatedPair& Pair, int32 InsertIndex)
 {
 	check(HasAuthority());
 	if (!IsValid(Pair.CardA) || !IsValid(Pair.CardB) || FindActivationPair(Pair.CardA)) { return; }
@@ -82,9 +82,11 @@ void ASHHand::ReceiveTransferredPair(const FActivatedPair& Pair)
 	Received.bTransferred = true;
 	Received.CardA->SetOwner(this);
 	Received.CardB->SetOwner(this);
+	Received.CardA->SetCardZone(ECardZone::Activation);
+	Received.CardB->SetCardZone(ECardZone::Activation);
 	Received.CardA->ForceNetUpdate();
 	Received.CardB->ForceNetUpdate();
-	ActivationPairs.Add(Received);
+	ActivationPairs.Insert(Received, InsertIndex == INDEX_NONE ? ActivationPairs.Num() : FMath::Clamp(InsertIndex, 0, ActivationPairs.Num()));
 	ForceNetUpdate();
 	OnRep_ActivationPairs();
 	UpdateCardPositions();
@@ -1088,6 +1090,20 @@ void ASHHand::SetActivationPairState(ASHCard* CardA, ASHCard* CardB, EActivation
 	{
 		Pair->State = NewState;
 		Pair->bActivated = NewState >= EActivationPairState::AbilityEffect;
+		ForceNetUpdate();
+		RefreshLocalPairActivationAvailability();
+	}
+}
+
+void ASHHand::SetActivationPairOutcomePending(ASHCard* CardA, ASHCard* CardB, bool bPending)
+{
+	checkf(HasAuthority(), TEXT("Activation pair outcome can only be changed on the server"));
+	FActivatedPair* Pair = FindActivationPair(CardA);
+	if (Pair && (Pair->CardA == CardB || Pair->CardB == CardB))
+	{
+		Pair->State = EActivationPairState::Ready;
+		Pair->bActivated = bPending;
+		Pair->bActivationQueued = false;
 		ForceNetUpdate();
 		RefreshLocalPairActivationAvailability();
 	}

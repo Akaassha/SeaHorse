@@ -84,6 +84,7 @@ void ASHPlayerController::ServerRespondToCardReaction_Implementation(int32 Offer
 void ASHPlayerController::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
+	MaintainHandRevealCameraRestore();
 	if (IsViewingRevealedHand()) { return; }
 	ValidateCardInfoAccess();
 	KeepDraggedCardAboveOtherCards();
@@ -556,6 +557,8 @@ void ASHPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	StopPairTargetingIndicator();
 	GetWorldTimerManager().ClearTimer(TableSetupRetryTimer);
 	GetWorldTimerManager().ClearTimer(RotatedHandsReconcileTimer);
+	GetWorldTimerManager().ClearTimer(HandRevealCameraRestoreTimer);
+	HandRevealCameraRestoreTarget.Reset();
 	Super::EndPlay(EndPlayReason);
 }
 

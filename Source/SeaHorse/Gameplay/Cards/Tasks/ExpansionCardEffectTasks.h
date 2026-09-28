@@ -15,6 +15,7 @@ public:
 	virtual void HandleParticipantSelected(ASHHand* Hand) override;
 	virtual ECardEffectPairDisposition GetPairDisposition_Implementation() const override
 	{ return bTransferred ? ECardEffectPairDisposition::MoveToVictoryStack : ECardEffectPairDisposition::KeepOnTable; }
+	virtual bool WasEffectSuccessful_Implementation() const override { return bTransferred && RemainingDraws == 0; }
 protected:
 	virtual void ResolveAbility() override;
 private:
@@ -44,7 +45,8 @@ public:
 	virtual void StartEffect_Implementation() override;
 	virtual void HandleActivationPairSelected(ASHPlayerState* Owner, ASHCard* A, ASHCard* B) override;
 	virtual ECardEffectPairDisposition GetPairDisposition_Implementation() const override
-	{ return bApplied ? ECardEffectPairDisposition::MoveToVictoryStack : ECardEffectPairDisposition::KeepOnTable; }
+	{ return ECardEffectPairDisposition::KeepOnTable; }
+	virtual bool WasEffectSuccessful_Implementation() const override { return bApplied; }
 protected:
 	virtual void ResolveAbility() override;
 private:

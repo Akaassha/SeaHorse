@@ -199,7 +199,7 @@ public:
 	bool IsPairMovementBlocked() const { return !LocalPresentationBlocks.IsEmpty(); }
 
 	bool RemoveActivationPair(ASHCard* CardA, ASHCard* CardB);
-	void ReceiveTransferredPair(const FActivatedPair& Pair);
+	void ReceiveTransferredPair(const FActivatedPair& Pair, int32 InsertIndex = INDEX_NONE);
 
 protected:
 	// Called when the game starts or when spawned
@@ -295,6 +295,8 @@ public:
 
 	FActivatedPair* FindActivationPair(ASHCard* Card);
 	void SetActivationPairState(ASHCard* CardA, ASHCard* CardB, EActivationPairState NewState);
+	/** Keeps a resolved pair on the table but unavailable until a dependent outcome settles. */
+	void SetActivationPairOutcomePending(ASHCard* CardA, ASHCard* CardB, bool bPending);
 	void SetActivationPairQueued(ASHCard* CardA, ASHCard* CardB, bool bQueued);
 	void RefreshLocalPairActivationAvailability();
 

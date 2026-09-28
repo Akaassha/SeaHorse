@@ -53,6 +53,14 @@ public:
 	UFUNCTION(BlueprintNativeEvent, Category = "Card Effect")
 	ECardEffectPairDisposition GetPairDisposition() const;
 	virtual ECardEffectPairDisposition GetPairDisposition_Implementation() const;
+	/** Whether the ability completed, independently of where its pair is disposed. */
+	UFUNCTION(BlueprintNativeEvent, Category = "Card Effect")
+	bool WasEffectSuccessful() const;
+	virtual bool WasEffectSuccessful_Implementation() const;
+
+	/** Report a gameplay outcome explicitly; starting presentation is not success. */
+	UFUNCTION(BlueprintCallable, Category = "Card Effect")
+	void SetEffectSuccessful(bool bSuccessful = true) { bHasExplicitEffectOutcome = true; bEffectSuccessful = bSuccessful; }
 
     void RequestPlayerSelection(const TArray<ASHPlayerState*>& Candidates, EPlayerSelectionPurpose Purpose);
     void RequestParticipantSelection(const TArray<ASHHand*>& Candidates, EPlayerSelectionPurpose Purpose);
@@ -77,6 +85,8 @@ public:
 	/** Deferred draw rules stay active for turn completion without owning the pair activation queue. */
 	virtual bool BlocksNextPairActivation() const { return true; }
 	virtual void RecordDrawnCard(ASHCard* Card) {}
+	/** Notifies only draws performed by the ability, excluding the ordinary turn draw. */
+	virtual void RecordAdditionalDrawnCard(ASHCard* Card) {}
 	virtual int32 GetAdditionalDrawCount() const { return 1; }
 	/** Time for moved cards to reach their first destination before a repeat starts. */
 	virtual float GetRepeatPresentationDelay() const { return 0.0f; }
@@ -103,4 +113,6 @@ protected:
 	bool bActivationVFXStarted = false;
 	bool bGameplayCommitted = false;
 	bool bRepeatedExecution = false;
+	bool bHasExplicitEffectOutcome = false;
+	bool bEffectSuccessful = false;
 };

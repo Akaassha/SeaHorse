@@ -259,6 +259,7 @@ void UTurnComponent::HandleCardDrawnFromHand(ASHPlayerState* DrawingPlayer, ASHH
 
 	if (bWaitingForAdditionalDraw)
 	{
+		if (IsValid(AdditionalDrawEffectTask)) { AdditionalDrawEffectTask->RecordAdditionalDrawnCard(DrawnCard); }
 		ClearDrawGuidance(DrawingPlayer);
 		if (--RemainingSequenceDraws > 0) { BeginWaitingForAdditionalDraw(); return; }
 		FinishAdditionalDraw();
@@ -527,6 +528,7 @@ void UTurnComponent::EndTurn()
 
 	FirstDrawSourceHand = nullptr;
 	FirstDrawnCard = nullptr;
+	if (IsValid(GameMode)) { GameMode->ExpirePanchoBoosts(); }
 	for (ASHHand* Hand : GameState->GetParticipantHands())
 	{
 		if (!IsValid(Hand)) { continue; }

@@ -56,6 +56,8 @@ public:
 	void MovePairToVictoryStack(ASHPlayerState* PlayerState, ASHCard* CardA, ASHCard* CardB);
 
 	void CardActivateEffect(ASHPlayerState* InActivatingPlayer, ASHCard* CardA, ASHCard* CardB);
+	bool ApplyPanchoBoost(ASHPlayerState* Player, ASHCard* PanchoCard, ASHCard* TargetCard);
+	void ExpirePanchoBoosts();
 
 	void FinishEffectTask(UCardEffectTask* CardEffectTask);
 	bool CancelEffectTargetSelection(ASHPlayerState* SelectingPlayer, ASHCard* CardA, ASHCard* CardB);
@@ -82,13 +84,13 @@ public:
 			!PendingPairSelections.IsEmpty() || !PendingHandCardSelections.IsEmpty();
 	}
 	bool HasActiveEffectTasks() const { return bReactionWindowOpen || !ActiveEffectTasks.IsEmpty() || !PendingSuccessfulActivations.IsEmpty(); }
-	void PassHandsToLeft();
+	bool PassHandsToLeft();
 	bool TransferStoredPair(ASHHand* Source, ASHHand* Target, ASHCard* Card);
-	void RotateActivationZonesRight(ASHCard* ExcludedCard);
-	void ShuffleAndRedealHands();
+	bool RotateActivationZonesRight(ASHCard* ExcludedCard);
+	bool ShuffleAndRedealHands();
 	bool RemoveStoredPairFromGame(ASHHand* Hand, ASHCard* Card);
 	bool HasOtherActiveEffects(const UCardEffectTask* Except) const;
-	void MoveAllActivationPairsToVictoryStacks();
+	bool MoveAllActivationPairsToVictoryStacks(ASHCard* ExcludedFromSuccessCount = nullptr);
 	bool TransferCardToHand(ASHHand* FromHand, ASHHand* ToHand,
 		TSubclassOf<class UCardDefinition> CardDefinition);
 
@@ -122,6 +124,7 @@ private:
 	friend class FSHSupportPairEffectsTest;
 	friend class FSHDoubledZoneRotationTest;
 	friend class FSHPanchoAllCardsTest;
+	friend class FSHPanchoRefundTest;
 	friend class FSHDogsReactionChainTest;
 	friend class FSHActivationQueueReadinessTest;
 	friend class FSHBulkVictoryPresentationTest;
@@ -158,8 +161,31 @@ private:
 	{
 		int32 Remaining = 1;
 		ECardEffectPairDisposition Disposition;
+		bool bFirstSucceeded = false;
+		bool bRepeatCancelled = false;
 	};
 	TMap<TWeakObjectPtr<ASHCard>, FRepeatedPairEffect> RepeatedPairEffects;
+	struct FPanchoBoost
+	{
+		TWeakObjectPtr<ASHPlayerState> Player;
+		TWeakObjectPtr<ASHHand> OriginalHand;
+		TWeakObjectPtr<ASHCard> CardA;
+		TWeakObjectPtr<ASHCard> CardB;
+		int64 CreationOrder = 0;
+		int32 OriginalIndex = INDEX_NONE;
+		TArray<TWeakObjectPtr<ASHCard>> Targets;
+		TWeakObjectPtr<ASHCard> SettlementTarget;
+		bool bRefundPending = false;
+		bool bCommitPending = false;
+		/** The granted target's first effect has already collected Pancho into victory. */
+		bool bConsumedByTargetEffect = false;
+	};
+	TMap<TWeakObjectPtr<ASHCard>, FPanchoBoost> PanchoBoosts;
+	TMap<TWeakObjectPtr<ASHCard>, TWeakObjectPtr<ASHCard>> PanchoBoostSources;
+	void ResolvePanchoBoostForTarget(ASHCard* Target, bool bBothExecutionsSucceeded);
+	void RequestPanchoRefund(ASHCard* PanchoCard);
+	void FlushPanchoRefunds();
+	void RefundPanchoBoostsForDisconnect(ASHPlayerState* Player);
 	void RestartRepeatedPairEffect(UCardEffectTask* PreviousTask);
 	bool TryUseVictorySubstitute(ASHPlayerState* Player, ASHCard* CardA, ASHCard* CardB);
 

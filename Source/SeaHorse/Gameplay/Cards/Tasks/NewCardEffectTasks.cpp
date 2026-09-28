@@ -24,12 +24,13 @@ void URotateHandsLeftEffectTask::StartEffect_Implementation()
 		}), 0.02f, false);
 		return;
 	}
-	GameMode->PassHandsToLeft();
+	SetEffectSuccessful(GameMode->PassHandsToLeft());
 	FinishEffect();
 }
 
 void USkipSelectedPlayerTurnEffectTask::StartEffect_Implementation()
 {
+	SetEffectSuccessful(false);
 	const ASHGameState* GameState = GetWorld()->GetGameState<ASHGameState>();
 	checkf(IsValid(GameState), TEXT("Invalid SHGameState"));
 
@@ -52,8 +53,13 @@ void USkipSelectedPlayerTurnEffectTask::HandlePlayerSelected(ASHPlayerState* Sel
 	UTurnComponent* TurnComponent = GameMode->GetTurnComponent();
 	checkf(IsValid(TurnComponent), TEXT("GameMode has no TurnComponent"));
 
-	PlayActivationVFX();
-	TurnComponent->ScheduleSkippedTurn(SelectedPlayer);
+	const ASHGameState* State = GetWorld()->GetGameState<ASHGameState>();
+	if (IsValid(SelectedPlayer) && IsValid(State) && State->PlayerArray.Contains(SelectedPlayer))
+	{
+		PlayActivationVFX();
+		TurnComponent->ScheduleSkippedTurn(SelectedPlayer);
+		SetEffectSuccessful();
+	}
 	FinishEffect();
 }
 
@@ -61,7 +67,7 @@ void UCollectAllActivationPairsEffectTask::StartEffect_Implementation()
 {
 	ASHGameMode* GameMode = GetTypedOuter<ASHGameMode>();
 	checkf(IsValid(GameMode), TEXT("CollectAllActivationPairsEffectTask has no valid GameMode"));
-	GameMode->MoveAllActivationPairsToVictoryStacks();
+	SetEffectSuccessful(GameMode->MoveAllActivationPairsToVictoryStacks(GetCardA()));
 	FinishEffect();
 }
 
@@ -138,6 +144,7 @@ void UTransferSpecifiedCardEffectTask::HandleParticipantSelected(ASHHand* Select
 
 void UCollectSelectedActivationPairEffectTask::StartEffect_Implementation()
 {
+	SetEffectSuccessful(false);
 	const ASHGameState* GameState = GetWorld()->GetGameState<ASHGameState>();
 	checkf(IsValid(GameState), TEXT("Invalid SHGameState"));
 
@@ -179,9 +186,15 @@ void UCollectSelectedActivationPairEffectTask::HandleActivationPairSelected(
 	ASHGameMode* GameMode = GetTypedOuter<ASHGameMode>();
 	if (IsValid(GameMode) && IsValid(PairOwner))
 	{
+		ASHHand* Hand = PairOwner->GetHand();
+		const FActivatedPair* Before = IsValid(Hand) ? Hand->FindActivationPair(SelectedCardA) : nullptr;
+		const bool bEligible = Before && Before->State < EActivationPairState::VictoryPresentation &&
+			IsValid(Before->CardA) && IsValid(Before->CardB);
 		PlayActivationVFX();
 		// MovePairToVictoryStack deliberately does not run the selected pair's effect.
 		GameMode->MovePairToVictoryStack(PairOwner, SelectedCardA, SelectedCardB);
+		const FActivatedPair* After = IsValid(Hand) ? Hand->FindActivationPair(SelectedCardA) : nullptr;
+		SetEffectSuccessful(bEligible && (!After || After->State >= EActivationPairState::VictoryPresentation));
 	}
 
 	FinishEffect();

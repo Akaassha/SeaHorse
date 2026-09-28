@@ -434,6 +434,8 @@ void ASHGameMode::MovePairToVictoryStack(ASHPlayerState* PlayerState, ASHCard* C
         return;
     }
 
+    // An unused boosted pair collected by another effect cannot execute twice.
+    if (!RepeatedPairEffects.Contains(CardA)) { ResolvePanchoBoostForTarget(CardA, false); }
     if (TWeakObjectPtr<ASHPlayerState>* RecipientEntry = PairCaptureRecipients.Find(CardA))
     {
         ASHPlayerState* Recipient = RecipientEntry->Get();
@@ -448,6 +450,7 @@ void ASHGameMode::MovePairToVictoryStack(ASHPlayerState* PlayerState, ASHCard* C
                 Hand->RemoveActivationPair(CardA, CardB);
                 CompleteQueuedPairActivation(CardA, CardB);
                 Recipient->GetHand()->ReceiveTransferredPair(Captured);
+                FlushPanchoRefunds();
                 RefreshPlayerScore(PlayerState);
                 RefreshPlayerScore(Recipient);
             }
@@ -462,6 +465,7 @@ void ASHGameMode::MovePairToVictoryStack(ASHPlayerState* PlayerState, ASHCard* C
         return;
     }
     VictoryStack->AddPair(CardA, CardB);
+    FlushPanchoRefunds();
     RefreshPlayerScore(PlayerState);
 	CompleteQueuedPairActivation(CardA, CardB);
 }
@@ -585,8 +589,10 @@ void ASHGameMode::FinishEffectTask(UCardEffectTask* CardEffectTask)
 	}
 
 	ECardEffectPairDisposition PairDisposition = CardEffectTask->GetPairDisposition();
+	const bool bExecutionSucceeded = CardEffectTask->WasEffectSuccessful();
 	if (FRepeatedPairEffect* Repeat = RepeatedPairEffects.Find(CardA))
 	{
+		if (!CardEffectTask->IsRepeatedExecution()) { Repeat->bFirstSucceeded = bExecutionSucceeded; }
 		ASHHand* Hand = ActivatingPlayer->GetHand();
 		const FActivatedPair* Pair = IsValid(Hand) ? Hand->FindActivationPair(CardA) : nullptr;
 		if (PairDisposition == ECardEffectPairDisposition::KeepOnTable && Pair &&
@@ -601,7 +607,9 @@ void ASHGameMode::FinishEffectTask(UCardEffectTask* CardEffectTask)
 		{
 			Repeat->Disposition = PairDisposition;
 		}
-		if (Repeat->Remaining > 0 && PairDisposition != ECardEffectPairDisposition::KeepOnTable &&
+		const bool bPanchoWaitingOnGrantedTargets = PanchoBoosts.Contains(CardA);
+		if (Repeat->Remaining > 0 && bExecutionSucceeded &&
+			(PairDisposition != ECardEffectPairDisposition::KeepOnTable || bPanchoWaitingOnGrantedTargets) &&
 			IsValid(ActivatingPlayer->GetHand()) && ActivatingPlayer->GetHand()->FindActivationPair(CardA))
 		{
 			--Repeat->Remaining;
@@ -619,8 +627,10 @@ void ASHGameMode::FinishEffectTask(UCardEffectTask* CardEffectTask)
 			else { RestartRepeatedPairEffect(CardEffectTask); }
 			return;
 		}
+		const bool bBothSucceeded = CardEffectTask->IsRepeatedExecution() && Repeat->bFirstSucceeded && bExecutionSucceeded;
 		PairDisposition = Repeat->Disposition;
 		RepeatedPairEffects.Remove(CardA);
+		ResolvePanchoBoostForTarget(CardA, bBothSucceeded);
 		// Bulk collectors can have scheduled an early move of their own pair.
 		CompletedEffectPairsWaitingForPresentation.RemoveAll([CardA](const FCompletedEffectPair& Entry) { return Entry.CardA == CardA; });
 	}
@@ -637,7 +647,15 @@ void ASHGameMode::FinishEffectTask(UCardEffectTask* CardEffectTask)
 	{
 		if (IsValid(ActivatingHand))
 		{
-			ActivatingHand->SetActivationPairState(CardA, CardB, EActivationPairState::Ready);
+			if (PanchoBoosts.Contains(CardA))
+			{
+				// Pancho stays in its zone, but cannot be reused before its target settles.
+				ActivatingHand->SetActivationPairOutcomePending(CardA, CardB, true);
+			}
+			else
+			{
+				ActivatingHand->SetActivationPairState(CardA, CardB, EActivationPairState::Ready);
+			}
 		}
 		if (IsValid(TurnComponent) && TurnComponent->HasNamedTurnTransitionBlocks())
 		{
@@ -663,6 +681,7 @@ void ASHGameMode::FinishEffectTask(UCardEffectTask* CardEffectTask)
 	{
 		TurnComponent->NotifyEffectTaskFinished();
 	}
+	FlushPanchoRefunds();
 }
 
 bool ASHGameMode::CancelEffectTargetSelection(ASHPlayerState* SelectingPlayer, ASHCard* CardA, ASHCard* CardB)
@@ -685,9 +704,10 @@ bool ASHGameMode::CancelEffectTargetSelection(ASHPlayerState* SelectingPlayer, A
 	ActiveEffectTasks.Remove(Task);
 	if (RepeatedPairEffects.Remove(CardA) > 0)
 	{
-		Pair->bDoubleEffectThisTurn = true;
+		Pair->bDoubleEffectThisTurn = false;
 		Hand->ForceNetUpdate();
 	}
+	ResolvePanchoBoostForTarget(CardA, false);
 	// Teardown first: restoring old outline snapshots must precede making the pair ready.
 	SetPairTargetSelectionPresentation(Task, SelectingPlayer, false);
 	PendingPairActivations.RemoveAll([CardA, CardB](const FPendingPairActivation& Entry)
@@ -887,6 +907,7 @@ void ASHGameMode::FlushCompletedEffectPairs()
 		}
 	}
 	ProcessSuccessfulActivations();
+	FlushPanchoRefunds();
 	TryProcessQueuedPairActivations();
 }
 
@@ -910,7 +931,7 @@ void ASHGameMode::CompleteQueuedPairActivation(ASHCard* CardA, ASHCard* CardB)
 	TryProcessQueuedPairActivations();
 }
 
-void ASHGameMode::PassHandsToLeft()
+bool ASHGameMode::PassHandsToLeft()
 {
 	checkf(HasAuthority(), TEXT("Hands can only be passed on the server"));
 
@@ -925,13 +946,15 @@ void ASHGameMode::PassHandsToLeft()
 		if (!Hand->IsProtectedFromCardEffects()) { ParticipantHands.Add(Hand); }
 	}
 	const int32 ParticipantCount = ParticipantHands.Num();
-	if (ParticipantCount < 2) { return; }
+	if (ParticipantCount < 2) { return false; }
+	bool bMovedCards = false;
 
 	TArray<TArray<ASHCard*>> CardsBySeat;
 	CardsBySeat.SetNum(ParticipantCount);
 	for (int32 Seat = 0; Seat < ParticipantCount; ++Seat)
 	{
 		CardsBySeat[Seat] = ParticipantHands[Seat]->GetCards();
+		bMovedCards |= !CardsBySeat[Seat].IsEmpty();
 		for (ASHCard* Card : CardsBySeat[Seat])
 		{
 			ParticipantHands[Seat]->RemoveCard(Card);
@@ -961,14 +984,19 @@ void ASHGameMode::PassHandsToLeft()
 			Controller->ClientReconcileRotatedHands();
 		}
 	}
+	return bMovedCards;
 }
 
-void ASHGameMode::MoveAllActivationPairsToVictoryStacks()
+bool ASHGameMode::MoveAllActivationPairsToVictoryStacks(ASHCard* ExcludedFromSuccessCount)
 {
 	checkf(HasAuthority(), TEXT("Pairs can only be moved on the server"));
 
 	ASHGameState* SHGameState = GetGameState<ASHGameState>();
 	checkf(IsValid(SHGameState), TEXT("Invalid SHGameState"));
+	bool bCollectedOtherPair = false;
+	TArray<TPair<ASHPlayerState*, FActivatedPair>> PairsToCollect;
+	const TWeakObjectPtr<ASHCard>* GrantedEffectSource = IsValid(ExcludedFromSuccessCount)
+		? PanchoBoostSources.Find(ExcludedFromSuccessCount) : nullptr;
 
 	for (APlayerState* PlayerState : SHGameState->PlayerArray)
 	{
@@ -979,15 +1007,37 @@ void ASHGameMode::MoveAllActivationPairsToVictoryStacks()
 			continue;
 		}
 
-		const TArray<FActivatedPair> Pairs = Hand->GetLogicalActivationPairs();
-		for (const FActivatedPair& Pair : Pairs)
+		for (const FActivatedPair& Pair : Hand->GetLogicalActivationPairs())
 		{
-			if (IsValid(Pair.CardA) && IsValid(Pair.CardB))
+			const bool bPendingPancho = PanchoBoosts.Contains(Pair.CardA);
+			const bool bPanchoConsumedByOwnTarget = bPendingPancho && GrantedEffectSource &&
+				GrantedEffectSource->Get() == Pair.CardA;
+			if (IsValid(Pair.CardA) && IsValid(Pair.CardB) && (!bPendingPancho || bPanchoConsumedByOwnTarget))
 			{
-				MovePairToVictoryStack(SHPlayerState, Pair.CardA, Pair.CardB);
+				PairsToCollect.Emplace(SHPlayerState, Pair);
+				if (bPanchoConsumedByOwnTarget)
+				{
+					// Gnushor's first execution pays Pancho's cost itself. The target
+					// cannot execute again after the collection, but that must not
+					// pull Pancho back out of its owner's victory stack.
+					PanchoBoosts.FindChecked(Pair.CardA).bConsumedByTargetEffect = true;
+				}
 			}
 		}
 	}
+	// Resolve the same initial table regardless of seat order. In particular,
+	// collecting a boosted target may refund Pancho to another player's zone.
+	for (const auto& Entry : PairsToCollect)
+	{
+		const FActivatedPair& Pair = Entry.Value;
+		MovePairToVictoryStack(Entry.Key, Pair.CardA, Pair.CardB);
+		if (Pair.CardA != ExcludedFromSuccessCount && Pair.CardB != ExcludedFromSuccessCount)
+		{
+			const FActivatedPair* Remaining = Entry.Key->GetHand()->FindActivationPair(Pair.CardA);
+			bCollectedOtherPair |= !Remaining || Remaining->State == EActivationPairState::VictoryPresentation;
+		}
+	}
+	return bCollectedOtherPair;
 }
 
 bool ASHGameMode::TransferCardToHand(
@@ -1088,6 +1138,7 @@ bool ASHGameMode::RemoveStoredPairFromGame(ASHHand* Hand, ASHCard* Card)
 	if (!Found) { return false; }
 	const FActivatedPair Pair = *Found;
 	TGuardValue<bool> Guard(bProcessingPairActivations, true);
+	ResolvePanchoBoostForTarget(Pair.CardA, false);
 	if (!Hand->RemoveActivationPair(Pair.CardA, Pair.CardB)) { return false; }
 	CompleteQueuedPairActivation(Pair.CardA, Pair.CardB);
 	CompletedEffectPairsWaitingForPresentation.RemoveAll([&Pair](const FCompletedEffectPair& Entry)
@@ -1102,7 +1153,7 @@ bool ASHGameMode::RemoveStoredPairFromGame(ASHHand* Hand, ASHCard* Card)
 	return true;
 }
 
-void ASHGameMode::RotateActivationZonesRight(ASHCard* ExcludedCard)
+bool ASHGameMode::RotateActivationZonesRight(ASHCard* ExcludedCard)
 {
 	check(HasAuthority());
 	ASHGameState* State = GetGameState<ASHGameState>();
@@ -1115,13 +1166,14 @@ void ASHGameMode::RotateActivationZonesRight(ASHCard* ExcludedCard)
 	}
 	Players.Sort([](const ASHPlayerState& A, const ASHPlayerState& B) { return A.GetSeatIndex() < B.GetSeatIndex(); });
 	const int32 Count = Players.Num();
-	if (Count < 2) { return; }
+	if (Count < 2) { return false; }
+	bool bTransferredAny = false;
 	TArray<TArray<FActivatedPair>> Zones;
 	Zones.SetNum(Count);
 	for (int32 Seat = 0; Seat < Count; ++Seat)
 	{
 		ASHHand* Hand = Players[Seat]->GetHand();
-		if (!IsValid(Hand)) { return; }
+		if (!IsValid(Hand)) { return false; }
 		Zones[Seat] = Hand->GetLogicalActivationPairs();
 	}
 	TGuardValue<bool> Guard(bProcessingPairActivations, true);
@@ -1131,20 +1183,21 @@ void ASHGameMode::RotateActivationZonesRight(ASHCard* ExcludedCard)
 		ASHHand* Target = Players[(Seat + Count - 1) % Count]->GetHand();
 		for (const FActivatedPair& Pair : Zones[Seat])
 		{
-			if (Pair.CardA != ExcludedCard && Pair.CardB != ExcludedCard) { TransferStoredPair(Source, Target, Pair.CardA); }
+			if (Pair.CardA != ExcludedCard && Pair.CardB != ExcludedCard) { bTransferredAny |= TransferStoredPair(Source, Target, Pair.CardA); }
 		}
 	}
+	return bTransferredAny;
 }
 
-void ASHGameMode::ShuffleAndRedealHands()
+bool ASHGameMode::ShuffleAndRedealHands()
 {
 	check(HasAuthority());
 	ASHGameState* State = GetGameState<ASHGameState>();
 	TArray<ASHHand*> Hands = State->GetParticipantHands();
 	Hands.RemoveAll([](const ASHHand* Hand) { return IsValid(Hand) && Hand->IsProtectedFromCardEffects(); });
-	if (Hands.IsEmpty()) { return; }
+	if (Hands.IsEmpty()) { return false; }
 	TArray<ASHCard*> Cards;
-	for (ASHHand* Hand : Hands) { if (!IsValid(Hand)) { return; } }
+	for (ASHHand* Hand : Hands) { if (!IsValid(Hand)) { return false; } }
 	for (ASHHand* Hand : Hands)
 	{
 		const TArray<ASHCard*> HandCards = Hand->GetCards();
@@ -1161,6 +1214,7 @@ void ASHGameMode::ShuffleAndRedealHands()
 	{
 		if (ASHPlayerController* PC = Cast<ASHPlayerController>(Player->GetOwner())) { PC->ClientReconcileRotatedHands(); }
 	}
+	return !Cards.IsEmpty();
 }
 
 void ASHGameMode::SubmitHandCardSelection(ASHPlayerState* Player, ASHCard* Card)
@@ -1599,6 +1653,7 @@ bool ASHGameMode::TryFinishGame()
         return false;
     }
 
+    ExpirePanchoBoosts();
     TArray<FSHMatchResult> Results;
     Results.Reserve(SHGameState->PlayerArray.Num());
     TSet<TObjectPtr<ASHPlayerState>> ScoreTieBreakers;

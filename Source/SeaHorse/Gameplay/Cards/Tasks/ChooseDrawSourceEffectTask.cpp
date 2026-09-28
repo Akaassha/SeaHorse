@@ -8,6 +8,7 @@
 
 void UChooseDrawSourceEffectTask::StartEffect_Implementation()
 {
+	SetEffectSuccessful(false);
 	const ASHGameState* GameState = GetWorld()->GetGameState<ASHGameState>();
 	checkf(IsValid(GameState), TEXT("Invalid SHGameState"));
 
@@ -25,6 +26,7 @@ void UChooseDrawSourceEffectTask::StartEffect_Implementation()
 
 void UChooseDrawSourceEffectTask::HandlePlayerSelected(ASHPlayerState* SelectedPlayer)
 {
+	if (!IsValid(SelectedPlayer)) { FinishEffect(); return; }
 	if (!IsValid(DrawingPlayer))
 	{
 		DrawingPlayer = SelectedPlayer;
@@ -71,6 +73,7 @@ void UChooseDrawSourceEffectTask::HandleParticipantSelected(ASHHand* SelectedHan
 	{
 		PlayActivationVFX();
 		TurnComponent->SetForcedDrawSourceHand(DrawingPlayer, SelectedHand);
+		SetEffectSuccessful();
 	}
 	FinishEffect();
 }

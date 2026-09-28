@@ -40,6 +40,7 @@ void ASHGameMode::ConvertDisconnectedPlayerToNPC(ASHPlayerState* Player)
 		if (!It.Key().IsValid() || It.Key()->GetOwningHand() == Hand || It.Value() == Player) { It.RemoveCurrent(); }
 	}
 
+	RefundPanchoBoostsForDisconnect(Player);
 	GetGameState<ASHGameState>()->RemovePlayerState(Player);
 	Player->SetHand(nullptr);
 	Player->SetProtectedFromCardEffects(false);

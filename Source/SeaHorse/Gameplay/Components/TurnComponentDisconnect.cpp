@@ -1,5 +1,6 @@
 #include "Gameplay/Components/TurnComponent.h"
 #include "Gameplay/Core/SHPlayerState.h"
+#include "Gameplay/Core/SHGameMode.h"
 #include "Gameplay/Cards/SHCard.h"
 #include "Gameplay/SHHand.h"
 
@@ -47,6 +48,7 @@ void UTurnComponent::HandlePlayerDisconnected(ASHPlayerState* Player, ASHHand* C
 	bEndTurnRequested = false;
 	FirstDrawSourceHand = nullptr;
 	FirstDrawnCard = nullptr;
+	if (ASHGameMode* Mode = GetWorld()->GetAuthGameMode<ASHGameMode>()) { Mode->ExpirePanchoBoosts(); }
 	for (ASHHand* Hand : State->GetParticipantHands())
 	{
 		if (!IsValid(Hand)) { continue; }

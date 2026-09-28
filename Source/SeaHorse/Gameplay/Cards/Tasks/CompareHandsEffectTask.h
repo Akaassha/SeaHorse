@@ -31,6 +31,7 @@ public:
 	{
 		return bConsumePair ? ECardEffectPairDisposition::MoveToVictoryStack : ECardEffectPairDisposition::KeepOnTable;
 	}
+	virtual bool WasEffectSuccessful_Implementation() const override { return bConsumePair && RemainingTransfers == 0; }
 
 	bool IsSessionFor(ASHPlayerState* Player, FGuid InSessionId) const;
 	void AcknowledgePresentation(ASHPlayerState* Player, FGuid InSessionId);

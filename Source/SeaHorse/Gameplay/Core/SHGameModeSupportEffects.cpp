@@ -25,6 +25,14 @@ void ASHGameMode::RestartRepeatedPairEffect(UCardEffectTask* PreviousTask)
 	ASHPlayerState* Player = PreviousTask->GetActivatingPlayer();
 	ASHCard* A = PreviousTask->GetCardA();
 	ASHCard* B = PreviousTask->GetCardB();
+	const FRepeatedPairEffect* Repeat = RepeatedPairEffects.Find(A);
+	if (Repeat && Repeat->bRepeatCancelled && !PreviousTask->IsRepeatedExecution())
+	{
+		// The source Pancho was refunded while the first execution's VFX ended.
+		// Finalize that execution normally without starting the revoked repeat.
+		FinishEffectTask(PreviousTask);
+		return;
+	}
 	ActiveEffectTasks.Remove(PreviousTask);
 	if (IsValid(Player) && IsValid(Player->GetHand()) && IsValid(A) && IsValid(B) &&
 		Player->GetHand()->FindActivationPair(A) && RepeatedPairEffects.Contains(A))
@@ -33,6 +41,7 @@ void ASHGameMode::RestartRepeatedPairEffect(UCardEffectTask* PreviousTask)
 		return;
 	}
 	RepeatedPairEffects.Remove(A);
+	ResolvePanchoBoostForTarget(A, false);
 	CompleteQueuedPairActivation(A, B);
 	if (TurnComponent) { TurnComponent->NotifyEffectTaskFinished(); }
 }

@@ -10,10 +10,13 @@
 #include "EngineUtils.h"
 #include "GameFramework/PlayerInput.h"
 #include "InputKeyEventArgs.h"
+#include "TimerManager.h"
 #include "Widgets/SViewport.h"
 
 namespace
 {
+constexpr float HandRevealCameraRestoreGuardSeconds = 3.0f;
+
 bool IsRevealPresentationReady(const ASHHandRevealPawn* Pawn, const TArray<FSHRevealedHandCard>& Cards)
 {
 	return IsValid(Pawn) && !Cards.IsEmpty() && Pawn->GetPresentationCards().Num() == Cards.Num() &&
@@ -32,10 +35,64 @@ bool IsComparisonPresentationReady(const ASHHandRevealPawn* Pawn,
 
 void ASHPlayerController::AutoManageActiveCameraTarget(AActor* SuggestedTarget)
 {
+	// Diego temporarily possesses the selected player's private presentation pawn.
+	// The replicated ClientRestart which restores their ordinary pawn can arrive
+	// after ClientEndHandReveal. Keep that late restart from replacing the table
+	// camera which ClientEndHandReveal has just restored.
+	if (HandRevealCameraRestoreTarget.IsValid())
+	{
+		MaintainHandRevealCameraRestore();
+		return;
+	}
 	// Possession/ClientRestart may arrive before the private snapshot. Preserve the
 	// table camera until ClientBeginHandReveal has saved it and prepared the copies.
 	if (Cast<ASHHandRevealPawn>(SuggestedTarget)) { return; }
 	Super::AutoManageActiveCameraTarget(SuggestedTarget);
+}
+
+void ASHPlayerController::BeginHandRevealCameraRestore(AActor* RestoreTarget)
+{
+	GetWorldTimerManager().ClearTimer(HandRevealCameraRestoreTimer);
+	HandRevealCameraRestoreTarget = IsValid(RestoreTarget) ? RestoreTarget : nullptr;
+	MaintainHandRevealCameraRestore();
+	if (HandRevealCameraRestoreTarget.IsValid())
+	{
+		GetWorldTimerManager().SetTimer(HandRevealCameraRestoreTimer, this,
+			&ASHPlayerController::FinishHandRevealCameraRestore,
+			HandRevealCameraRestoreGuardSeconds, false);
+	}
+}
+
+void ASHPlayerController::MaintainHandRevealCameraRestore()
+{
+	if (AActor* RestoreTarget = HandRevealCameraRestoreTarget.Get();
+		IsValid(RestoreTarget) && GetViewTarget() != RestoreTarget)
+	{
+		SetViewTarget(RestoreTarget);
+	}
+}
+
+void ASHPlayerController::FinishHandRevealCameraRestore()
+{
+	GetWorldTimerManager().ClearTimer(HandRevealCameraRestoreTimer);
+	AActor* RestoreTarget = HandRevealCameraRestoreTarget.Get();
+	HandRevealCameraRestoreTarget.Reset();
+	if (IsValid(RestoreTarget) && GetViewTarget() != RestoreTarget)
+	{
+		SetViewTarget(RestoreTarget);
+	}
+}
+
+void ASHPlayerController::PreparePendingHandReveal(FGuid SessionId)
+{
+	if (!SessionId.IsValid() || PendingHandRevealSession == SessionId) { return; }
+	FinishHandRevealCameraRestore();
+	PendingHandRevealSession = SessionId;
+	ViewTargetBeforeHandReveal = GetViewTarget();
+	bCursorBeforeHandReveal = bShowMouseCursor;
+	bAutoCameraBeforeHandReveal = bAutoManageActiveCameraTarget;
+	bClickEventsBeforeHandReveal = bEnableClickEvents;
+	bMouseOverBeforeHandReveal = bEnableMouseOverEvents;
 }
 
 void ASHPlayerController::ClientBeginHandReveal_Implementation(FGuid SessionId, ASHHand* SourceHand,
@@ -43,9 +100,7 @@ void ASHPlayerController::ClientBeginHandReveal_Implementation(FGuid SessionId, 
 	bool bCanFinish, TSubclassOf<UHandRevealWidget> WidgetClass)
 {
 	if (!IsLocalController() || !GetLocalPlayer() || !SessionId.IsValid()) { return; }
-	// Actor references on an RPC may arrive before the new owner-only pawn's
-	// actor channel. The server retries until this client acknowledges it.
-	if (!IsValid(RevealPawn)) { return; }
+	if (ActiveHandRevealSession == SessionId && !IsValid(RevealPawn)) { return; }
 	if (ActiveHandRevealSession == SessionId && ActiveHandRevealPawn == RevealPawn)
 	{
 		ClientUpdateHandReveal_Implementation(SessionId, Cards, bCanReorder);
@@ -53,7 +108,16 @@ void ASHPlayerController::ClientBeginHandReveal_Implementation(FGuid SessionId, 
 		{ ServerAcknowledgeHandReveal(SessionId); }
 		return;
 	}
-	ClientEndHandReveal_Implementation(ActiveHandRevealSession);
+	if (ActiveHandRevealSession.IsValid()) { ClientEndHandReveal_Implementation(ActiveHandRevealSession); }
+	if (PendingHandRevealSession.IsValid() && PendingHandRevealSession != SessionId)
+	{
+		ClientEndHandReveal_Implementation(PendingHandRevealSession);
+	}
+	PreparePendingHandReveal(SessionId);
+	// Actor references on an RPC may arrive before the new owner-only pawn's
+	// actor channel. Remember the session before returning so its later close can
+	// still restore possession and the table camera if every retry remains unmapped.
+	if (!IsValid(RevealPawn)) { return; }
 	CloseCardInfo();
 	ClearLocalEffectSelectionState();
 	StopPairTargetingIndicator();
@@ -81,11 +145,6 @@ void ASHPlayerController::ClientBeginHandReveal_Implementation(FGuid SessionId, 
 	ActiveHandRevealSession = SessionId;
 	ActiveHandRevealPawn = RevealPawn;
 	bCanFinishHandReveal = bCanFinish;
-	ViewTargetBeforeHandReveal = GetViewTarget();
-	bCursorBeforeHandReveal = bShowMouseCursor;
-	bAutoCameraBeforeHandReveal = bAutoManageActiveCameraTarget;
-	bClickEventsBeforeHandReveal = bEnableClickEvents;
-	bMouseOverBeforeHandReveal = bEnableMouseOverEvents;
 	bAutoManageActiveCameraTarget = false;
 	bEnableClickEvents = false;
 	bEnableMouseOverEvents = false;
@@ -128,11 +187,11 @@ void ASHPlayerController::ClientBeginHandComparison_Implementation(FGuid Session
 	const TArray<FSHRevealedHandCard>& ReceivingCards, int32 RemainingTransfers,
 	bool bCanTransfer, TSubclassOf<UHandRevealWidget> WidgetClass)
 {
-	if (!IsLocalController() || !GetLocalPlayer() || !SessionId.IsValid() ||
-		!IsValid(LargerHand) || !IsValid(ReceivingHand) || !IsValid(RevealPawn))
+	if (!IsLocalController() || !GetLocalPlayer() || !SessionId.IsValid())
 	{
 		return;
 	}
+	if (ActiveHandRevealSession == SessionId && !IsValid(RevealPawn)) { return; }
 	if (ActiveHandRevealSession == SessionId && ActiveHandRevealPawn == RevealPawn)
 	{
 		ClientUpdateHandComparison_Implementation(SessionId, LargerCards, ReceivingCards,
@@ -144,8 +203,13 @@ void ASHPlayerController::ClientBeginHandComparison_Implementation(FGuid Session
 		}
 		return;
 	}
-
-	ClientEndHandReveal_Implementation(ActiveHandRevealSession);
+	if (ActiveHandRevealSession.IsValid()) { ClientEndHandReveal_Implementation(ActiveHandRevealSession); }
+	if (PendingHandRevealSession.IsValid() && PendingHandRevealSession != SessionId)
+	{
+		ClientEndHandReveal_Implementation(PendingHandRevealSession);
+	}
+	PreparePendingHandReveal(SessionId);
+	if (!IsValid(LargerHand) || !IsValid(ReceivingHand) || !IsValid(RevealPawn)) { return; }
 	CloseCardInfo();
 	ClearLocalEffectSelectionState();
 	StopPairTargetingIndicator();
@@ -172,11 +236,6 @@ void ASHPlayerController::ClientBeginHandComparison_Implementation(FGuid Session
 	ActiveHandRevealSession = SessionId;
 	ActiveHandRevealPawn = RevealPawn;
 	bCanFinishHandReveal = false;
-	ViewTargetBeforeHandReveal = GetViewTarget();
-	bCursorBeforeHandReveal = bShowMouseCursor;
-	bAutoCameraBeforeHandReveal = bAutoManageActiveCameraTarget;
-	bClickEventsBeforeHandReveal = bEnableClickEvents;
-	bMouseOverBeforeHandReveal = bEnableMouseOverEvents;
 	bAutoManageActiveCameraTarget = false;
 	bEnableClickEvents = false;
 	bEnableMouseOverEvents = false;
@@ -223,8 +282,20 @@ void ASHPlayerController::ClientUpdateHandComparison_Implementation(FGuid Sessio
 
 void ASHPlayerController::ClientEndHandReveal_Implementation(FGuid SessionId)
 {
-	if (!SessionId.IsValid() || SessionId != ActiveHandRevealSession) { return; }
+	if (!SessionId.IsValid() ||
+		(SessionId != ActiveHandRevealSession && SessionId != PendingHandRevealSession)) { return; }
+	// A delayed close for an earlier pending session must never dismiss a newer,
+	// already opened presentation.
+	if (ActiveHandRevealSession.IsValid() && SessionId != ActiveHandRevealSession) { return; }
+	AActor* RestoreTarget = ViewTargetBeforeHandReveal.Get();
+	ASHHandRevealPawn* ClosingRevealPawn = ActiveHandRevealPawn;
+	if (!IsValid(RestoreTarget))
+	{
+		APawn* CurrentPawn = GetPawn();
+		if (IsValid(CurrentPawn) && CurrentPawn != ClosingRevealPawn) { RestoreTarget = CurrentPawn; }
+	}
 	ActiveHandRevealSession.Invalidate();
+	PendingHandRevealSession.Invalidate();
 	bCanFinishHandReveal = false;
 	if (ActiveHandRevealWidget) { ActiveHandRevealWidget->RemoveFromParent(); ActiveHandRevealWidget = nullptr; }
 	if (IsValid(ActiveHandRevealPawn)) { ActiveHandRevealPawn->ClearPresentation(); }
@@ -233,8 +304,7 @@ void ASHPlayerController::ClientEndHandReveal_Implementation(FGuid SessionId)
 	bShowMouseCursor = bCursorBeforeHandReveal;
 	bEnableClickEvents = bClickEventsBeforeHandReveal;
 	bEnableMouseOverEvents = bMouseOverBeforeHandReveal;
-	if (ViewTargetBeforeHandReveal.IsValid()) { SetViewTarget(ViewTargetBeforeHandReveal.Get()); }
-	else if (GetPawn()) { SetViewTarget(GetPawn()); }
+	BeginHandRevealCameraRestore(RestoreTarget);
 	ViewTargetBeforeHandReveal.Reset();
 	bConsumeEffectSelectionRelease = false;
 	ResetHandCursorHover();

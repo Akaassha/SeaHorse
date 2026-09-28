@@ -66,6 +66,7 @@ void ASHGameMode::ProcessSuccessfulActivations()
 		}
 		GetGameState<ASHGameState>()->SetReactionPending(false);
 	}
+	FlushPanchoRefunds();
 	TryProcessQueuedPairActivations();
 	if (TurnComponent) { TurnComponent->NotifyEffectTaskFinished(); }
 }
@@ -269,6 +270,7 @@ void ASHGameMode::ResolveCardReactionChain()
 			if (IsValid(Hand) && IsValid(A) && IsValid(B) && Hand->FindActivationPair(A))
 			{
 				for (FPendingPairActivation& Pending : PendingPairActivations) { if (Pending.CardA == A) { Pending.bAbilityStarted = true; } }
+				ResolvePanchoBoostForTarget(A, false);
 				Hand->SetActivationPairState(A, B, EActivationPairState::VictoryPresentation);
 				Hand->MulticastPairReadyForVictory(A, B);
 				MovePairToVictoryStack(Player, A, B);
@@ -280,6 +282,7 @@ void ASHGameMode::ResolveCardReactionChain()
 		// Keep gameplay paused throughout the unwind, including Blueprint callbacks.
 		CloseCardReactions();
 	}
+	FlushPanchoRefunds();
 	ProcessSuccessfulActivations();
 	if (!bProcessingPairActivations)
 	{

@@ -25,6 +25,8 @@ public:
 	// The first execution uses the ordinary draw; the repeat needs its own two cards.
 	virtual int32 GetAdditionalDrawCount() const override { return IsRepeatedExecution() ? 2 : 1; }
 	virtual void HandleHandCardSelected(ASHCard* Card) override;
+	virtual bool WasEffectSuccessful_Implementation() const override
+	{ return bReturned; } // A source with just one card is still drawn from and returned to.
 private:
 	UPROPERTY() TArray<TObjectPtr<ASHCard>> DrawnCards;
 	bool bReturned = false;

@@ -308,6 +308,8 @@ protected:
 
 private:
 	FGuid ActiveHandRevealSession;
+	/** Session announced before its owner-only presentation pawn has mapped on this client. */
+	FGuid PendingHandRevealSession;
 	UPROPERTY(Transient) TObjectPtr<ASHHandRevealPawn> ActiveHandRevealPawn;
 	UPROPERTY(Transient) TObjectPtr<UHandRevealWidget> ActiveHandRevealWidget;
 	UPROPERTY(Transient) TWeakObjectPtr<AActor> ViewTargetBeforeHandReveal;
@@ -316,6 +318,13 @@ private:
 	bool bAutoCameraBeforeHandReveal = true;
 	bool bClickEventsBeforeHandReveal = false;
 	bool bMouseOverBeforeHandReveal = false;
+	/** Keeps a delayed possession/ClientRestart from replacing the restored table camera after a reveal closes. */
+	TWeakObjectPtr<AActor> HandRevealCameraRestoreTarget;
+	FTimerHandle HandRevealCameraRestoreTimer;
+	void BeginHandRevealCameraRestore(AActor* RestoreTarget);
+	void MaintainHandRevealCameraRestore();
+	void FinishHandRevealCameraRestore();
+	void PreparePendingHandReveal(FGuid SessionId);
 	friend class FSHHandCursorHoverTest;
 	friend class FSHHandSelectionTest;
 	friend class FSHShuffleSelectionBarrierTest;

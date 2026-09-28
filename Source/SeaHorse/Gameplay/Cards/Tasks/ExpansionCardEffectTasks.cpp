@@ -70,7 +70,8 @@ void UExchangeHandCardsEffectTask::RequestNextDraw()
 
 void UProtectUntilNextTurnEffectTask::ResolveAbility()
 {
-	GetActivatingPlayer()->SetProtectedFromCardEffects(true);
+	SetEffectSuccessful(IsValid(GetActivatingPlayer()));
+	if (IsValid(GetActivatingPlayer())) { GetActivatingPlayer()->SetProtectedFromCardEffects(true); }
 	FinishEffect();
 }
 TArray<ASHCard*> UDoubleStoredPairEffectTask::GetCandidates() const
@@ -108,10 +109,7 @@ void UDoubleStoredPairEffectTask::ResolveAbility()
 {
 	if (GetCandidates().Contains(SelectedCard))
 	{
-		ASHHand* Hand = GetActivatingPlayer()->GetHand();
-		Hand->FindActivationPair(SelectedCard)->bDoubleEffectThisTurn = true;
-		Hand->ForceNetUpdate();
-		bApplied = true;
+		bApplied = GetTypedOuter<ASHGameMode>()->ApplyPanchoBoost(GetActivatingPlayer(), GetCardA(), SelectedCard);
 	}
 	FinishEffect();
 }

@@ -1012,8 +1012,12 @@ bool FSHSupportPairEffectsTest::RunTest(const FString& Parameters)
 		T.Advance();
 		const FActivatedPair* Pair = Player->GetHand()->FindActivationPair(Target);
 		TestTrue(TEXT("Selected pair stays Ready with a replicated bonus"), Pair && Pair->bDoubleEffectThisTurn && Pair->State == EActivationPairState::Ready && !Pair->bActivated);
-		TestFalse(TEXT("Pancho leaves the activation zone immediately after selection"), Player->GetHand()->FindActivationPair(Support) != nullptr);
+		const FActivatedPair* WaitingSupport = Player->GetHand()->FindActivationPair(Support);
+		TestTrue(TEXT("Pancho waits in the activation zone without being reusable"),
+			WaitingSupport && WaitingSupport->State == EActivationPairState::Ready && WaitingSupport->bActivated);
+		TestEqual(TEXT("Waiting Pancho awards no point"), Player->GetHand()->GetVictoryStack()->GetPairCount(), 0);
 		TestFalse(TEXT("Choosing a pair does not start its effect"), T.Mode->HasActiveEffectTasks());
+		return Support;
 	};
 	for (UClass* Reaction : {Counter, Capture})
 	{
@@ -1116,7 +1120,7 @@ bool FSHSupportPairEffectsTest::RunTest(const FString& Parameters)
 		{
 			Accept(T, T.Players[1]); T.Advance();
 			TestEqual(TEXT("Counter cancels both executions of the doubled activation"), Player->GetHand()->GetCardCount(), 0);
-			TestEqual(TEXT("Cancelled doubled pair is consumed once"), Player->GetHand()->GetVictoryStack()->GetPairCount(), 2);
+			TestEqual(TEXT("Cancelled doubled pair is consumed once and refunds Pancho"), Player->GetHand()->GetVictoryStack()->GetPairCount(), 1);
 		}
 		TestTrue(TEXT("Reaction on a doubled activation leaves no repeat bookkeeping"), T.Mode->RepeatedPairEffects.IsEmpty());
 		TestFalse(TEXT("Reaction on a doubled activation releases gameplay"), T.Mode->HasActiveEffectTasks());
@@ -1160,11 +1164,13 @@ bool FSHSupportPairEffectsTest::RunTest(const FString& Parameters)
 		FSHNewEffectsWorld T;
 		ASHCard* Target = T.Pair(T.Players[0]->GetHand(), Collector);
 		T.Pair(T.Players[1]->GetHand());
-		Boost(T, Target);
+		ASHCard* Support = Boost(T, Target);
 		T.Mode->RequestStoredPairActivation(T.Players[0], Target); T.Advance();
 		T.Advance(); // Two separate VFX periods, including the final victory presentation.
-		TestFalse(TEXT("Bulk collection can finish both executions without an early own-pair removal"), T.Mode->HasActiveEffectTasks());
-		TestEqual(TEXT("Doubled collector only scores itself once"), T.Players[0]->GetHand()->GetVictoryStack()->GetPairCount(), 2);
+		TestFalse(TEXT("Bulk collection finishes without attempting an unavailable repeat"), T.Mode->HasActiveEffectTasks());
+		TestNull(TEXT("Gnushor's first execution collects its Pancho"), T.Players[0]->GetHand()->FindActivationPair(Support));
+		TestNull(TEXT("Gnushor is no longer available for a second execution"), T.Players[0]->GetHand()->FindActivationPair(Target));
+		TestEqual(TEXT("Gnushor and Pancho each score once"), T.Players[0]->GetHand()->GetVictoryStack()->GetPairCount(), 2);
 	}
 	{
 		FSHNewEffectsWorld T;
@@ -1200,6 +1206,266 @@ bool FSHSupportPairEffectsTest::RunTest(const FString& Parameters)
 	}
 	return true;
 }
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSHPanchoRefundTest, "SeaHorse.Gameplay.Effects.PanchoRefund",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FSHPanchoRefundTest::RunTest(const FString& Parameters)
+{
+	TGuardValue<bool> ScriptGuard(GAllowActorScriptExecutionInEditor, true);
+	auto Load = [this](const TCHAR* Name)
+	{
+		UClass* Definition = LoadClass<UCardDefinition>(nullptr,
+			*FString::Printf(TEXT("/Game/SeaHorse/Cards/Definitions/%s.%s_C"), Name, Name));
+		TestNotNull(Name, Definition);
+		return Definition;
+	};
+	UClass* Pancho = Load(TEXT("Card_Pancho"));
+	UClass* Herald = Load(TEXT("Card_GniewDeadHerald"));
+	UClass* Bodgy = Load(TEXT("Card_BodgyVampireHunter"));
+	UClass* Wilhelm = Load(TEXT("Card_Wilhelm"));
+	UClass* SeaHorse = Load(TEXT("Card_SeaHorse"));
+	UClass* Slayer = Load(TEXT("Card_ThronriTrollSlayer"));
+	UClass* Counter = Load(TEXT("Card_GieselbrechtWizardApprentice"));
+	UClass* Collector = Load(TEXT("Card_OlgaPriest"));
+	if (!Pancho || !Herald || !Bodgy || !Wilhelm || !SeaHorse || !Slayer || !Counter || !Collector) { return false; }
+	auto Boost = [this, Pancho](FSHNewEffectsWorld& T, ASHCard* Target)
+	{
+		ASHPlayerState* Player = T.Players[0];
+		ASHHand* Hand = Player->GetHand();
+		ASHCard* Source = T.Pair(Hand, Pancho);
+		const FActivatedPair Original = *Hand->FindActivationPair(Source);
+		T.Mode->RequestStoredPairActivation(Player, Source); T.Advance();
+		TestTrue(TEXT("Pancho selects the intended target pair"), T.Mode->SubmitActivationPairSelection(Player, Target));
+		T.Advance();
+		const FActivatedPair* Waiting = Hand->FindActivationPair(Source);
+		if (TestNotNull(TEXT("Pancho remains in the activation zone while its target is unresolved"), Waiting))
+		{
+			TestTrue(TEXT("Waiting Pancho cannot be activated again"), Waiting->bActivated);
+			TestEqual(TEXT("Waiting Pancho keeps its ready table placement"), Waiting->State, EActivationPairState::Ready);
+		}
+		TestEqual(TEXT("Waiting Pancho never enters the victory zone early"), Source->GetCardZone(), ECardZone::Activation);
+		TestEqual(TEXT("Waiting Pancho does not award a temporary point"), Hand->GetVictoryStack()->GetPairCount(), 0);
+		TestTrue(TEXT("Target carries the promised second activation"),
+			Hand->FindActivationPair(Target) && Hand->FindActivationPair(Target)->bDoubleEffectThisTurn);
+		return Original;
+	};
+	auto ExpectRefund = [this](FSHNewEffectsWorld& T, const FActivatedPair& Original, int32 ExpectedScore)
+	{
+		ASHHand* Hand = T.Players[0]->GetHand();
+		const FActivatedPair* Restored = Hand->FindActivationPair(Original.CardA);
+		if (TestNotNull(TEXT("Failed repeat leaves the original Pancho pair in its zone"), Restored))
+		{
+			TestEqual(TEXT("Refund preserves both original cards"), Restored->CardB.Get(), Original.CardB.Get());
+			TestEqual(TEXT("Refund preserves the original pairing order"), Restored->CreationOrder, Original.CreationOrder);
+			TestEqual(TEXT("Refund restores the Ready state"), Restored->State, EActivationPairState::Ready);
+			TestFalse(TEXT("Refund clears the activated flag"), Restored->bActivated);
+			TestFalse(TEXT("Refund clears the queue reservation"), Restored->bActivationQueued);
+			TestFalse(TEXT("Refund does not add a second-activation bonus to Pancho"), Restored->bDoubleEffectThisTurn);
+			TestNull(TEXT("Refund does not impose an activation retry lock on Pancho"), Restored->ActivationRetryBlockedUntilTurnOf.Get());
+		}
+		for (ASHCard* Card : {Original.CardA.Get(), Original.CardB.Get()})
+		{
+			TestEqual(TEXT("Both refunded cards return to the activation zone"), Card->GetCardZone(), ECardZone::Activation);
+			TestEqual(TEXT("Refunded cards belong to the original hand"), Card->GetOwningHand(), Hand);
+		}
+		TestEqual(TEXT("Failed repeat never awards Pancho's victory point"), Hand->GetVictoryStack()->GetPairCount(), ExpectedScore);
+		TestFalse(TEXT("Refund leaves no active task or selection"), T.Mode->HasActiveEffectTasks() || T.Mode->IsWaitingForPlayerSelection());
+		TestTrue(TEXT("Refund drains the repeat and activation queues"), T.Mode->RepeatedPairEffects.IsEmpty() && T.Mode->PendingPairActivations.IsEmpty());
+	};
+	for (bool bNPC : {false, true})
+	{
+		FSHNewEffectsWorld T;
+		ASHPlayerState* Player = T.Players[0];
+		ASHHand* Hand = Player->GetHand();
+		ASHHand* Source = bNPC ? T.Hands[1] : T.Players[1]->GetHand();
+		ASHCard* Gift = T.Card(Source, Bodgy);
+		T.Card(Source);
+		ASHCard* Target = T.Pair(Hand, Herald);
+		const FActivatedPair Support = Boost(T, Target);
+		T.Mode->RequestStoredPairActivation(Player, Target); T.Advance();
+		T.Mode->SubmitParticipantSelection(Player, Source); T.Advance();
+		TestTrue(TEXT("First Herald execution transfers Bodgy"), Hand->ContainsCard(Gift));
+		TestTrue(TEXT("Pancho remains locked in its zone while the second effect is pending"),
+			Hand->FindActivationPair(Support.CardA) && Hand->FindActivationPair(Support.CardA)->bActivated);
+		T.Mode->SubmitParticipantSelection(Player, Source); T.Advance();
+		ExpectRefund(T, Support, 0);
+		TestTrue(TEXT("Refund preserves the card transferred by the first execution"), Hand->ContainsCard(Gift));
+		const FActivatedPair* Failed = Hand->FindActivationPair(Target);
+		if (TestNotNull(TEXT("Herald's failed search still keeps Herald on the table"), Failed))
+		{
+			TestFalse(TEXT("Failed target loses its consumed bonus"), Failed->bDoubleEffectThisTurn);
+			TestFalse(TEXT("Herald's own retry restriction is preserved"), T.Mode->GetTurnComponent()->CanActivatePair(Player, *Failed));
+		}
+		T.Advance();
+		TestEqual(TEXT("Delayed completion cannot duplicate refunded Pancho"), Hand->GetLogicalActivationPairs().Num(), 2);
+	}
+	for (int32 SeaHorses : {1, 2})
+	{
+		FSHNewEffectsWorld T;
+		ASHPlayerState* Player = T.Players[0];
+		ASHHand* Hand = Player->GetHand();
+		TArray<ASHCard*> Given;
+		for (int32 Index = 0; Index < SeaHorses; ++Index) { Given.Add(T.Card(Hand, SeaHorse)); }
+		ASHCard* Target = T.Pair(Hand, Wilhelm);
+		const FActivatedPair Support = Boost(T, Target);
+		T.Mode->RequestStoredPairActivation(Player, Target); T.Advance();
+		T.Mode->SubmitParticipantSelection(Player, T.Hands[1]); T.Advance();
+		if (SeaHorses == 2) { T.Mode->SubmitParticipantSelection(Player, T.Hands[1]); T.Advance(); }
+		for (ASHCard* Card : Given) { TestTrue(TEXT("Wilhelm's completed transfers survive refund"), T.Hands[1]->ContainsCard(Card)); }
+		if (SeaHorses == 1) { ExpectRefund(T, Support, 1); }
+		else
+		{
+			TestNull(TEXT("Two successful executions keep Pancho spent"), Hand->FindActivationPair(Support.CardA));
+			TestEqual(TEXT("Two successful transfers score Pancho and Wilhelm once each"), Hand->GetVictoryStack()->GetPairCount(), 2);
+			TestFalse(TEXT("Successful repeat releases all locks"), T.Mode->HasActiveEffectTasks() || T.Mode->IsWaitingForPlayerSelection());
+		}
+	}
+	{
+		FSHNewEffectsWorld T;
+		ASHPlayerState* Player = T.Players[0];
+		ASHCard* Target = T.Pair(Player->GetHand(), Slayer);
+		ASHCard* Victim = T.Pair(T.Players[1]->GetHand());
+		const FActivatedPair Support = Boost(T, Target);
+		T.Mode->RequestStoredPairActivation(Player, Target); T.Advance();
+		T.Mode->SubmitActivationPairSelection(Player, Victim); T.Advance();
+		ExpectRefund(T, Support, 0);
+		TestFalse(TEXT("Refund does not resurrect the pair removed in the first execution"), IsValid(Victim));
+		TestFalse(TEXT("Slayer still pays its own removal cost"), IsValid(Target));
+	}
+	{
+		FSHNewEffectsWorld T;
+		ASHPlayerState* Player = T.Players[0];
+		ASHCard* Target = T.Pair(Player->GetHand(), Herald);
+		ASHCard* Gift = T.Card(T.Hands[1], Bodgy);
+		const FActivatedPair Support = Boost(T, Target);
+		T.Pair(T.Players[1]->GetHand(), Counter);
+		T.Mode->RequestStoredPairActivation(Player, Target);
+		const auto* Offer = T.Mode->ActiveReactionOffers.Find(T.Players[1]);
+		if (TestNotNull(TEXT("The boosted target can be countered"), Offer))
+		{
+			T.Mode->RespondToCardReaction(T.Players[1], Offer->OfferId, true); T.Advance();
+		}
+		ExpectRefund(T, Support, 1);
+		TestTrue(TEXT("Counter still prevents the target's first execution"), T.Hands[1]->ContainsCard(Gift));
+		TestNull(TEXT("Countered target is spent normally"), Player->GetHand()->FindActivationPair(Target));
+	}
+	{
+		FSHNewEffectsWorld T;
+		for (ASHHand* Hand : T.Hands) { T.Card(Hand); }
+		ASHPlayerState* Player = T.Players[0];
+		ASHCard* Target = T.Pair(Player->GetHand(), Herald);
+		const FActivatedPair Support = Boost(T, Target);
+		T.State->SetTurnPhase(ETurnPhase::SecondPairing);
+		T.Mode->GetTurnComponent()->SkipCurrentPhase(Player); T.Advance();
+		ExpectRefund(T, Support, 0);
+		TestEqual(TEXT("Unused bonus refund does not delay the next player's turn"), T.State->GetCurrentPlayer(), T.Players[1]);
+		TestFalse(TEXT("Unused target bonus expires when Pancho returns"), Player->GetHand()->FindActivationPair(Target)->bDoubleEffectThisTurn);
+	}
+	{
+		FSHNewEffectsWorld T;
+		ASHPlayerState* Player = T.Players[0];
+		ASHCard* Target = T.Pair(Player->GetHand(), Herald);
+		const FActivatedPair Support = Boost(T, Target);
+		ASHCard* OtherActivation = T.Pair(Player->GetHand(), Collector);
+		T.Mode->RequestStoredPairActivation(Player, OtherActivation); T.Advance();
+		T.Mode->SubmitActivationPairSelection(Player, Target); T.Advance();
+		ExpectRefund(T, Support, 2);
+		TestNull(TEXT("Collecting the boosted pair spends it without executing its effect"), Player->GetHand()->FindActivationPair(Target));
+		TestEqual(TEXT("Collected target stays in the victory zone"), Target->GetCardZone(), ECardZone::Victory);
+	}
+	{
+		FSHNewEffectsWorld T;
+		ASHPlayerState* Player = T.Players[0];
+		ASHHand* Hand = Player->GetHand();
+		ASHHand* FirstSource = T.Hands[1];
+		ASHHand* SecondSource = T.Players[1]->GetHand();
+		ASHCard* FirstGift = T.Card(FirstSource, Bodgy); T.Card(FirstSource);
+		ASHCard* SecondGift = T.Card(SecondSource, Bodgy);
+		ASHCard* ThirdGift = T.Card(SecondSource, Bodgy);
+		ASHCard* FirstTarget = T.Pair(Hand, Herald);
+		ASHCard* SecondTarget = T.Pair(Hand, Herald);
+		const FActivatedPair FirstSupport = Boost(T, FirstTarget);
+		const FActivatedPair SecondSupport = Boost(T, SecondTarget);
+		T.Mode->RequestStoredPairActivation(Player, FirstTarget); T.Advance();
+		T.Mode->SubmitParticipantSelection(Player, FirstSource); T.Advance();
+		T.Mode->SubmitParticipantSelection(Player, FirstSource); T.Advance();
+		ExpectRefund(T, FirstSupport, 0);
+		TestTrue(TEXT("Refund does not unlock another Pancho with an unresolved target"),
+			Hand->FindActivationPair(SecondSupport.CardA) && Hand->FindActivationPair(SecondSupport.CardA)->bActivated);
+		TestTrue(TEXT("Independent target retains its own bonus"), Hand->FindActivationPair(SecondTarget)->bDoubleEffectThisTurn);
+		T.Mode->RequestStoredPairActivation(Player, SecondTarget); T.Advance();
+		T.Mode->SubmitParticipantSelection(Player, SecondSource); T.Advance();
+		T.Mode->SubmitParticipantSelection(Player, SecondSource); T.Advance();
+		ExpectRefund(T, FirstSupport, 2);
+		TestNull(TEXT("Only the Pancho with a successful repeat remains spent"), Hand->FindActivationPair(SecondSupport.CardA));
+		for (ASHCard* Gift : {FirstGift, SecondGift, ThirdGift}) { TestTrue(TEXT("Independent boosts preserve every successful transfer"), Hand->ContainsCard(Gift)); }
+	}
+	{
+		FSHNewEffectsWorld T;
+		ASHPlayerState* Player = T.Players[0];
+		ASHHand* Hand = Player->GetHand();
+		ASHCard* Target = T.Pair(Hand, Herald);
+		ASHCard* Source = T.Pair(Hand, Pancho);
+		const FActivatedPair Support = *Hand->FindActivationPair(Source);
+		const FActivatedPair TargetPair = *Hand->FindActivationPair(Target);
+		TestTrue(TEXT("Pending Pancho can grant a bonus before its victory presentation ends"), T.Mode->ApplyPanchoBoost(Player, Source, Target));
+		// Both moves are copied out of the shared queue by FlushCompletedEffectPairs.
+		// Collecting the target must request a refund while the source's later move
+		// exists only in that local batch, then restore Pancho after that move ends.
+		for (const FActivatedPair& Pair : {TargetPair, Support})
+		{
+			Hand->SetActivationPairState(Pair.CardA, Pair.CardB, EActivationPairState::VictoryPresentation);
+			ASHGameMode::FCompletedEffectPair& Completion = T.Mode->CompletedEffectPairsWaitingForPresentation.AddDefaulted_GetRef();
+			Completion.ActivatingPlayer = Player;
+			Completion.CardA = Pair.CardA;
+			Completion.CardB = Pair.CardB;
+		}
+		T.Mode->FlushCompletedEffectPairs();
+		ExpectRefund(T, Support, 1);
+		TestEqual(TEXT("The earlier target move remains applied after the batch refund"), Target->GetCardZone(), ECardZone::Victory);
+		TestTrue(TEXT("A refund hidden behind a later batch move is not lost or left pending"),
+			T.Mode->PanchoBoosts.IsEmpty() && T.Mode->PanchoBoostSources.IsEmpty() && T.Mode->CompletedEffectPairsWaitingForPresentation.IsEmpty());
+	}
+	{
+		FSHNewEffectsWorld T;
+		ASHPlayerState* Player = T.Players[0];
+		ASHHand* Hand = Player->GetHand();
+		ASHCard* FailedTarget = T.Pair(Hand, Herald);
+		ASHCard* RunningTarget = T.Pair(Hand, Herald);
+		ASHCard* Source = T.Pair(Hand, Pancho);
+		const FActivatedPair Support = *Hand->FindActivationPair(Source);
+		// The doubled Pancho has granted two bonuses; one target has already
+		// started its first execution when the other target reports a failure.
+		TestTrue(TEXT("Doubled Pancho grants the first bonus"), T.Mode->ApplyPanchoBoost(Player, Source, FailedTarget));
+		TestTrue(TEXT("Doubled Pancho grants the second bonus"), T.Mode->ApplyPanchoBoost(Player, Source, RunningTarget));
+		Hand->SetActivationPairOutcomePending(Support.CardA, Support.CardB, true);
+		TestEqual(TEXT("Doubled Pancho also waits in its activation zone"), Source->GetCardZone(), ECardZone::Activation);
+		ASHCard* FirstGift = T.Card(T.Hands[1], Bodgy);
+		ASHCard* SecondGift = T.Card(T.Hands[1], Bodgy);
+		T.Mode->CardActivateEffect(Player, RunningTarget, Hand->FindActivationPair(RunningTarget)->CardB);
+		if (const auto* Repeat = T.Mode->RepeatedPairEffects.Find(RunningTarget))
+		{
+			TestEqual(TEXT("Running target initially has one repeat left"), Repeat->Remaining, 1);
+		}
+		else { AddError(TEXT("Running target did not register its promised repeat")); }
+		TestTrue(TEXT("Running target waits for its first selection"), T.Mode->PendingParticipantSelections.Contains(Player));
+		T.Mode->ResolvePanchoBoostForTarget(FailedTarget, false);
+		const auto* RemainingRepeat = T.Mode->RepeatedPairEffects.Find(RunningTarget);
+		if (TestNotNull(TEXT("Revoking the bonus preserves tracking for the active first execution"), RemainingRepeat))
+		{
+			TestEqual(TEXT("Refund revokes a repeat already moved into active bookkeeping"), RemainingRepeat->Remaining, 0);
+		}
+		TestNotNull(TEXT("Failed sibling target immediately restores Pancho"), Hand->FindActivationPair(Source));
+		TestTrue(TEXT("Refund leaves the running first execution available"), T.Mode->PendingParticipantSelections.Contains(Player));
+		T.Mode->SubmitParticipantSelection(Player, T.Hands[1]); T.Advance();
+		ExpectRefund(T, Support, 1);
+		TestTrue(TEXT("The already running first execution still transfers its card"), Hand->ContainsCard(FirstGift));
+		TestTrue(TEXT("Revoked repeat cannot transfer the second card"), T.Hands[1]->ContainsCard(SecondGift));
+		TestNull(TEXT("The completed target is spent after its one allowed execution"), Hand->FindActivationPair(RunningTarget));
+		TestFalse(TEXT("The sibling target's unused replicated bonus is cleared"), Hand->FindActivationPair(FailedTarget)->bDoubleEffectThisTurn);
+	}
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSHDoubledZoneRotationTest, "SeaHorse.Gameplay.Effects.DoubledZoneRotation",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FSHDoubledZoneRotationTest::RunTest(const FString& Parameters)
@@ -1386,7 +1652,28 @@ bool FSHPanchoAllCardsTest::RunTest(const FString& Parameters)
 		T.Advance();
 		TestFalse(*FString::Printf(TEXT("%s finishes both executions without a stuck selection"), *Name), T.Mode->HasActiveEffectTasks() || T.Mode->IsWaitingForPlayerSelection());
 		TestTrue(TEXT("No repeated activation or queue remains"), T.Mode->RepeatedPairEffects.IsEmpty() && T.Mode->PendingPairActivations.IsEmpty());
-		TestEqual(TEXT("The activating pair is spent exactly once"), Hand->GetVictoryStack()->GetPairCount(), Name == TEXT("Card_ThronriTrollSlayer") ? 1 : 2);
+		const bool bRefundsSupport = Name == TEXT("Card_Wilhelm") && Variant == 1;
+		const bool bNestedPanchoStillWaiting = Name == TEXT("Card_Pancho");
+		TestEqual(TEXT("The activating pair scores once and Pancho scores only after a successful repeat"),
+			Hand->GetVictoryStack()->GetPairCount(), Name == TEXT("Card_ThronriTrollSlayer") || bRefundsSupport || bNestedPanchoStillWaiting ? 1 : 2);
+		if (Name == TEXT("Card_Gnushor"))
+		{
+			TestNull(TEXT("Gnushor's collection does not restore Pancho when the repeat becomes impossible"),
+				Hand->FindActivationPair(Support));
+			TestEqual(TEXT("Gnushor and its Pancho each reach the victory stack once"),
+				Hand->GetVictoryStack()->GetPairCount(), 2);
+		}
+		if (bRefundsSupport)
+		{
+			const FActivatedPair* Returned = Hand->FindActivationPair(Support);
+			TestTrue(TEXT("Unavailable repeat restores Pancho ready to use"), Returned && Returned->State == EActivationPairState::Ready && !Returned->bActivated);
+		}
+		if (bNestedPanchoStillWaiting)
+		{
+			const FActivatedPair* Waiting = Hand->FindActivationPair(Target);
+			TestTrue(TEXT("Nested Pancho stays locked until both of its granted bonuses resolve"),
+				Waiting && Waiting->State == EActivationPairState::Ready && Waiting->bActivated);
+		}
 		if (DrawEffect)
 		{
 			TestEqual(TEXT("Additional draws execute twice"), Draws, Name == TEXT("Card_BodgyVampireHunter") ? 4 : 3);
@@ -1595,7 +1882,7 @@ bool FSHReportedEffectRegressionsTest::RunTest(const FString& Parameters)
 		}
 		TestFalse(TEXT("Impossible extra draw releases all effect and response locks"), T.Mode->HasActiveEffectTasks() || T.State->bReactionPending);
 		TestTrue(TEXT("Finishing the draw presentation restores second-pairing controls"), Player->GetHand()->LocallyActivatablePairs.Contains(*Player->GetHand()->FindActivationPair(StillReady)));
-		TestEqual(TEXT("Crumo is consumed exactly once without an extra draw"), Player->GetHand()->GetVictoryStack()->GetPairCount(), Doubled ? 2 : 1);
+		TestEqual(TEXT("Crumo is consumed once and an unavailable repeat refunds Pancho"), Player->GetHand()->GetVictoryStack()->GetPairCount(), 1);
 		Turns->SkipCurrentPhase(Player);
 		TestEqual(TEXT("Player can end the turn after the unavailable extra draw"), T.State->GetCurrentPlayer(), T.Players[1]);
 	}

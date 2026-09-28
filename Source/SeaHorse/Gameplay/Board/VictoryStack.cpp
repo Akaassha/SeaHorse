@@ -56,6 +56,17 @@ bool AVictoryStack::RemoveCard(ASHCard* Card)
 	return true;
 }
 
+bool AVictoryStack::RemovePair(ASHCard* CardA, ASHCard* CardB)
+{
+	check(HasAuthority());
+	if (CardA == CardB || !ReplicatedCards.Contains(CardA) || !ReplicatedCards.Contains(CardB)) { return false; }
+	ReplicatedCards.RemoveSingle(CardA);
+	ReplicatedCards.RemoveSingle(CardB);
+	ForceNetUpdate();
+	RefreshCardsPresentation();
+	return true;
+}
+
 // Called when the game starts or when spawned
 void AVictoryStack::BeginPlay()
 {
