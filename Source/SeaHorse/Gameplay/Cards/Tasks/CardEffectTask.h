@@ -99,6 +99,10 @@ public:
 	void CommitEffect() { bGameplayCommitted = true; }
 
 protected:
+	/** Pauses after the final target is stored and before gameplay changes if a cancel reaction is available. */
+	bool PauseForTargetedReaction();
+	virtual void ResumeAfterTargetedReaction() {}
+
     UPROPERTY()
     TObjectPtr<ASHPlayerState> ActivatingPlayer;
 
@@ -113,6 +117,10 @@ protected:
 	bool bActivationVFXStarted = false;
 	bool bGameplayCommitted = false;
 	bool bRepeatedExecution = false;
+	bool bTargetedReactionPending = false;
+	bool bTargetedReactionResolved = false;
 	bool bHasExplicitEffectOutcome = false;
 	bool bEffectSuccessful = false;
+
+	friend class ASHGameMode;
 };

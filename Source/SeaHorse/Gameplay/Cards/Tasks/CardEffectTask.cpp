@@ -16,12 +16,22 @@ void UCardEffectTask::Initialize(ASHPlayerState* InActivatingPlayer, ASHCard* In
 	bActivationVFXStarted = false;
 	bGameplayCommitted = false;
 	bRepeatedExecution = false;
+	bTargetedReactionPending = false;
+	bTargetedReactionResolved = false;
 	bHasExplicitEffectOutcome = false;
 	bEffectSuccessful = false;
     ActivatingPlayer = InActivatingPlayer;
     CardA = InCardA;
     CardB = InCardB;
     EffectPresentationId = InEffectPresentationId;
+}
+
+bool UCardEffectTask::PauseForTargetedReaction()
+{
+	if (bFinished || !RequiresTargetSelection() || bTargetedReactionResolved) { return false; }
+	if (bTargetedReactionPending) { return true; }
+	ASHGameMode* GameMode = GetTypedOuter<ASHGameMode>();
+	return IsValid(GameMode) && GameMode->BeginTargetedEffectReaction(this);
 }
 
 void UCardEffectTask::RequestParticipantSelection(

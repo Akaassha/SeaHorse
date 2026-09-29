@@ -60,6 +60,8 @@ public:
 	void ExpirePanchoBoosts();
 
 	void FinishEffectTask(UCardEffectTask* CardEffectTask);
+	/** Opens the pre-resolution cancel window after a targeted task has stored its final target. */
+	bool BeginTargetedEffectReaction(UCardEffectTask* CardEffectTask);
 	bool CancelEffectTargetSelection(ASHPlayerState* SelectingPlayer, ASHCard* CardA, ASHCard* CardB);
 	void FlushCompletedEffectPairs();
 	void RequestStoredPairActivation(ASHPlayerState* ActivatingPlayer, ASHCard* SelectedCard);
@@ -242,11 +244,13 @@ private:
 	TWeakObjectPtr<ASHPlayerState> ReactionTargetPlayer;
 	TWeakObjectPtr<ASHCard> ReactionTargetA;
 	TWeakObjectPtr<ASHCard> ReactionTargetB;
+	TWeakObjectPtr<UCardEffectTask> TargetedReactionTask;
 	TMap<TWeakObjectPtr<ASHCard>, TWeakObjectPtr<ASHPlayerState>> PairCaptureRecipients;
 	int32 ReactionOfferSerial = 0;
 	int32 ReactionWindowSerial = 0;
 	bool bReactionWindowOpen = false;
 	bool bPostActivationWindow = false;
+	bool bOpeningTargetedReaction = false;
 	bool BeginCardReactions(const FPendingPairActivation& Activation);
 	void OpenCardReactionWindow(ASHPlayerState* Player, ASHCard* CardA, ASHCard* CardB);
 	void OfferNextCardReaction(ASHPlayerState* Player);
@@ -255,6 +259,7 @@ private:
 	void ResolveCardReactionChain();
 	bool IsReactionOptionValid(const FReactionOption& Option) const;
 	void ConsumeReactionPair(const FReactionOption& Option, bool bExecuteEffect);
+	void AbandonEffectTaskForReaction(UCardEffectTask* Task);
 	void StartQueuedPairAbility(const FPendingPairActivation& PendingActivation);
 	void CompleteQueuedPairActivation(ASHCard* CardA, ASHCard* CardB);
 

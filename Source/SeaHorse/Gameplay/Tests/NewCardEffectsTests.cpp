@@ -467,7 +467,9 @@ bool FSHCardReactionsTest::RunTest(const FString& Parameters)
 	UClass* Bodgy = Load(TEXT("Card_BodgyVampireHunter"));
 	UClass* Dead = Load(TEXT("Card_GniewDeadHerald"));
 	UClass* Hans = Load(TEXT("Card_HansCaptain"));
-	if (!TestNotNull(TEXT("Apologist BP exists"), Capture) || !TestNotNull(TEXT("Apprentice BP exists"), Cancel) || !Bodgy || !Dead || !Hans) { return false; }
+	UClass* Pancho = Load(TEXT("Card_Pancho"));
+	if (!TestNotNull(TEXT("Apologist BP exists"), Capture) || !TestNotNull(TEXT("Apprentice BP exists"), Cancel) ||
+		!Bodgy || !Dead || !Hans || !Pancho) { return false; }
 	for (UClass* Definition : {Capture, Cancel})
 	{
 		const auto* Fragment = Cast<UCardReactionFragment>(UCardDefinition::FindFragmentByClass(Definition, UCardReactionFragment::StaticClass()));
@@ -497,6 +499,50 @@ bool FSHCardReactionsTest::RunTest(const FString& Parameters)
 		}
 		TestTrue(TEXT("Declining all remaining offers terminates the reaction window"), T.Mode->ActiveReactionOffers.IsEmpty());
 	};
+	for (const bool bCancelPancho : {false, true})
+	{
+		FSHNewEffectsWorld T;
+		ASHPlayerState* Activator = T.Players[0];
+		ASHPlayerController* ActivatorController = CastChecked<ASHPlayerController>(Activator->GetOwner());
+		ASHCard* Counter = T.Pair(T.Players[1]->GetHand(), Cancel);
+		ASHCard* PanchoCard = T.Pair(Activator->GetHand(), Pancho);
+		ASHCard* Target = T.Pair(Activator->GetHand(), Hans);
+		T.Mode->RequestStoredPairActivation(Activator, PanchoCard);
+		T.Advance();
+		TestTrue(TEXT("Targeted Pancho asks for its target before opening a cancel window"),
+			T.Mode->PendingPairSelections.Contains(Activator));
+		TestFalse(TEXT("Pancho exposes its candidate pairs while choosing a target"),
+			ActivatorController->LocalActivationPairSelectionCandidates.IsEmpty());
+		TestTrue(TEXT("Gieselbrecht is not offered before Pancho has a target"), T.Mode->ActiveReactionOffers.IsEmpty());
+		const FActivatedPair* BeforeChoice = Activator->GetHand()->FindActivationPair(Target);
+		TestTrue(TEXT("Pancho has not boosted any pair before target confirmation"),
+			BeforeChoice && !BeforeChoice->bDoubleEffectThisTurn);
+		T.Mode->SubmitActivationPairSelection(Activator, Target);
+		T.Advance();
+		const FActivatedPair* BeforeReaction = Activator->GetHand()->FindActivationPair(Target);
+		TestTrue(TEXT("Chosen target remains unchanged while Gieselbrecht decides"),
+			BeforeReaction && !BeforeReaction->bDoubleEffectThisTurn);
+		TestFalse(TEXT("Pancho target picker closes before Gieselbrecht decides"),
+			T.Mode->ActiveTargetPresentations.Contains(Activator));
+		TestTrue(TEXT("Pancho clears local target candidates before Gieselbrecht decides"),
+			ActivatorController->LocalActivationPairSelectionCandidates.IsEmpty());
+		const int32 PanchoOffer = OfferId(T, T.Players[1]);
+		T.Mode->RespondToCardReaction(T.Players[1], PanchoOffer, bCancelPancho);
+		T.Advance();
+		const FActivatedPair* SettledTarget = Activator->GetHand()->FindActivationPair(Target);
+		TestEqual(TEXT("Only a declined Gieselbrecht lets Pancho apply the double-effect marker"),
+			SettledTarget && SettledTarget->bDoubleEffectThisTurn, !bCancelPancho);
+		TestFalse(TEXT("Pancho target presentation closes with the reaction window"),
+			T.Mode->ActiveTargetPresentations.Contains(Activator));
+		TestEqual(TEXT("Accepted Gieselbrecht consumes Pancho; a decline leaves it waiting on its target"),
+			Activator->GetHand()->GetVictoryStack()->GetPairCount(), bCancelPancho ? 1 : 0);
+		TestEqual(TEXT("Gieselbrecht is consumed only when its reaction is accepted"),
+			T.Players[1]->GetHand()->GetVictoryStack()->GetPairCount(), bCancelPancho ? 1 : 0);
+		if (!bCancelPancho)
+		{
+			TestNotNull(TEXT("Declined Gieselbrecht remains ready"), T.Players[1]->GetHand()->FindActivationPair(Counter));
+		}
+	}
 	for (bool OlderWins : {false, true})
 	{
 		FSHNewEffectsWorld T;
@@ -583,11 +629,13 @@ bool FSHCardReactionsTest::RunTest(const FString& Parameters)
 		ASHCard* Target = T.Pair(T.Players[0]->GetHand(), Dead);
 		ASHCard* Requested = T.Card(T.Players[2]->GetHand(), Bodgy);
 		T.Mode->RequestStoredPairActivation(T.Players[0], Target);
+		TestTrue(TEXT("Original effect selects its target before any cancel offer"), T.Mode->PendingParticipantSelections.Contains(T.Players[0]));
+		TestTrue(TEXT("Neither cancel nor capture is offered before the target"), T.Mode->ActiveReactionOffers.IsEmpty());
+		T.Mode->SubmitParticipantSelection(T.Players[0], T.Players[2]->GetHand());
+		T.Advance();
+		TestFalse(TEXT("Targeted effect is not applied before the cancel decision"), T.Players[0]->GetHand()->ContainsCard(Requested));
 		TestFalse(TEXT("Apologist is not offered before the effect"), T.Mode->ActiveReactionOffers.Contains(T.Players[1]));
 		T.Mode->RespondToCardReaction(T.Players[2], OfferId(T, T.Players[2]), false);
-		T.Advance();
-		TestTrue(TEXT("Original effect selects its target before capture"), T.Mode->PendingParticipantSelections.Contains(T.Players[0]));
-		T.Mode->SubmitParticipantSelection(T.Players[0], T.Players[2]->GetHand());
 		T.Advance();
 		TestTrue(TEXT("Effect is already applied when capture is offered"), T.Players[0]->GetHand()->ContainsCard(Requested));
 		T.Mode->RespondToCardReaction(T.Players[1], OfferId(T, T.Players[1]), true);
@@ -781,11 +829,12 @@ bool FSHCardReactionsTest::RunTest(const FString& Parameters)
 		ASHCard* Target = T.Pair(T.Players[0]->GetHand(), Dead);
 		ASHCard* Requested = T.Card(T.Players[2]->GetHand(), Bodgy);
 		T.Mode->RequestStoredPairActivation(T.Players[0], Target);
-		DeclineRemainingOffers(T);
-		T.Advance();
-		TestTrue(TEXT("Capture lets targeted activation execute"), T.Mode->PendingParticipantSelections.Contains(T.Players[0]));
+		TestTrue(TEXT("Targeted activation starts with target selection"), T.Mode->PendingParticipantSelections.Contains(T.Players[0]));
 		TestNotNull(TEXT("Pair stays with its owner until effect finishes"), T.Players[0]->GetHand()->FindActivationPair(Target));
 		T.Mode->SubmitParticipantSelection(T.Players[0], T.Players[2]->GetHand());
+		T.Advance();
+		TestFalse(TEXT("Transfer waits for the selected-target cancel window"), T.Players[0]->GetHand()->ContainsCard(Requested));
+		T.Mode->RespondToCardReaction(T.Players[2], OfferId(T, T.Players[2]), false);
 		T.Advance();
 		TestTrue(TEXT("Original activation transferred Bodgy before capture"), T.Players[0]->GetHand()->ContainsCard(Requested));
 		T.Mode->RespondToCardReaction(T.Players[1], OfferId(T, T.Players[1]), true);
@@ -913,6 +962,10 @@ bool FSHCardReactionsTest::RunTest(const FString& Parameters)
 		// Open headlessly, then attach an isolated viewport before the real response
 		// closes the offer. A rules-only fixture misses persistent mouse capture.
 		T.Mode->RequestStoredPairActivation(Activator, Target);
+		TestTrue(TEXT("Input regression selects a target before the reaction"),
+			T.Mode->PendingParticipantSelections.Contains(Activator));
+		T.Mode->SubmitParticipantSelection(Activator, T.Hands[1]);
+		T.Advance();
 		TestTrue(TEXT("Input regression has a pending reaction offer"), T.Mode->HasPendingCardReaction());
 		UGameViewportClient* ViewportClient = NewObject<UGameViewportClient>(GEngine);
 		FWorldContext& WorldContext = GEngine->GetWorldContextFromWorldChecked(T.World);
@@ -939,11 +992,6 @@ bool FSHCardReactionsTest::RunTest(const FString& Parameters)
 
 		T.Advance();
 		TestFalse(TEXT("Closing reaction and finishing its presentation releases authoritative pause"), T.State->bReactionPending);
-		if (!Accept)
-		{
-			T.Mode->SubmitParticipantSelection(Activator, T.Hands[1]);
-			T.Advance();
-		}
 		UTurnComponent* Turns = T.Mode->GetTurnComponent();
 		Turns->SkipCurrentPhase(Activator);
 		TestTrue(TEXT("Original activator can draw after reaction closes"), Turns->CanDrawCardFromHand(Activator, T.Hands[1]));
@@ -1032,7 +1080,7 @@ bool FSHSupportPairEffectsTest::RunTest(const FString& Parameters)
 		if (Reaction == Capture) { T.Card(T.Hands[1], Bodgy); T.Card(T.Hands[1], Bodgy); }
 		TestFalse(TEXT("Dogs are passive and cannot be manually activated"), T.Mode->GetTurnComponent()->CanActivatePair(Reactor, *Hand->FindActivationPair(DogPair)));
 		T.Mode->RequestStoredPairActivation(T.Players[0], Root);
-		if (Reaction == Capture) { T.Mode->SubmitParticipantSelection(T.Players[0], T.Hands[1]); T.Advance(); }
+		T.Mode->SubmitParticipantSelection(T.Players[0], T.Hands[1]); T.Advance();
 		Accept(T, Reactor);
 		T.Advance();
 		TestFalse(TEXT("Oldest dogs pay for a successful Gieselbrecht"), Hand->FindActivationPair(DogPair) != nullptr);
@@ -1047,7 +1095,7 @@ bool FSHSupportPairEffectsTest::RunTest(const FString& Parameters)
 		TestFalse(TEXT("Support leaves no pending task or reaction"), T.Mode->HasActiveEffectTasks());
 		ASHCard* NextRoot = T.Pair(T.Players[0]->GetHand(), Dead);
 		T.Mode->RequestStoredPairActivation(T.Players[0], NextRoot);
-		if (Reaction == Capture) { T.Mode->SubmitParticipantSelection(T.Players[0], T.Hands[1]); T.Advance(); }
+		T.Mode->SubmitParticipantSelection(T.Players[0], T.Hands[1]); T.Advance();
 		Accept(T, Reactor);
 		T.Advance();
 		TestFalse(TEXT("Restored Gieselbrecht can use the second dogs on another activation"), Hand->FindActivationPair(SecondDogs) != nullptr);
@@ -1059,10 +1107,10 @@ bool FSHSupportPairEffectsTest::RunTest(const FString& Parameters)
 		T.Pair(T.Players[2]->GetHand(), Counter);
 		ASHCard* Root = T.Pair(T.Players[0]->GetHand(), Dead);
 		T.Mode->RequestStoredPairActivation(T.Players[0], Root);
+		T.Mode->SubmitParticipantSelection(T.Players[0], T.Hands[1]); T.Advance();
 		Accept(T, T.Players[1]); Accept(T, T.Players[2]); T.Advance();
 		TestNotNull(TEXT("Countered Gieselbrecht does not consume dogs"), T.Players[1]->GetHand()->FindActivationPair(DogPair));
 		TestFalse(TEXT("Countered Gieselbrecht is spent normally"), T.Players[1]->GetHand()->FindActivationPair(Gieselbrecht) != nullptr);
-		T.Mode->SubmitParticipantSelection(T.Players[0], T.Hands[1]); T.Advance();
 		TestFalse(TEXT("Counter chain with dogs releases all gameplay locks"), T.Mode->HasActiveEffectTasks());
 	}
 	{
@@ -1072,6 +1120,7 @@ bool FSHSupportPairEffectsTest::RunTest(const FString& Parameters)
 		T.Pair(T.Players[2]->GetHand(), Capture);
 		ASHCard* Root = T.Pair(T.Players[0]->GetHand(), Dead);
 		T.Mode->RequestStoredPairActivation(T.Players[0], Root);
+		T.Mode->SubmitParticipantSelection(T.Players[0], T.Hands[1]); T.Advance();
 		Accept(T, T.Players[1]); T.Advance(); Accept(T, T.Players[2]); T.Advance();
 		TestNotNull(TEXT("Capture takes Gieselbrecht instead of invoking a victory substitute"), T.Players[2]->GetHand()->FindActivationPair(Gieselbrecht));
 		TestNotNull(TEXT("Dogs remain when Gieselbrecht is captured"), T.Players[1]->GetHand()->FindActivationPair(DogPair));
@@ -1084,6 +1133,7 @@ bool FSHSupportPairEffectsTest::RunTest(const FString& Parameters)
 		ASHCard* Gieselbrecht = T.Pair(Reactor->GetHand(), Counter);
 		ASHCard* Root = T.Pair(T.Players[0]->GetHand(), Dead);
 		T.Mode->RequestStoredPairActivation(T.Players[0], Root);
+		T.Mode->SubmitParticipantSelection(T.Players[0], T.Hands[1]); T.Advance();
 		UTurnComponent* Turns = T.Mode->GetTurnComponent();
 		Turns->BeginTurnTransitionBlock(TEXT("SupportAnimation"));
 		Accept(T, Reactor);
@@ -1118,6 +1168,7 @@ bool FSHSupportPairEffectsTest::RunTest(const FString& Parameters)
 		}
 		else
 		{
+			T.Mode->SubmitParticipantSelection(Player, T.Hands[1]); T.Advance();
 			Accept(T, T.Players[1]); T.Advance();
 			TestEqual(TEXT("Counter cancels both executions of the doubled activation"), Player->GetHand()->GetCardCount(), 0);
 			TestEqual(TEXT("Cancelled doubled pair is consumed once and refunds Pancho"), Player->GetHand()->GetVictoryStack()->GetPairCount(), 1);
@@ -1339,6 +1390,7 @@ bool FSHPanchoRefundTest::RunTest(const FString& Parameters)
 		const FActivatedPair Support = Boost(T, Target);
 		T.Pair(T.Players[1]->GetHand(), Counter);
 		T.Mode->RequestStoredPairActivation(Player, Target);
+		T.Mode->SubmitParticipantSelection(Player, T.Hands[1]); T.Advance();
 		const auto* Offer = T.Mode->ActiveReactionOffers.Find(T.Players[1]);
 		if (TestNotNull(TEXT("The boosted target can be countered"), Offer))
 		{
@@ -1744,13 +1796,17 @@ bool FSHDogsReactionChainTest::RunTest(const FString& Parameters)
 		// This test exercises successful root destinations, not the Herald's retry rule.
 		if (RootDefinition == Dead) { T.Card(T.Hands[1], Bodgy); }
 		T.Mode->RequestStoredPairActivation(T.Players[0], Root);
+		if (RootDefinition == Dead)
+		{
+			T.Mode->SubmitParticipantSelection(T.Players[0], T.Hands[1]);
+			T.Advance();
+		}
 		if (FirstCaptures)
 		{
 			const auto* InitialCounter = T.Mode->ActiveReactionOffers.Find(T.Players[Second]);
 			if (!TestNotNull(TEXT("Only the counter is offered before the effect"), InitialCounter)) { return false; }
 			T.Mode->RespondToCardReaction(T.Players[Second], InitialCounter->OfferId, false);
 			T.Advance();
-			T.Mode->SubmitParticipantSelection(T.Players[0], T.Hands[1]); T.Advance();
 		}
 		for (int32 Index : {First, Second})
 		{
@@ -1762,9 +1818,8 @@ bool FSHDogsReactionChainTest::RunTest(const FString& Parameters)
 		T.Advance(); T.Advance();
 		if (!FirstCaptures && !SecondCaptures && RootDefinition == Dead)
 		{
-			TestTrue(TEXT("A countered counter restores the original effect"), T.Mode->PendingParticipantSelections.Contains(T.Players[0]));
-			T.Mode->SubmitParticipantSelection(T.Players[0], T.Hands[1]);
-			T.Advance();
+			TestFalse(TEXT("A countered counter resumes the original effect with its saved target"),
+				T.Mode->PendingParticipantSelections.Contains(T.Players[0]));
 		}
 		// Describe the expected result before the original effect (if restored) runs.
 		const TArray<ASHCard*> Cards = {Root, A, B, Hounds};

@@ -13,6 +13,7 @@ protected:
 	void ResolveAfterPresentation();
 	virtual void ResolveAbility() {}
 	virtual bool WaitForOtherEffects() const { return false; }
+	virtual void ResumeAfterTargetedReaction() override { ResolveAfterPresentation(); }
 };
 
 UCLASS()

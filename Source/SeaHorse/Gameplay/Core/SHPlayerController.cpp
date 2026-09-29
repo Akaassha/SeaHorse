@@ -88,6 +88,7 @@ void ASHPlayerController::Tick(float DeltaSeconds)
 	if (IsViewingRevealedHand()) { return; }
 	ValidateCardInfoAccess();
 	KeepDraggedCardAboveOtherCards();
+	if (!LocalPlayerSelectionCandidates.IsEmpty()) { RefreshLocalPlayerSelectionPickers(); }
 	UpdateLocalActivatablePairHover();
 	UpdatePairTargetingIndicator();
 }
@@ -891,22 +892,7 @@ void ASHPlayerController::ClientRequestPlayerSelection_Implementation(
 		}
 	}
 
-	const ASHGameState* GameState = GetWorld()->GetGameState<ASHGameState>();
-	if (IsValid(GameState))
-	{
-		for (ASHHand* LogicalHand : GameState->GetParticipantHands())
-		{
-			ASHHand* VisualHand = FindVisualHandForLogicalHand(LogicalHand);
-			ASHPlayerRepresentation* Picker = IsValid(VisualHand) ? VisualHand->GetPlayerPicker() : nullptr;
-			ASHPlayerState* RepresentedPlayer = IsValid(VisualHand)
-				? VisualHand->GetRepresentedPlayerState()
-				: nullptr;
-			if (IsValid(Picker))
-			{
-				Picker->SetSelectable(LocalPlayerSelectionCandidates.Contains(RepresentedPlayer));
-			}
-		}
-	}
+	RefreshLocalPlayerSelectionPickers();
 
     UE_LOG(LogTemp, Warning,
         TEXT("[SH_SELECTION][CLIENT_REQUEST] Controller=%s Purpose=%s CandidateCount=%d"),
@@ -928,6 +914,55 @@ void ASHPlayerController::ClientRequestPlayerSelection_Implementation(
     // Native world-space pickers own this interaction. The legacy BP event arms
     // a second, card-based selector (IsSelectingPlayer), which submits None for
     // picker clicks and can remain armed after the native selector completes.
+}
+
+void ASHPlayerController::RefreshLocalPlayerSelectionPickers()
+{
+	const ASHGameState* GameState = GetWorld() ? GetWorld()->GetGameState<ASHGameState>() : nullptr;
+	if (!IsValid(GameState)) { return; }
+
+	const int32 ParticipantCount = GameState->GetParticipantCount();
+	for (ASHHand* LogicalHand : GameState->GetParticipantHands())
+	{
+		if (!IsValid(LogicalHand)) { continue; }
+		ASHPlayerState* ControllingPlayer = nullptr;
+		for (APlayerState* State : GameState->PlayerArray)
+		{
+			ASHPlayerState* Candidate = Cast<ASHPlayerState>(State);
+			if (IsValid(Candidate) && Candidate->GetHand() == LogicalHand)
+			{
+				ControllingPlayer = Candidate;
+				break;
+			}
+		}
+
+		ASHHand* VisualHand = FindVisualHandForLogicalHand(LogicalHand);
+		if (!IsValid(VisualHand) && ParticipantCount > 0 &&
+			IsValid(GetPlayerState<ASHPlayerState>()))
+		{
+			VisualHand = FindLayoutHand(GetVisualSeatIndex(
+				LogicalHand->GetLayoutSeatIndex(), ParticipantCount));
+			if (IsValid(VisualHand))
+			{
+				if (IsValid(ControllingPlayer)) { VisualHand->SetRepresentedPlayerState(ControllingPlayer); }
+				else { VisualHand->SetRepresentedHand(LogicalHand); }
+			}
+		}
+		else if (IsValid(VisualHand) && IsValid(ControllingPlayer) &&
+			VisualHand->GetRepresentedPlayerState() != ControllingPlayer)
+		{
+			// Initial listen-server setup can briefly know the logical hand before
+			// its PlayerState binding. Repair that local presentation mapping.
+			VisualHand->SetRepresentedPlayerState(ControllingPlayer);
+		}
+
+		if (ASHPlayerRepresentation* Picker = IsValid(VisualHand)
+			? VisualHand->GetPlayerPicker() : nullptr)
+		{
+			Picker->SetSelectable(IsValid(ControllingPlayer) &&
+				LocalPlayerSelectionCandidates.Contains(ControllingPlayer));
+		}
+	}
 }
 
 bool ASHPlayerController::TrySubmitPlayerSelectionForPicker(ASHPlayerState* SelectedPlayer)

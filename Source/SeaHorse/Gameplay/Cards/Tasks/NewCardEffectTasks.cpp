@@ -48,16 +48,22 @@ void USkipSelectedPlayerTurnEffectTask::StartEffect_Implementation()
 
 void USkipSelectedPlayerTurnEffectTask::HandlePlayerSelected(ASHPlayerState* SelectedPlayer)
 {
+	TargetPlayer = SelectedPlayer;
+	PlayActivationVFX();
+	ResolveAfterPresentation();
+}
+
+void USkipSelectedPlayerTurnEffectTask::ResolveAbility()
+{
 	ASHGameMode* GameMode = GetTypedOuter<ASHGameMode>();
 	checkf(IsValid(GameMode), TEXT("SkipSelectedPlayerTurnEffectTask has no valid GameMode"));
 	UTurnComponent* TurnComponent = GameMode->GetTurnComponent();
 	checkf(IsValid(TurnComponent), TEXT("GameMode has no TurnComponent"));
 
 	const ASHGameState* State = GetWorld()->GetGameState<ASHGameState>();
-	if (IsValid(SelectedPlayer) && IsValid(State) && State->PlayerArray.Contains(SelectedPlayer))
+	if (IsValid(TargetPlayer) && IsValid(State) && State->PlayerArray.Contains(TargetPlayer))
 	{
-		PlayActivationVFX();
-		TurnComponent->ScheduleSkippedTurn(SelectedPlayer);
+		TurnComponent->ScheduleSkippedTurn(TargetPlayer);
 		SetEffectSuccessful();
 	}
 	FinishEffect();
@@ -124,6 +130,13 @@ void UTransferSpecifiedCardEffectTask::StartEffect_Implementation()
 
 void UTransferSpecifiedCardEffectTask::HandleParticipantSelected(ASHHand* SelectedHand)
 {
+	Recipient = SelectedHand;
+	PlayActivationVFX();
+	ResolveAfterPresentation();
+}
+
+void UTransferSpecifiedCardEffectTask::ResolveAbility()
+{
 	const UTransferCardEffectFragment* Fragment = Cast<UTransferCardEffectFragment>(
 		UCardDefinition::FindFragmentByClass(
 			GetCardA()->GetCardDefinition(),
@@ -132,10 +145,9 @@ void UTransferSpecifiedCardEffectTask::HandleParticipantSelected(ASHHand* Select
 	ASHGameMode* GameMode = GetTypedOuter<ASHGameMode>();
 	if (IsValid(GameMode) && IsValid(Fragment))
 	{
-		PlayActivationVFX();
 		bTransferredCard = GameMode->TransferCardToHand(
 			GetActivatingPlayer()->GetHand(),
-			SelectedHand,
+			Recipient,
 			Fragment->CardDefinitionToTransfer);
 	}
 
@@ -183,17 +195,25 @@ void UCollectSelectedActivationPairEffectTask::StartEffect_Implementation()
 void UCollectSelectedActivationPairEffectTask::HandleActivationPairSelected(
 	ASHPlayerState* PairOwner, ASHCard* SelectedCardA, ASHCard* SelectedCardB)
 {
+	SelectedPairOwner = PairOwner;
+	SelectedPairCardA = SelectedCardA;
+	SelectedPairCardB = SelectedCardB;
+	PlayActivationVFX();
+	ResolveAfterPresentation();
+}
+
+void UCollectSelectedActivationPairEffectTask::ResolveAbility()
+{
 	ASHGameMode* GameMode = GetTypedOuter<ASHGameMode>();
-	if (IsValid(GameMode) && IsValid(PairOwner))
+	if (IsValid(GameMode) && IsValid(SelectedPairOwner))
 	{
-		ASHHand* Hand = PairOwner->GetHand();
-		const FActivatedPair* Before = IsValid(Hand) ? Hand->FindActivationPair(SelectedCardA) : nullptr;
+		ASHHand* Hand = SelectedPairOwner->GetHand();
+		const FActivatedPair* Before = IsValid(Hand) ? Hand->FindActivationPair(SelectedPairCardA) : nullptr;
 		const bool bEligible = Before && Before->State < EActivationPairState::VictoryPresentation &&
 			IsValid(Before->CardA) && IsValid(Before->CardB);
-		PlayActivationVFX();
 		// MovePairToVictoryStack deliberately does not run the selected pair's effect.
-		GameMode->MovePairToVictoryStack(PairOwner, SelectedCardA, SelectedCardB);
-		const FActivatedPair* After = IsValid(Hand) ? Hand->FindActivationPair(SelectedCardA) : nullptr;
+		GameMode->MovePairToVictoryStack(SelectedPairOwner, SelectedPairCardA, SelectedPairCardB);
+		const FActivatedPair* After = IsValid(Hand) ? Hand->FindActivationPair(SelectedPairCardA) : nullptr;
 		SetEffectSuccessful(bEligible && (!After || After->State >= EActivationPairState::VictoryPresentation));
 	}
 

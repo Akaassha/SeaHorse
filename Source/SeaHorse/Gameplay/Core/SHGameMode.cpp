@@ -26,6 +26,21 @@
 #include "Settings/LevelEditorPlaySettings.h"
 #endif
 
+namespace
+{
+bool EffectRequiresTargetSelection(ASHCard* Card)
+{
+	const UCardEffectFragment* Fragment = IsValid(Card)
+		? Cast<UCardEffectFragment>(UCardDefinition::FindFragmentByClass(
+			Card->GetCardDefinition(), UCardEffectFragment::StaticClass()))
+		: nullptr;
+	const UCardEffectTask* DefaultTask = IsValid(Fragment) && Fragment->EffectTaskClass
+		? Fragment->EffectTaskClass->GetDefaultObject<UCardEffectTask>()
+		: nullptr;
+	return IsValid(DefaultTask) && DefaultTask->RequiresTargetSelection();
+}
+}
+
 void ASHGameMode::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
 	const auto Tasks = ActiveEffectTasks;
@@ -823,7 +838,7 @@ void ASHGameMode::TryProcessQueuedPairActivations()
 
 		if (!Pending.bAbilityStarted)
 		{
-			if (!Pending.bReactionsChecked)
+			if (!Pending.bReactionsChecked && !EffectRequiresTargetSelection(Pending.CardA))
 			{
 				Pending.bReactionsChecked = true;
 				const FPendingPairActivation ReactionTarget = Pending;

@@ -8,6 +8,7 @@
 #include "FrontendDeveloperSettings.generated.h"
 
 class UWidgetActivatableBase;
+class UWidgetPrimaryLayout;
 class USoundClass;
 /**
  * 
@@ -18,6 +19,9 @@ class SEAHORSE_API UFrontendDeveloperSettings : public UDeveloperSettings
 	GENERATED_BODY()
 	
 public:
+	UPROPERTY(Config, EditAnywhere, Category = "Widget Reference")
+	TSoftClassPtr<UWidgetPrimaryLayout> PrimaryLayoutWidgetClass;
+
 	UPROPERTY(Config, EditAnywhere, Category = "Audio")
 	TSoftObjectPtr<USoundClass> MusicSoundClass;
 

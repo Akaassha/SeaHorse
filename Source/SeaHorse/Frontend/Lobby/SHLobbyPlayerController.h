@@ -23,4 +23,18 @@ public:
 	UFUNCTION(BlueprintPure, Category="SeaHorse|Lobby") bool IsLobbyHost() const;
 	UPROPERTY(BlueprintAssignable) FSHLobbyRequestRejected OnLobbyRequestRejected;
 	UFUNCTION(Client, Reliable) void ClientLobbyRequestRejected(const FString& Reason);
+
+protected:
+	virtual void ReceivedPlayer() override;
+
+private:
+	void EnsureClientLobbyFrontend();
+	void EnsureClientLobbyScreen();
+	void RetryClientLobbyFrontend();
+
+	FTimerHandle LobbyFrontendTimer;
+	int32 LobbyFrontendAttempts = 0;
+
+	UPROPERTY(Transient)
+	TObjectPtr<class UWidgetPrimaryLayout> ClientPrimaryLayout;
 };

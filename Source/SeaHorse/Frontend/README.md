@@ -15,6 +15,13 @@ DefaultInput.ini włącza ustawienia użytkownika Enhanced Input.
 - Brak konfiguracji menu kończy asynchroniczne otwarcie wynikiem Failed.
   Węzeł PushSoftWidget emituje wtedy AfterPush z nullptr. Potwierdzenie kończy się
   Canceled, więc brak ekranu nie zatwierdza akcji.
+- Podczas zmiany mapy węzeł PushSoftWidget czeka krótko na lokalny PlayerController,
+  zarejestrowanie layoutu i wskazanego stosu w aktualnym świecie. Layout pozostały
+  z poprzedniej mapy jest ignorowany, dzięki czemu klient nie próbuje otworzyć lobby
+  w usuwanym widoku ani nie traci ekranu, gdy kontroler sieciowy pojawi się chwilę później.
+- Zdalny SHLobbyPlayerController sprawdza frontend po ReceivedPlayer. Jeżeli Level Blueprint
+  nie zdążył utworzyć layoutu lub otworzyć ekranu podczas travelu Steam, kontroler odtwarza
+  brakujący element z klas skonfigurowanych w Frontend Settings.
 - Loading screen jest opcjonalny i wyłączony na dedicated server oraz w commandletach.
   Brak przypisanego ekranu nie blokuje renderowania gry.
 

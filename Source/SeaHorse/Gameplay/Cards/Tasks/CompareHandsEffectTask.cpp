@@ -143,12 +143,6 @@ void UCompareHandsEffectTask::ResolveAbility()
 	ActivatorPawn = SpawnPrivatePawn(ActivatorController);
 	SelectedPawn = SpawnPrivatePawn(SelectedController);
 	if (!IsValid(ActivatorPawn) || !IsValid(SelectedPawn)) { CompleteSession(); return; }
-	OriginalSelectedPawn = SelectedController->GetPawn();
-	OriginalSelectedViewTarget = SelectedController->GetViewTarget();
-	bOriginalSelectedAutoManageCamera = SelectedController->bAutoManageActiveCameraTarget;
-	bSelectedPossessionAttempted = true;
-	SelectedController->Possess(SelectedPawn);
-	if (SelectedController->GetPawn() != SelectedPawn) { CompleteSession(); return; }
 
 	SessionId = FGuid::NewGuid();
 	bOpened = true;
@@ -225,8 +219,7 @@ void UCompareHandsEffectTask::TransferCard(ASHPlayerState* Player, FGuid InSessi
 
 	ASHPlayerController* DrawingController = Cast<ASHPlayerController>(Player->GetOwner());
 	ASHHandRevealPawn* DrawingPawn = Player == GetActivatingPlayer() ? ActivatorPawn.Get() : SelectedPawn.Get();
-	if (!IsValid(DrawingController) || !IsValid(DrawingPawn) ||
-		(Player == SelectedPlayer && DrawingController->GetPawn() != DrawingPawn))
+	if (!IsValid(DrawingController) || !IsValid(DrawingPawn))
 	{
 		return;
 	}
@@ -278,7 +271,7 @@ void UCompareHandsEffectTask::RefreshSession()
 		GetActivatingPlayer()->GetHand() != (LargerHand == SelectedPlayer->GetHand() ? ReceivingHand : LargerHand) ||
 		SelectedPlayer->GetHand() != (LargerHand == SelectedPlayer->GetHand() ? LargerHand : ReceivingHand) ||
 		!IsValid(ActivatorController) || !IsValid(SelectedController) || !IsValid(ActivatorPawn) ||
-		!IsValid(SelectedPawn) || SelectedController->GetPawn() != SelectedPawn)
+		!IsValid(SelectedPawn))
 	{
 		CompleteSession();
 		return;
@@ -298,13 +291,6 @@ void UCompareHandsEffectTask::CloseSession(ASHPlayerState* DepartingPlayer)
 	bClosed = true;
 	if (IsValid(SelectedController) && SelectedPlayer != DepartingPlayer)
 	{
-		if (bSelectedPossessionAttempted && (SelectedController->GetPawn() == SelectedPawn || !IsValid(SelectedController->GetPawn())))
-		{
-			SelectedController->bAutoManageActiveCameraTarget = bOriginalSelectedAutoManageCamera;
-			if (OriginalSelectedPawn.IsValid()) { SelectedController->Possess(OriginalSelectedPawn.Get()); }
-			else { SelectedController->UnPossess(); }
-			if (OriginalSelectedViewTarget.IsValid()) { SelectedController->SetViewTarget(OriginalSelectedViewTarget.Get()); }
-		}
 		if (SessionId.IsValid()) { SelectedController->ClientEndHandReveal(SessionId); }
 	}
 	if (IsValid(ActivatorController) && GetActivatingPlayer() != DepartingPlayer && SessionId.IsValid())

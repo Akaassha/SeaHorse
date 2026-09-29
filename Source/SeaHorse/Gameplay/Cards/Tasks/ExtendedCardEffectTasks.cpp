@@ -14,6 +14,10 @@ void UResolvedCardEffectTask::ResolveAfterPresentation()
 	if (IsFinished()) { return; }
 	ASHGameMode* Mode = GetTypedOuter<ASHGameMode>();
 	if (!IsValid(Mode)) { return; }
+	// Open the counter window as soon as every target is known.  Presentation
+	// locks may outlive the completed target picker, but they must not delay the prompt or
+	// allow the effect to change gameplay before Gieselbrecht can answer it.
+	if (PauseForTargetedReaction()) { return; }
 	CommitEffect();
 	if ((Mode->GetTurnComponent() && Mode->GetTurnComponent()->HasNamedTurnTransitionBlocks()) ||
 		(WaitForOtherEffects() && (Mode->HasOtherActiveEffects(this) || (Mode->GetTurnComponent() && Mode->GetTurnComponent()->HasUnsettledPairs()))))

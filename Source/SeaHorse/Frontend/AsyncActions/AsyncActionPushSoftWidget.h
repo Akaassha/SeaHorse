@@ -34,8 +34,15 @@ public:
 	FOnPushSoftWidgetDelegate AfterPush;
 
 private:
+	void TryPush();
+	void RetryOrFail(const TCHAR* WaitingFor);
+	void CompleteFailed();
+
+	FTimerHandle LayoutRetryTimer;
+	double LayoutWaitStartedAtSeconds = 0.0;
 	bool bActivated = false;
 	bool bCompleted = false;
+	bool bPushStarted = false;
 	TWeakObjectPtr<UWorld> CachedOwningWorld;
 	TWeakObjectPtr<APlayerController> CachedOwningPlayerController;
 	TSoftClassPtr<UWidgetActivatableBase> CachedSoftWidgetClass;

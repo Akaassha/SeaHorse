@@ -141,6 +141,8 @@ bool FSHCompareHandsEffectTest::RunTest(const FString& Parameters)
 
 	{
 		FCompareHandsTestWorld T;
+		APawn* SelectedGameplayPawn = T.World->SpawnActor<APawn>();
+		T.Controllers[1]->Possess(SelectedGameplayPawn);
 		for (int32 Index = 0; Index < 4; ++Index) { T.Card(T.Hands[0]); }
 		for (int32 Index = 0; Index < 2; ++Index) { T.Card(T.Hands[1]); }
 		T.Card(T.Hands[2]);
@@ -155,6 +157,10 @@ bool FSHCompareHandsEffectTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("Size difference determines the exact draw count"), Task->RemainingTransfers, 2);
 		TestEqual(TEXT("Both full private hands are snapshotted"),
 			Task->LastLargerSnapshot.Num() + Task->LastReceivingSnapshot.Num(), 6);
+		TestEqual(TEXT("Comparison does not replace the selected player's gameplay pawn"),
+			T.Controllers[1]->GetPawn().Get(), SelectedGameplayPawn);
+		TestNotEqual(TEXT("Selected player's presentation pawn stays unpossessed"),
+			T.Controllers[1]->GetPawn().Get(), static_cast<APawn*>(Task->SelectedPawn.Get()));
 		const FGuid Session = Task->GetSessionId();
 		Task->AcknowledgePresentation(T.Players[0], Session);
 		Task->AcknowledgePresentation(T.Players[1], Session);
@@ -179,6 +185,8 @@ bool FSHCompareHandsEffectTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("Receiving hand gains exactly the difference"), T.Hands[1]->GetCardCount(), 4);
 		TestEqual(TEXT("Successful Diego ability consumes its pair"),
 			T.Hands[0]->GetVictoryStack()->GetPairCount(), 1);
+		TestEqual(TEXT("Completing comparison preserves the selected player's gameplay pawn"),
+			T.Controllers[1]->GetPawn().Get(), SelectedGameplayPawn);
 	}
 
 	{

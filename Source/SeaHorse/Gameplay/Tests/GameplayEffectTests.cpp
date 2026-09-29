@@ -87,9 +87,16 @@ bool FSHGameplayEffectInputTest::RunTest(const FString& Parameters)
 	if (!TestNotNull(TEXT("Actual gameplay controller Blueprint"), ControllerClass)) { return false; }
 	ASHPlayerController* PC = T.World->SpawnActor<ASHPlayerController>(ControllerClass);
 	ASHPlayerRepresentation* Picker = T.World->SpawnActor<ASHPlayerRepresentation>();
-	T.HandB->SetRepresentedPlayerState(T.B);
+	const FObjectProperty* PickerProperty = FindFProperty<FObjectProperty>(ASHHand::StaticClass(), TEXT("PlayerPicker"));
+	if (!TestNotNull(TEXT("Hand exposes its representation reference"), PickerProperty)) { return false; }
+	PickerProperty->SetObjectPropertyValue_InContainer(T.HandB, Picker);
+	// Reproduce the initial listen-server race: the visual seat knows which
+	// logical hand it shows, but has not bound that hand's PlayerState yet.
+	T.HandB->SetRepresentedHand(T.HandB);
 	Picker->BindToHand(T.HandB);
 	PC->ClientRequestPlayerSelection_Implementation({T.B}, EPlayerSelectionPurpose::PlayerToDrawFrom);
+	TestEqual(TEXT("Player selection repairs a stale logical-hand representation"), Picker->GetRepresentedPlayerState(), T.B);
+	TestTrue(TEXT("The repaired remote player is immediately selectable"), Picker->IsPlayerSelectionEnabled());
 	if (const FBoolProperty* LegacyFlag = FindFProperty<FBoolProperty>(ControllerClass, TEXT("IsSelectingPlayer")))
 	{
 		TestFalse(TEXT("Native selection does not arm the competing Blueprint selector"), LegacyFlag->GetPropertyValue_InContainer(PC));
@@ -124,8 +131,6 @@ bool FSHGameplayEffectInputTest::RunTest(const FString& Parameters)
 	// The client can display an NPC at a different physical seat; no PlayerState or cards are required.
 	T.HandB->SetRepresentedHand(T.ThirdHand);
 	Picker->BindToHand(T.HandB);
-	const FObjectProperty* PickerProperty = FindFProperty<FObjectProperty>(ASHHand::StaticClass(), TEXT("PlayerPicker"));
-	if (!TestNotNull(TEXT("Hand exposes its representation reference"), PickerProperty)) { return false; }
 	PickerProperty->SetObjectPropertyValue_InContainer(T.HandB, Picker);
 	PC->ClientRequestParticipantSelection_Implementation({T.ThirdHand}, EPlayerSelectionPurpose::CardTransferRecipient);
 	TestNull(TEXT("NPC representation has no human PlayerState"), Picker->GetRepresentedPlayerState());

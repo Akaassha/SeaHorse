@@ -7,7 +7,6 @@
 
 class ASHHandRevealPawn;
 class ASHPlayerController;
-class APawn;
 class UHandRevealWidget;
 
 /** Server-owned private hand reveal. No card definition is added to public replication. */
@@ -60,13 +59,9 @@ private:
 	UPROPERTY() TObjectPtr<ASHHandRevealPawn> TargetPawn;
 	UPROPERTY() TArray<FSHRevealedHandCard> LastSnapshot;
 	UPROPERTY() TSubclassOf<UHandRevealWidget> SessionWidgetClass;
-	TWeakObjectPtr<APawn> OriginalTargetPawn;
-	TWeakObjectPtr<AActor> OriginalTargetViewTarget;
 	FGuid SessionId;
 	FTimerHandle SessionWatchTimer;
 	FTimerHandle PresentationTimeoutTimer;
-	bool bOriginalTargetAutoManageCamera = true;
-	bool bTargetPossessionAttempted = false;
 	bool bLastCanReorder = false;
 	bool bRevealingHuman = false;
 	bool bViewerReady = false;

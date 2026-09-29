@@ -1,12 +1,17 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Misc/AutomationTest.h"
+#include "Engine/Engine.h"
 #include "Engine/GameInstance.h"
+#include "Engine/World.h"
 #include "Frontend/FrontendSubsystem.h"
 #include "Frontend/FrontendGameplayTags.h"
+#include "Frontend/FrontendFunctionLibrary.h"
+#include "Frontend/Settings/FrontendDeveloperSettings.h"
 #include "Frontend/Widgets/Options/OptionsDataRegistry.h"
 #include "Frontend/Widgets/Options/DataObjects/ListDataObjectCollection.h"
 #include "Frontend/Widgets/Options/DataObjects/MyListDataObjectString.h"
+#include "Frontend/Widgets/WidgetPrimaryLayout.h"
 #include "GameSettings/SHGameUserSettings.h"
 #include "PropertyPathHelpers.h"
 
@@ -15,6 +20,11 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSHFrontendSettingsTest, "SeaHorse.Frontend.Set
 
 bool FSHFrontendSettingsTest::RunTest(const FString& Parameters)
 {
+	TestFalse(TEXT("Primary layout is configured for packaged frontend recovery"),
+		GetDefault<UFrontendDeveloperSettings>()->PrimaryLayoutWidgetClass.IsNull());
+	TestFalse(TEXT("Lobby screen is configured"),
+		UFrontendFunctionLibrary::GetFrontendSoftWidgetClassByTag(
+			FrontendGameplayTags::Frontend_Widget_LobbyScreen).IsNull());
 	TestNotNull(TEXT("Engine uses SeaHorse settings from config"), Cast<USHGameUserSettings>(UGameUserSettings::GetGameUserSettings()));
 	USHGameUserSettings* Settings = NewObject<USHGameUserSettings>();
 	TestTrue(TEXT("Reflected volume setter is callable by options"), PropertyPathHelpers::SetPropertyValueFromString(Settings, FCachedPropertyPath(TEXT("SetOverallVolume")), TEXT("0.35")));
@@ -53,6 +63,8 @@ bool FSHFrontendMissingLayoutTest::RunTest(const FString& Parameters)
 {
 	UGameInstance* Instance = NewObject<UGameInstance>();
 	UFrontendSubsystem* Subsystem = NewObject<UFrontendSubsystem>(Instance);
+	TestFalse(TEXT("A stack without a current-world primary layout is not ready"),
+		Subsystem->IsWidgetStackReady(nullptr, FrontendGameplayTags::Frontend_WidgetStack_Modal));
 	int32 CallbackCount = 0;
 	Subsystem->PushSoftWidgetToStackAsync(FrontendGameplayTags::Frontend_WidgetStack_Modal, {},
 		[this, &CallbackCount](EAsyncPushWdgetState State, UWidgetActivatableBase* Widget)
@@ -70,6 +82,42 @@ bool FSHFrontendMissingLayoutTest::RunTest(const FString& Parameters)
 			TestTrue(TEXT("Missing confirmation cannot approve an action"), Button == EConfirmScreenButtonType::Canceled);
 		});
 	TestEqual(TEXT("Confirmation completes exactly once"), ConfirmCount, 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSHFrontendLayoutReplacementTest, "SeaHorse.Frontend.LayoutReplacementAcrossTravel",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FSHFrontendLayoutReplacementTest::RunTest(const FString& Parameters)
+{
+	AddExpectedError(TEXT("Primary layout widget stored"), EAutomationExpectedErrorFlags::Contains, 2);
+	TGuardValue<bool> ScriptGuard(GAllowActorScriptExecutionInEditor, true);
+	UClass* LayoutClass = LoadClass<UWidgetPrimaryLayout>(nullptr,
+		TEXT("/Game/SeaHorse/Frontend/WBP_PrimaryLayout.WBP_PrimaryLayout_C"));
+	if (!TestNotNull(TEXT("Designer primary layout loads"), LayoutClass)) { return false; }
+
+	UWorld* World = UWorld::CreateWorld(EWorldType::Game, false);
+	GEngine->CreateNewWorldContext(EWorldType::Game).SetCurrentWorld(World);
+	UGameInstance* Instance = NewObject<UGameInstance>();
+	World->SetGameInstance(Instance);
+	UFrontendSubsystem* Subsystem = NewObject<UFrontendSubsystem>(Instance);
+	UWidgetPrimaryLayout* PreviousLayout = CreateWidget<UWidgetPrimaryLayout>(World, LayoutClass);
+	UWidgetPrimaryLayout* CurrentLayout = CreateWidget<UWidgetPrimaryLayout>(World, LayoutClass);
+	if (TestNotNull(TEXT("Previous layout can be created"), PreviousLayout) &&
+		TestNotNull(TEXT("Replacement layout can be created"), CurrentLayout))
+	{
+		PreviousLayout->SetVisibility(ESlateVisibility::Visible);
+		Subsystem->RegisterCreatedPrimaryLayoutWidget(PreviousLayout);
+		Subsystem->RegisterCreatedPrimaryLayoutWidget(CurrentLayout);
+		TestEqual(TEXT("Replacing the primary layout collapses the old viewport tree"),
+			PreviousLayout->GetVisibility(), ESlateVisibility::Collapsed);
+		TestNotEqual(TEXT("The replacement itself remains available for the destination map"),
+			CurrentLayout->GetVisibility(), ESlateVisibility::Collapsed);
+	}
+
+	World->SetGameInstance(nullptr);
+	World->DestroyWorld(false);
+	GEngine->DestroyWorldContext(World);
 	return true;
 }
 

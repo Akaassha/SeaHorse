@@ -86,6 +86,13 @@ bool FSHTargetedActivationPresentationTest::RunTest(const FString& Parameters)
     TestEqual(TEXT("Final target starts exactly one circle"), Hand->PresentedActivationVFX.Num(), 1);
     TestTrue(TEXT("Circle holds pair movement"), Hand->IsPairMovementBlocked());
     TestFalse(TEXT("All target choices have completed"), Mode->PendingParticipantSelections.Contains(Player));
+	TestNull(TEXT("Gameplay waits until the target presentation finishes"),
+		Mode->TurnComponent->GetFirstForcedDrawSourceHand(Player));
+	for (int32 Step = 0; Step < 30; ++Step)
+	{
+		++GFrameCounter;
+		World->GetTimerManager().Tick(0.1f);
+	}
     TestEqual(TEXT("NPC hand is queued as the forced draw source"), Mode->TurnComponent->GetFirstForcedDrawSourceHand(Player), NPC);
     Mode->SubmitParticipantSelection(Player, NPC);
     TestEqual(TEXT("Duplicate final submission does not replay circle"), Hand->PresentedActivationVFX.Num(), 1);

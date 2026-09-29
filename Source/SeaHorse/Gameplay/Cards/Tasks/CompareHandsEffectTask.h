@@ -64,14 +64,10 @@ private:
 	UPROPERTY() TArray<FSHRevealedHandCard> LastLargerSnapshot;
 	UPROPERTY() TArray<FSHRevealedHandCard> LastReceivingSnapshot;
 	UPROPERTY() TSubclassOf<UHandRevealWidget> SessionWidgetClass;
-	TWeakObjectPtr<APawn> OriginalSelectedPawn;
-	TWeakObjectPtr<AActor> OriginalSelectedViewTarget;
 	FGuid SessionId;
 	FTimerHandle SessionWatchTimer;
 	FTimerHandle PresentationTimeoutTimer;
 	int32 RemainingTransfers = 0;
-	bool bOriginalSelectedAutoManageCamera = true;
-	bool bSelectedPossessionAttempted = false;
 	bool bActivatorReady = false;
 	bool bSelectedReady = false;
 	bool bConsumePair = false;

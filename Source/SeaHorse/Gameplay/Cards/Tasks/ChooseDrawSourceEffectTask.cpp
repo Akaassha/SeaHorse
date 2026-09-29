@@ -61,6 +61,13 @@ void UChooseDrawSourceEffectTask::HandlePlayerSelected(ASHPlayerState* SelectedP
 
 void UChooseDrawSourceEffectTask::HandleParticipantSelected(ASHHand* SelectedHand)
 {
+	SelectedSourceHand = SelectedHand;
+	PlayActivationVFX();
+	ResolveAfterPresentation();
+}
+
+void UChooseDrawSourceEffectTask::ResolveAbility()
+{
 	ASHGameMode* GameMode = GetTypedOuter<ASHGameMode>();
 	checkf(IsValid(GameMode), TEXT("ChooseDrawSourceEffectTask has no valid GameMode"));
 
@@ -69,10 +76,9 @@ void UChooseDrawSourceEffectTask::HandleParticipantSelected(ASHHand* SelectedHan
 
 	if (IsValid(DrawingPlayer) && IsValid(DrawingPlayer->GetHand()) &&
 		GetWorld()->GetGameState<ASHGameState>()->PlayerArray.Contains(DrawingPlayer) &&
-		IsValid(SelectedHand) && SelectedHand != DrawingPlayer->GetHand())
+		IsValid(SelectedSourceHand) && SelectedSourceHand != DrawingPlayer->GetHand())
 	{
-		PlayActivationVFX();
-		TurnComponent->SetForcedDrawSourceHand(DrawingPlayer, SelectedHand);
+		TurnComponent->SetForcedDrawSourceHand(DrawingPlayer, SelectedSourceHand);
 		SetEffectSuccessful();
 	}
 	FinishEffect();

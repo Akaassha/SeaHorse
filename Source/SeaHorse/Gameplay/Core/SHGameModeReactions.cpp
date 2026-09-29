@@ -5,6 +5,7 @@
 #include "Gameplay/Cards/SHCard.h"
 #include "Gameplay/Cards/CardDefinition.h"
 #include "Gameplay/Cards/Fragments/CardReactionFragment.h"
+#include "Gameplay/Cards/Tasks/CardEffectTask.h"
 #include "Gameplay/Components/TurnComponent.h"
 #include "Gameplay/SHHand.h"
 
@@ -98,6 +99,78 @@ bool ASHGameMode::BeginCardReactions(const FPendingPairActivation& Activation)
 	GetGameState<ASHGameState>()->SetReactionPending(true);
 	OpenCardReactionWindow(Activation.ActivatingPlayer.Get(), Activation.CardA.Get(), Activation.CardB.Get());
 	return bReactionWindowOpen;
+}
+
+bool ASHGameMode::BeginTargetedEffectReaction(UCardEffectTask* Task)
+{
+	check(HasAuthority());
+	if (!IsValid(Task) || Task->IsFinished() || !ActiveEffectTasks.Contains(Task)) { return true; }
+	if (!Task->RequiresTargetSelection() || Task->bTargetedReactionResolved) { return false; }
+	if (Task->bTargetedReactionPending) { return true; }
+
+	FPendingPairActivation* Pending = PendingPairActivations.FindByPredicate([Task](const FPendingPairActivation& Entry)
+	{
+		return Entry.ActivatingPlayer == Task->GetActivatingPlayer() && Entry.CardA == Task->GetCardA() &&
+			Entry.CardB == Task->GetCardB();
+	});
+	if (!Pending || Pending->bReactionsChecked)
+	{
+		Task->bTargetedReactionResolved = true;
+		SetPairTargetSelectionPresentation(Task, Task->GetActivatingPlayer(), false);
+		return false;
+	}
+
+	Pending->bReactionsChecked = true;
+	Task->bTargetedReactionPending = true;
+	TargetedReactionTask = Task;
+	const FPendingPairActivation Activation = *Pending;
+	{
+		TGuardValue<bool> OpeningGuard(bOpeningTargetedReaction, true);
+		BeginCardReactions(Activation);
+	}
+	if (bReactionWindowOpen) { return true; }
+	if (Task->IsFinished() || !ActiveEffectTasks.Contains(Task)) { return true; }
+
+	// No eligible reaction, or a local/listen-server prompt answered synchronously.
+	Task->bTargetedReactionPending = false;
+	Task->bTargetedReactionResolved = true;
+	if (TargetedReactionTask == Task) { TargetedReactionTask.Reset(); }
+	SetPairTargetSelectionPresentation(Task, Task->GetActivatingPlayer(), false);
+	return false;
+}
+
+void ASHGameMode::AbandonEffectTaskForReaction(UCardEffectTask* Task)
+{
+	if (!IsValid(Task) || !ActiveEffectTasks.Contains(Task)) { return; }
+	for (auto It = PendingHandCardSelections.CreateIterator(); It; ++It)
+	{
+		if (It.Value().Task == Task) { It.RemoveCurrent(); }
+	}
+	for (auto It = PendingPlayerSelections.CreateIterator(); It; ++It)
+	{
+		if (It.Value().Task == Task) { It.RemoveCurrent(); }
+	}
+	for (auto It = PendingParticipantSelections.CreateIterator(); It; ++It)
+	{
+		if (It.Value().Task == Task) { It.RemoveCurrent(); }
+	}
+	for (auto It = PendingPairSelections.CreateIterator(); It; ++It)
+	{
+		if (It.Value().Task == Task) { It.RemoveCurrent(); }
+	}
+	TArray<TObjectPtr<ASHPlayerState>> PresentationOwners;
+	for (const auto& Entry : ActiveTargetPresentations)
+	{
+		if (Entry.Value == Task) { PresentationOwners.Add(Entry.Key); }
+	}
+	for (ASHPlayerState* PresentationOwner : PresentationOwners)
+	{
+		SetPairTargetSelectionPresentation(Task, PresentationOwner, false);
+	}
+	Task->bTargetedReactionPending = false;
+	Task->AbandonEffect();
+	ActiveEffectTasks.Remove(Task);
+	RepeatedPairEffects.Remove(Task->GetCardA());
 }
 
 void ASHGameMode::OpenCardReactionWindow(ASHPlayerState* TargetPlayer, ASHCard* CardA, ASHCard* CardB)
@@ -231,6 +304,7 @@ void ASHGameMode::RespondToCardReaction(ASHPlayerState* Player, int32 OfferId, b
 void ASHGameMode::ResolveCardReactionChain()
 {
 	if (!bReactionWindowOpen) { return; }
+	UCardEffectTask* TaskToResume = nullptr;
 	{
 		TGuardValue<bool> Guard(bProcessingPairActivations, true);
 		ClearCardReactionOffers();
@@ -261,6 +335,16 @@ void ASHGameMode::ResolveCardReactionChain()
 			}
 			ConsumeReactionPair(Option, !Reaction.bCancelled);
 		}
+		UCardEffectTask* DeferredTask = TargetedReactionTask.Get();
+		const bool bDeferredTargetedRoot = !bPostActivationWindow && IsValid(DeferredTask) &&
+			DeferredTask->GetActivatingPlayer() == ReactionRootActivation.ActivatingPlayer &&
+			DeferredTask->GetCardA() == ReactionRootActivation.CardA &&
+			DeferredTask->GetCardB() == ReactionRootActivation.CardB;
+		if (bRootCancelled && bDeferredTargetedRoot)
+		{
+			AbandonEffectTaskForReaction(DeferredTask);
+			TargetedReactionTask.Reset();
+		}
 		if (bRootCancelled && !bPostActivationWindow && IsValid(ReactionRootActivation.ActivatingPlayer))
 		{
 			ASHPlayerState* Player = ReactionRootActivation.ActivatingPlayer;
@@ -276,6 +360,14 @@ void ASHGameMode::ResolveCardReactionChain()
 				MovePairToVictoryStack(Player, A, B);
 			}
 		}
+		else if (bDeferredTargetedRoot)
+		{
+			DeferredTask->bTargetedReactionPending = false;
+			DeferredTask->bTargetedReactionResolved = true;
+			SetPairTargetSelectionPresentation(DeferredTask, DeferredTask->GetActivatingPlayer(), false);
+			TargetedReactionTask.Reset();
+			if (!bOpeningTargetedReaction) { TaskToResume = DeferredTask; }
+		}
 		ReactionChain.Reset();
 		ReactionRootActivation = FPendingPairActivation{};
 		bPostActivationWindow = false;
@@ -283,6 +375,10 @@ void ASHGameMode::ResolveCardReactionChain()
 		CloseCardReactions();
 	}
 	FlushPanchoRefunds();
+	if (IsValid(TaskToResume) && !TaskToResume->IsFinished() && ActiveEffectTasks.Contains(TaskToResume))
+	{
+		TaskToResume->ResumeAfterTargetedReaction();
+	}
 	ProcessSuccessfulActivations();
 	if (!bProcessingPairActivations)
 	{
@@ -310,6 +406,11 @@ void ASHGameMode::Logout(AController* Exiting)
 			if (ReactionRootActivation.ActivatingPlayer == Player)
 			{
 				TGuardValue<bool> Guard(bProcessingPairActivations, true);
+				if (UCardEffectTask* DeferredTask = TargetedReactionTask.Get())
+				{
+					AbandonEffectTaskForReaction(DeferredTask);
+					TargetedReactionTask.Reset();
+				}
 				PendingPairActivations.RemoveAll([Player](const FPendingPairActivation& Entry) { return Entry.ActivatingPlayer == Player; });
 				ReactionRootActivation = FPendingPairActivation{};
 				ResolveCardReactionChain();

@@ -354,11 +354,13 @@ private:
 	TObjectPtr<class UCardReactionPrompt> ActiveReactionPrompt;
 	int32 ActiveReactionOfferId = INDEX_NONE;
 	bool bCursorBeforeReaction = false;
+	// The production prompt is a narrow view/controller for this local selection
+	// state. This access must remain available when automation tests are compiled out.
+	friend class UCardSelectionPrompt;
 #if WITH_DEV_AUTOMATION_TESTS
 	friend class FSHGameplayEffectInputTest;
 	friend class FSHExpansionEffectsTest;
 	friend class FSHCardSelectionWidgetTest;
-	friend class UCardSelectionPrompt;
 	friend class FSHReportedEffectRegressionsTest;
 	friend class FSHCardReactionsTest;
 	friend class FSHLocalMatchUIReadinessTest;
@@ -381,6 +383,7 @@ private:
 	bool IsValidEffectTarget(const AActor* Actor) const;
 	void UpdateEffectTargetOutlines(AActor* HoveredActor);
 	void RestoreEffectTargetOutlines();
+	void RefreshLocalPlayerSelectionPickers();
 	TMap<TWeakObjectPtr<UMeshComponent>, FEffectOutlineMeshState> EffectOutlineMeshes;
 	void ClearLocalPlayerSelection();
 	void ClearLocalEffectSelectionState();

@@ -40,9 +40,10 @@ Alternatywnie własny przycisk może wywoływać `Finish Viewing`; widoczność 
 `Can Finish Viewing`. `Get Reveal Pawn`, `Get Source Hand` i `On Reveal Changed` udostępniają kontekst.
 Pusta baza tworzy prosty komunikat i przycisk „Gotowe”.
 
-Pokazujący zostaje na serwerze przełączony przez `Possess` na tymczasowego pawna.
-Oglądający ma oddzielnego prywatnego pawna jako `ViewTarget`. Po zakończeniu przywracane są
-poprzedni pawn i kamera. Wyjście uczestnika, zniszczenie pawna oraz zmiana mapy sprzątają podgląd.
+Każdy uczestnik ma oddzielnego prywatnego pawna używanego lokalnie jako `ViewTarget`.
+Kontroler kieruje do niego wejście myszy bez zmiany posiadanego pawna rozgrywki, dzięki czemu
+replikacja `Possess` nie może nadpisać kamery po zamknięciu. Po zakończeniu przywracana jest
+poprzednia kamera. Wyjście uczestnika, zniszczenie pawna oraz zmiana mapy sprzątają podgląd.
 
 ## SceneCapture2D w kolejnym kroku
 

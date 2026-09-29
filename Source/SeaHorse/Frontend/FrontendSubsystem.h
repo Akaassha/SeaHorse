@@ -10,6 +10,7 @@
 class UWidgetPrimaryLayout;
 class UWidgetActivatableBase;
 class UFrontendCommonButtonBase;
+class APlayerController;
 struct FGameplayTag;
 
 enum class EAsyncPushWdgetState : uint8
@@ -36,6 +37,12 @@ public:
 	UFUNCTION(BlueprintCallable)
 	void RegisterCreatedPrimaryLayoutWidget(UWidgetPrimaryLayout* InCreatedWidget);
 
+	bool IsWidgetStackReady(const UWorld* ExpectedWorld, const FGameplayTag& InWidgetStackTag) const;
+	bool PrepareWidgetStackForPlayer(const UWorld* ExpectedWorld, APlayerController* OwningPlayer,
+		const FGameplayTag& InWidgetStackTag);
+	bool DoesWidgetStackContainClass(const UWorld* ExpectedWorld, const FGameplayTag& InWidgetStackTag,
+		const UClass* WidgetClass) const;
+
 	void PushSoftWidgetToStackAsync(const FGameplayTag& InWidgetStackTag, TSoftClassPtr<UWidgetActivatableBase> InSoftWidgetClass, TFunction<void(EAsyncPushWdgetState, UWidgetActivatableBase*)> AsyncPushStateCallback);
 	void PushConfirmScreenToModalStackAsync(EConfirmScreenType InScreenType, const FText& InScreenTitle, const FText& InScreenMsg, TFunction<void(EConfirmScreenButtonType)> ButtonClickedCallback);
 	
@@ -45,4 +52,9 @@ public:
 private:
 	UPROPERTY(Transient)
 	UWidgetPrimaryLayout* CreatedPrimaryLayout;
+
+	// UUserWidget::GetWorld() can start returning the destination world after its
+	// owning local player travels. Keep the world captured when the layout was
+	// registered so an old menu layout is never mistaken for the lobby layout.
+	TWeakObjectPtr<UWorld> CreatedPrimaryLayoutWorld;
 };

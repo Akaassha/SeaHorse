@@ -130,12 +130,6 @@ void URevealHandEffectTask::ResolveAbility()
 	{
 		TargetPawn = SpawnPrivatePawn(TargetController);
 		if (!IsValid(TargetPawn)) { CompleteSession(); return; }
-		OriginalTargetPawn = TargetController->GetPawn();
-		OriginalTargetViewTarget = TargetController->GetViewTarget();
-		bOriginalTargetAutoManageCamera = TargetController->bAutoManageActiveCameraTarget;
-		bTargetPossessionAttempted = true;
-		TargetController->Possess(TargetPawn);
-		if (TargetController->GetPawn() != TargetPawn) { CompleteSession(); return; }
 	}
 
 	SessionId = FGuid::NewGuid();
@@ -206,7 +200,7 @@ void URevealHandEffectTask::FinishViewing(ASHPlayerState* Player, FGuid InSessio
 void URevealHandEffectTask::Reorder(ASHPlayerState* Player, FGuid InSessionId, ASHCard* Card, int32 InsertIndex)
 {
 	if (!IsSessionFor(Player, InSessionId) || !bTargetReady || Player != TargetPlayer || !IsValid(TargetController) ||
-		Player->GetOwner() != TargetController || TargetController->GetPawn() != TargetPawn ||
+		Player->GetOwner() != TargetController ||
 		!IsValid(Source) || Player->GetHand() != Source || Source->IsLogicalNPC() || !Source->HasSeaHorseCard() ||
 		!IsValid(Card) || Card->GetOwningHand() != Source || Card->GetCardZone() != ECardZone::Hand ||
 		!Source->ContainsCard(Card) || InsertIndex < 0 || InsertIndex >= Source->GetCardCount())
@@ -249,7 +243,7 @@ void URevealHandEffectTask::RefreshSession()
 	}
 	if (bRevealingHuman && (!IsValid(TargetPlayer) || !State->PlayerArray.Contains(TargetPlayer) ||
 		TargetPlayer->GetHand() != Source || Source->IsLogicalNPC() || !IsValid(TargetController) ||
-		TargetPlayer->GetOwner() != TargetController || !IsValid(TargetPawn) || TargetController->GetPawn() != TargetPawn))
+		TargetPlayer->GetOwner() != TargetController || !IsValid(TargetPawn)))
 	{
 		CompleteSession();
 		return;
@@ -269,14 +263,6 @@ void URevealHandEffectTask::CloseSession(ASHPlayerState* DepartingPlayer)
 	bClosed = true;
 	if (IsValid(TargetController) && TargetPlayer != DepartingPlayer)
 	{
-		if (bTargetPossessionAttempted && (TargetController->GetPawn() == TargetPawn || !IsValid(TargetController->GetPawn())))
-		{
-			TargetController->bAutoManageActiveCameraTarget = bOriginalTargetAutoManageCamera;
-			if (OriginalTargetPawn.IsValid()) { TargetController->Possess(OriginalTargetPawn.Get()); }
-			else { TargetController->UnPossess(); }
-			if (OriginalTargetViewTarget.IsValid()) { TargetController->SetViewTarget(OriginalTargetViewTarget.Get()); }
-		}
-		// Restore server possession first. ClientEnd then restores the exact local camera and input state.
 		if (SessionId.IsValid()) { TargetController->ClientEndHandReveal(SessionId); }
 	}
 	if (IsValid(ViewerController) && GetActivatingPlayer() != DepartingPlayer && SessionId.IsValid())

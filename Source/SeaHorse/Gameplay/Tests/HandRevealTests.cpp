@@ -183,6 +183,8 @@ bool FSHHandRevealTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("The viewer is blocked from ordinary gameplay while viewing"), T.Mode->IsPlayerInHandReveal(T.Players[0]));
 		TestTrue(TEXT("The showing player is blocked from ordinary gameplay while viewing"), T.Mode->IsPlayerInHandReveal(T.Players[1]));
 		TestFalse(TEXT("An unrelated player has no private session"), T.Mode->IsPlayerInHandReveal(T.Players[2]));
+		TestEqual(TEXT("Server-side reveal leaves the showing player's table view untouched"),
+			T.Controllers[1]->GetViewTarget(), OriginalTargetView);
 		TestTrue(TEXT("Showing cards does not move them between hands"), Source->GetCards() == Before);
 		TestEqual(TEXT("The private snapshot contains the complete selected hand"), Task->LastSnapshot.Num(), Before.Num());
 		for (int32 Index = 0; Index < FMath::Min(Task->LastSnapshot.Num(), Before.Num()); ++Index)
@@ -202,9 +204,12 @@ bool FSHHandRevealTest::RunTest(const FString& Parameters)
 		ASHHandRevealPawn* TargetPawn = Task->TargetPawn;
 		if (TestNotNull(TEXT("Showing player's temporary pawn exists"), TargetPawn))
 		{
-			TestEqual(TEXT("Showing player possesses the temporary pawn"), T.Controllers[1]->GetPawn().Get(), static_cast<APawn*>(TargetPawn));
+			TestEqual(TEXT("Showing player keeps their gameplay pawn during the reveal"), T.Controllers[1]->GetPawn().Get(), OriginalTargetPawn);
+			TestNotEqual(TEXT("Presentation pawn is not possessed by the showing player"), T.Controllers[1]->GetPawn().Get(), static_cast<APawn*>(TargetPawn));
 			TestEqual(TEXT("Showing pawn belongs to its controller"), TargetPawn->GetOwner(), static_cast<AActor*>(T.Controllers[1]));
 			TestTrue(TEXT("Showing pawn is relevant only to its owner"), TargetPawn->bOnlyRelevantToOwner);
+			TestTrue(TEXT("Unpossessed showing pawn opens its private network channel through its controller"),
+				TargetPawn->GetNetOwner() == T.Controllers[1]);
 		}
 		if (TestNotNull(TEXT("Activator's private presentation pawn exists"), ViewerPawn))
 		{
@@ -247,7 +252,7 @@ bool FSHHandRevealTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("Viewer completes the effect"), Task->IsFinished());
 		TestFalse(TEXT("Completed session no longer authorizes either participant"), Task->IsSessionFor(T.Players[0], Session));
 		TestFalse(TEXT("Completion releases the activation queue"), T.Mode->HasActiveEffectTasks());
-		TestEqual(TEXT("Showing player's previous pawn is restored"), T.Controllers[1]->GetPawn().Get(), OriginalTargetPawn);
+		TestEqual(TEXT("Showing player's gameplay pawn was never replaced"), T.Controllers[1]->GetPawn().Get(), OriginalTargetPawn);
 		TestEqual(TEXT("Showing player's previous view target is restored"), T.Controllers[1]->GetViewTarget(), OriginalTargetView);
 		TestEqual(TEXT("Viewer's previous pawn is preserved or restored"), T.Controllers[0]->GetPawn().Get(), OriginalViewerPawn);
 		TestEqual(TEXT("Completion leaves no temporary presentation pawns"), T.RevealPawnCount(), 0);
