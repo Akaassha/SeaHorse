@@ -19,8 +19,18 @@ void ASHPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLi
 void ASHPlayerState::SetProtectedFromCardEffects(bool bProtected)
 {
 	check(HasAuthority());
+	if (bProtectedFromCardEffects == bProtected)
+	{
+		return;
+	}
 	bProtectedFromCardEffects = bProtected;
+	OnRep_ProtectedFromCardEffects();
 	ForceNetUpdate();
+}
+
+void ASHPlayerState::OnRep_ProtectedFromCardEffects()
+{
+	OnProtectionChanged.Broadcast(bProtectedFromCardEffects);
 }
 
 void ASHPlayerState::SetVictoryPoints(int32 NewVictoryPoints)

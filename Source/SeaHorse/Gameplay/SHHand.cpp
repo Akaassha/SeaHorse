@@ -17,6 +17,7 @@
 #include "Engine/EngineBaseTypes.h"
 #include "Algo/RandomShuffle.h"
 #include "NiagaraFunctionLibrary.h"
+#include "NiagaraComponent.h"
 #include "NiagaraSystem.h"
 #include "TimerManager.h"
 
@@ -98,6 +99,16 @@ void ASHHand::BeginPlay()
 	
     LayoutTransform = GetActorTransform();
 	RefreshPlayerPicker();
+	RefreshProtectionBarrier();
+}
+
+void ASHHand::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	if (IsValid(RepresentedPlayerState))
+	{
+		RepresentedPlayerState->OnProtectionChanged.RemoveDynamic(this, &ASHHand::HandleProtectionChanged);
+	}
+	Super::EndPlay(EndPlayReason);
 }
 
 void ASHHand::SetRepresentedPlayerState(ASHPlayerState* InPlayerState)
@@ -109,9 +120,19 @@ void ASHHand::SetRepresentedPlayerState(ASHPlayerState* InPlayerState)
 		PresentedEffectActivations.Reset();
 		LocallyActivatablePairs.Reset();
 	}
+	if (IsValid(RepresentedPlayerState) && RepresentedPlayerState != InPlayerState)
+	{
+		RepresentedPlayerState->OnProtectionChanged.RemoveDynamic(this, &ASHHand::HandleProtectionChanged);
+	}
 	RepresentedPlayerState = InPlayerState;
 	RepresentedLogicalHand = nullptr;
+	if (IsValid(RepresentedPlayerState))
+	{
+		RepresentedPlayerState->OnProtectionChanged.AddUniqueDynamic(this, &ASHHand::HandleProtectionChanged);
+	}
 	RefreshPlayerPicker();
+	// Protection may already have replicated before the local table mapping was ready.
+	RefreshProtectionBarrier();
 }
 
 void ASHHand::SetRepresentedHand(ASHHand* InHand)
@@ -123,9 +144,49 @@ void ASHHand::SetRepresentedHand(ASHHand* InHand)
 		PresentedEffectActivations.Reset();
 		LocallyActivatablePairs.Reset();
 	}
+	if (IsValid(RepresentedPlayerState))
+	{
+		RepresentedPlayerState->OnProtectionChanged.RemoveDynamic(this, &ASHHand::HandleProtectionChanged);
+	}
 	RepresentedPlayerState = nullptr;
 	RepresentedLogicalHand = InHand;
 	RefreshPlayerPicker();
+	RefreshProtectionBarrier();
+}
+
+void ASHHand::HandleProtectionChanged(bool bProtected)
+{
+	RefreshProtectionBarrier();
+}
+
+void ASHHand::RefreshProtectionBarrier()
+{
+	// This actor is a local visual slot; its logical owner can be a different player.
+	const bool bShowBarrier = GetNetMode() != NM_DedicatedServer &&
+		IsValid(RepresentedPlayerState) && RepresentedPlayerState->IsProtectedFromCardEffects();
+	TInlineComponentArray<UNiagaraComponent*> NiagaraComponents(this);
+	for (UNiagaraComponent* Component : NiagaraComponents)
+	{
+		if (Component->GetFName() != ProtectionBarrierComponentName)
+		{
+			continue;
+		}
+		Component->SetAutoDestroy(false);
+		Component->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		Component->SetHiddenInGame(!bShowBarrier);
+		Component->SetVisibility(bShowBarrier);
+		if (bShowBarrier)
+		{
+			if (!Component->IsActive())
+			{
+				Component->Activate(true);
+			}
+		}
+		else
+		{
+			Component->DeactivateImmediate();
+		}
+	}
 }
 
 void ASHHand::RefreshPlayerPicker()

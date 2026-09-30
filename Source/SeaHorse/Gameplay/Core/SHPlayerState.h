@@ -10,6 +10,7 @@ class ASHHand;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnVictoryPointsChanged, int32, NewVictoryPoints);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnPlayerDisplayNameChanged);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnProtectionChanged, bool, bProtected);
 /**
  * 
  */
@@ -51,10 +52,17 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Card Effects")
 	bool IsProtectedFromCardEffects() const { return bProtectedFromCardEffects; }
 	void SetProtectedFromCardEffects(bool bProtected);
+
+	/** Local notification on both the server and clients receiving the replicated state. */
+	UPROPERTY(BlueprintAssignable, Category = "Card Effects")
+	FOnProtectionChanged OnProtectionChanged;
 	
 protected:
-	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Card Effects")
+	UPROPERTY(ReplicatedUsing = OnRep_ProtectedFromCardEffects, BlueprintReadOnly, Category = "Card Effects")
 	bool bProtectedFromCardEffects = false;
+
+	UFUNCTION()
+	void OnRep_ProtectedFromCardEffects();
 
 	UPROPERTY(ReplicatedUsing = OnRep_Hand, BlueprintReadOnly, Category = "Hand")
 	TObjectPtr<ASHHand> Hand;

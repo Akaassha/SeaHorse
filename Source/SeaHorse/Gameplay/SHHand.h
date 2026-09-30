@@ -204,6 +204,11 @@ public:
 protected:
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+
+	/** Name of the existing Niagara component in BP_Hand. Its transform/system stay designer-owned. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player Area|Protection")
+	FName ProtectionBarrierComponentName = TEXT("NS_Barrier");
 
 	UPROPERTY(ReplicatedUsing = OnRep_Cards)
 	TArray<TObjectPtr<ASHCard>> Cards;
@@ -328,6 +333,9 @@ private:
 		bool bEffectActivation) const;
 	void RefreshPlayerPicker();
 	void RefreshLocalCardsPresentation();
+	void RefreshProtectionBarrier();
+	UFUNCTION()
+	void HandleProtectionChanged(bool bProtected);
 
 	/** World-space player representation/picker placed on the level for this visual hand slot. */
 	UPROPERTY(EditInstanceOnly, BlueprintReadOnly, Category = "Player Area", meta = (AllowPrivateAccess = "true"))
