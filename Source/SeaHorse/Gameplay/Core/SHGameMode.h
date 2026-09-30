@@ -48,6 +48,8 @@ public:
 	bool AreCardsPairCompatible(ASHCard* CardA, ASHCard* CardB);
 	bool CanRemoveOrphanedRatfolk(ASHPlayerState* Player, ASHCard* Card) const;
 	bool RequestRemoveOrphanedRatfolk(ASHPlayerState* Player, ASHCard* Card);
+	/** Applies the lobby rule to all human and BN hands once effects and presentations have settled. */
+	void RemoveOrphanedRatfolkAutomatically();
 
 	void ActivatePair(ASHPlayerState* PlayerState, ASHCard* CardA, ASHCard* CardB);
 
@@ -110,6 +112,7 @@ protected:
 
 private:
 	FSHOptionalRules PendingOptionalRules;
+	bool bRemovingOrphanedRatfolk = false;
 	void ConvertDisconnectedPlayerToNPC(ASHPlayerState* Player);
 	void RefreshSelectionsAfterPlayerDisconnected(ASHPlayerState* Player, ASHHand* ConvertedHand);
 #if WITH_DEV_AUTOMATION_TESTS

@@ -9,6 +9,7 @@ struct SEAHORSE_API FSHOptionalRules
 {
 	GENERATED_BODY()
 
+	/** Automatically removes unpaired Ratfolk when no allowed Paulus remains in deck, hands or activation zones. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Szczuroludzie")
 	bool bAllowOrphanedRatfolkRemoval = false;
 

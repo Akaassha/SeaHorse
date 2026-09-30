@@ -8,6 +8,25 @@
 #include "Gameplay/SHHand.h"
 #include "EngineUtils.h"
 
+namespace
+{
+bool HasRemainingRatfolkPartner(const UWorld* World, ASHCard* Card)
+{
+	const auto* PairRule = Cast<UImmediateVictoryPairFragment>(UCardDefinition::FindFragmentByClass(
+		Card->GetCardDefinition(), UImmediateVictoryPairFragment::StaticClass()));
+	if (!PairRule || PairRule->AllowedPartners.IsEmpty()) { return true; }
+	// Activation includes paired Paulus cards: they must leave the zone first.
+	for (TActorIterator<ASHCard> It(World); It; ++It)
+	{
+		if (!IsValid(*It) || It->IsActorBeingDestroyed()) { continue; }
+		const ECardZone Zone = It->GetCardZone();
+		if (Zone != ECardZone::Deck && Zone != ECardZone::Hand && Zone != ECardZone::Activation) { continue; }
+		if (PairRule->AllowedPartners.Contains(FSoftClassPath(It->GetCardDefinition().Get()))) { return true; }
+	}
+	return false;
+}
+}
+
 bool ASHGameMode::CanRemoveOrphanedRatfolk(ASHPlayerState* Player, ASHCard* Card) const
 {
 	const ASHGameState* State = GetGameState<ASHGameState>();
@@ -23,20 +42,43 @@ bool ASHGameMode::CanRemoveOrphanedRatfolk(ASHPlayerState* Player, ASHCard* Card
 		return false;
 	}
 	if (State->GetTurnPhase() != ETurnPhase::FirstPairing && State->GetTurnPhase() != ETurnPhase::SecondPairing) { return false; }
-	const auto* PairRule = Cast<UImmediateVictoryPairFragment>(UCardDefinition::FindFragmentByClass(
-		Card->GetCardDefinition(), UImmediateVictoryPairFragment::StaticClass()));
-	if (!PairRule || PairRule->AllowedPartners.IsEmpty()) { return false; }
+	return !HasRemainingRatfolkPartner(GetWorld(), Card);
+}
 
-	// Look at authoritative definitions, including hidden cards in human and BN hands.
-	// A victory card and a removed card no longer provide a possible partner.
+void ASHGameMode::RemoveOrphanedRatfolkAutomatically()
+{
+	const ASHGameState* State = GetGameState<ASHGameState>();
+	if (!HasAuthority() || !IsValid(State) || State->IsGameEnded() ||
+		!State->GetOptionalRules().bAllowOrphanedRatfolkRemoval || bRemovingOrphanedRatfolk ||
+		bProcessingPairActivations || IsWaitingForPlayerSelection() || HasActiveEffectTasks() ||
+		!CompletedEffectPairsWaitingForPresentation.IsEmpty() ||
+		!IsValid(TurnComponent) || TurnComponent->HasUnsettledPairs() || TurnComponent->HasNamedTurnTransitionBlocks())
+	{
+		return;
+	}
+	TGuardValue<bool> Guard(bRemovingOrphanedRatfolk, true);
+	// The deck is fully dealt at match start. Only unpaired cards in logical hands
+	// are removed; already scored Ratfolk must retain their victory points.
+	TArray<ASHCard*> Candidates;
 	for (TActorIterator<ASHCard> It(GetWorld()); It; ++It)
 	{
-		if (!IsValid(*It) || It->IsActorBeingDestroyed()) { continue; }
-		const ECardZone Zone = It->GetCardZone();
-		if (Zone != ECardZone::Deck && Zone != ECardZone::Hand && Zone != ECardZone::Activation) { continue; }
-		if (PairRule->AllowedPartners.Contains(FSoftClassPath(It->GetCardDefinition().Get()))) { return false; }
+		ASHCard* Card = *It;
+		ASHHand* Hand = IsValid(Card) ? Card->GetOwningHand() : nullptr;
+		if (IsValid(Hand) && Card->GetCardZone() == ECardZone::Hand && Hand->ContainsCard(Card) &&
+			!HasRemainingRatfolkPartner(GetWorld(), Card))
+		{
+			Candidates.Add(Card);
+		}
 	}
-	return true;
+	for (ASHCard* Card : Candidates)
+	{
+		if (!IsValid(Card)) { continue; }
+		ASHHand* Hand = Card->GetOwningHand();
+		if (!IsValid(Hand) || !Hand->ContainsCard(Card)) { continue; }
+		Hand->RemoveCard(Card);
+		Card->SetCardZone(ECardZone::None);
+		Card->Destroy();
+	}
 }
 
 bool ASHGameMode::RequestRemoveOrphanedRatfolk(ASHPlayerState* Player, ASHCard* Card)
