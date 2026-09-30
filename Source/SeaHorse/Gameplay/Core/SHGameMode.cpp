@@ -483,6 +483,7 @@ void ASHGameMode::MovePairToVictoryStack(ASHPlayerState* PlayerState, ASHCard* C
     FlushPanchoRefunds();
     RefreshPlayerScore(PlayerState);
 	CompleteQueuedPairActivation(CardA, CardB);
+	RemoveOrphanedRatfolkAutomatically();
 }
 
 void ASHGameMode::CardActivateEffect(ASHPlayerState* InActivatingPlayer, ASHCard* CardA, ASHCard* CardB)
@@ -924,6 +925,7 @@ void ASHGameMode::FlushCompletedEffectPairs()
 	ProcessSuccessfulActivations();
 	FlushPanchoRefunds();
 	TryProcessQueuedPairActivations();
+	RemoveOrphanedRatfolkAutomatically();
 }
 
 void ASHGameMode::CompleteQueuedPairActivation(ASHCard* CardA, ASHCard* CardB)
@@ -1558,6 +1560,7 @@ void ASHGameMode::ActivatePair(ASHPlayerState* PlayerState, ASHCard* CardA, ASHC
         }
         for (APlayerState* State : GetGameState<ASHGameState>()->PlayerArray) { RefreshPlayerScore(Cast<ASHPlayerState>(State)); }
         if (TurnComponent) { TurnComponent->NotifyPairSettled(CardA, CardB); }
+        RemoveOrphanedRatfolkAutomatically();
         return;
     }
 
@@ -1642,6 +1645,7 @@ bool ASHGameMode::TryFinishGame()
         return IsValid(SHGameState) && SHGameState->IsGameEnded();
     }
 
+    RemoveOrphanedRatfolkAutomatically();
     int32 CardsRemainingInHands = 0;
     for (APlayerState* PlayerState : SHGameState->PlayerArray)
     {

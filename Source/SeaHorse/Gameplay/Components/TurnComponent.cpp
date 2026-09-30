@@ -605,6 +605,10 @@ bool UTurnComponent::HasTurnTransitionBlockers() const
 
 void UTurnComponent::TryCompleteDeferredEndTurn()
 {
+	if (ASHGameMode* GameMode = GetWorld()->GetAuthGameMode<ASHGameMode>())
+	{
+		GameMode->RemoveOrphanedRatfolkAutomatically();
+	}
 	if (bEndTurnRequested && !HasTurnTransitionBlockers())
 	{
 		EndTurn();
