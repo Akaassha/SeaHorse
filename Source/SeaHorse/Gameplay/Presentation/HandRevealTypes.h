@@ -14,6 +14,7 @@ struct FSHRevealedHandCard
 
 	UPROPERTY(BlueprintReadOnly, Category = "Hand Reveal")
 	TObjectPtr<ASHCard> SourceCard;
+	/** Null for a face-down card: its identity must not be sent to this viewer. */
 	UPROPERTY(BlueprintReadOnly, Category = "Hand Reveal")
 	TSubclassOf<UCardDefinition> CardDefinition;
 	UPROPERTY(BlueprintReadOnly, Category = "Hand Reveal")

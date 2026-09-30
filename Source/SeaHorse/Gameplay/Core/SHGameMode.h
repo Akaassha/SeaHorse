@@ -115,6 +115,7 @@ private:
 #if WITH_DEV_AUTOMATION_TESTS
 	friend class FSHHandRevealTest;
 	friend class FSHCompareHandsEffectTest;
+	friend class FSHCompareHandsPrivacyTest;
 	friend class FSHDisconnectedParticipantTest;
 	friend struct FSHNewEffectsWorld;
 	friend struct FSHOptionalRulesWorld;

@@ -137,7 +137,7 @@ const AActor* ASHHandRevealPawn::GetNetOwner() const
 
 ASHCard* ASHHandRevealPawn::SpawnVisualCard(const FSHRevealedHandCard& Card)
 {
-	if (!Card.CardActorClass || !Card.CardDefinition || !GetWorld()) { return nullptr; }
+	if (!Card.CardActorClass || !GetWorld()) { return nullptr; }
 	const FTransform Transform = CardsRoot->GetComponentTransform();
 	ASHCard* Visual = GetWorld()->SpawnActorDeferred<ASHCard>(Card.CardActorClass, Transform,
 		this, nullptr, ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
@@ -160,8 +160,10 @@ ASHCard* ASHHandRevealPawn::SpawnVisualCard(const FSHRevealedHandCard& Card)
 		Primitive->SetOnlyOwnerSee(true);
 	}
 	// The Blueprint override fills every field of W_Card before rendering its face.
-	Visual->Initialize();
-	Visual->SetFaceUp(true);
+	// A null definition is an intentionally hidden opponent card in Diego's comparison.
+	// Never recover its definition from SourceCard: a listen host knows all real cards.
+	if (Card.CardDefinition) { Visual->Initialize(); }
+	Visual->SetFaceUp(Card.CardDefinition != nullptr);
 	Visual->ClearInteractionHighlight();
 	// Presentation copies intentionally have no collision; include their render geometry.
 	FBox Bounds = Visual->CalculateComponentsBoundingBoxInLocalSpace(true);

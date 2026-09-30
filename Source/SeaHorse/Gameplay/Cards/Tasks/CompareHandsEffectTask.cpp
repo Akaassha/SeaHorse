@@ -83,6 +83,19 @@ TArray<FSHRevealedHandCard> UCompareHandsEffectTask::MakeSnapshot(const ASHHand*
 	return Snapshot;
 }
 
+TArray<FSHRevealedHandCard> UCompareHandsEffectTask::MakeSnapshotForViewer(
+	const TArray<FSHRevealedHandCard>& Snapshot, const ASHHand* Hand, const ASHPlayerState* Viewer) const
+{
+	TArray<FSHRevealedHandCard> Result = Snapshot;
+	if (!IsValid(Viewer) || !IsValid(Hand) || Viewer->GetHand() != Hand)
+	{
+		// Diego compares hand sizes, not card identities. Strip definitions before the RPC,
+		// including for the listen host; source references remain available for blind draws.
+		for (FSHRevealedHandCard& Entry : Result) { Entry.CardDefinition = nullptr; }
+	}
+	return Result;
+}
+
 void UCompareHandsEffectTask::ResolveAbility()
 {
 	if (IsFinished() || bOpened || bClosed) { return; }
@@ -178,14 +191,16 @@ void UCompareHandsEffectTask::TryPresentParticipants()
 	if (!bActivatorReady && IsValid(ActivatorController) && IsValid(ActivatorPawn))
 	{
 		ActivatorController->ClientBeginHandComparison(SessionId, LargerHand, ReceivingHand, ActivatorPawn,
-			LastLargerSnapshot, LastReceivingSnapshot, RemainingTransfers,
+			MakeSnapshotForViewer(LastLargerSnapshot, LargerHand, GetActivatingPlayer()),
+			MakeSnapshotForViewer(LastReceivingSnapshot, ReceivingHand, GetActivatingPlayer()), RemainingTransfers,
 			DrawingPlayer == GetActivatingPlayer(), SessionWidgetClass);
 	}
 	if (bClosed || IsFinished()) { return; }
 	if (!bSelectedReady && IsValid(SelectedController) && IsValid(SelectedPawn))
 	{
 		SelectedController->ClientBeginHandComparison(SessionId, LargerHand, ReceivingHand, SelectedPawn,
-			LastLargerSnapshot, LastReceivingSnapshot, RemainingTransfers,
+			MakeSnapshotForViewer(LastLargerSnapshot, LargerHand, SelectedPlayer),
+			MakeSnapshotForViewer(LastReceivingSnapshot, ReceivingHand, SelectedPlayer), RemainingTransfers,
 			DrawingPlayer == SelectedPlayer, SessionWidgetClass);
 	}
 }
@@ -252,12 +267,16 @@ void UCompareHandsEffectTask::PublishSnapshot(bool bForce)
 	LastReceivingSnapshot = ReceivingSnapshot;
 	if (bActivatorReady && IsValid(ActivatorController))
 	{
-		ActivatorController->ClientUpdateHandComparison(SessionId, LastLargerSnapshot, LastReceivingSnapshot,
+		ActivatorController->ClientUpdateHandComparison(SessionId,
+			MakeSnapshotForViewer(LastLargerSnapshot, LargerHand, GetActivatingPlayer()),
+			MakeSnapshotForViewer(LastReceivingSnapshot, ReceivingHand, GetActivatingPlayer()),
 			RemainingTransfers, DrawingPlayer == GetActivatingPlayer());
 	}
 	if (bSelectedReady && IsValid(SelectedController))
 	{
-		SelectedController->ClientUpdateHandComparison(SessionId, LastLargerSnapshot, LastReceivingSnapshot,
+		SelectedController->ClientUpdateHandComparison(SessionId,
+			MakeSnapshotForViewer(LastLargerSnapshot, LargerHand, SelectedPlayer),
+			MakeSnapshotForViewer(LastReceivingSnapshot, ReceivingHand, SelectedPlayer),
 			RemainingTransfers, DrawingPlayer == SelectedPlayer);
 	}
 }

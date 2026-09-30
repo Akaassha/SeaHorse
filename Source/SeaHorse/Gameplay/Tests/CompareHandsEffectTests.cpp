@@ -3,6 +3,7 @@
 #include "Engine/Engine.h"
 #include "Engine/DataTable.h"
 #include "Engine/World.h"
+#include "Engine/LocalPlayer.h"
 #include "GameFramework/Pawn.h"
 #include "UObject/UnrealType.h"
 #include "Gameplay/Board/VictoryStack.h"
@@ -218,4 +219,95 @@ bool FSHCompareHandsEffectTest::RunTest(const FString& Parameters)
 			->HasAllFunctionFlags(FUNC_Net | FUNC_NetServer | FUNC_NetReliable));
 	return true;
 }
+
+#if WITH_EDITOR
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSHCompareHandsPrivacyTest,
+	"SeaHorse.Gameplay.Effects.CompareHandsPrivacy",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FSHCompareHandsPrivacyTest::RunTest(const FString& Parameters)
+{
+	TGuardValue<bool> ScriptGuard(GAllowActorScriptExecutionInEditor, true);
+	UClass* CardClass = LoadClass<ASHCard>(nullptr, TEXT("/Game/SeaHorse/Cards/BP_Card.BP_Card_C"));
+	UClass* Definition = LoadClass<UCardDefinition>(nullptr,
+		TEXT("/Game/SeaHorse/Cards/Definitions/Card_BodgyVampireHunter.Card_BodgyVampireHunter_C"));
+	if (!TestNotNull(TEXT("Actual card Blueprint"), CardClass) ||
+		!TestNotNull(TEXT("Actual card definition"), Definition)) { return false; }
+
+	// Exercise the real begin/update RPC implementations for both participant roles.
+	for (int32 LargerPlayerIndex : {0, 1})
+	{
+		FCompareHandsTestWorld T;
+		const int32 DrawingPlayerIndex = 1 - LargerPlayerIndex;
+		for (int32 PlayerIndex = 0; PlayerIndex < 2; ++PlayerIndex)
+		{
+			ULocalPlayer* LocalPlayer = NewObject<ULocalPlayer>(GEngine);
+			LocalPlayer->PlayerController = T.Controllers[PlayerIndex];
+			T.Controllers[PlayerIndex]->Player = LocalPlayer;
+			for (int32 Index = 0; Index < (PlayerIndex == LargerPlayerIndex ? 4 : 2); ++Index)
+			{
+				ASHCard* Card = T.World->SpawnActor<ASHCard>(CardClass);
+				Card->SetCardDefinition(Definition);
+				Card->Initialize();
+				T.Hands[PlayerIndex]->AddCard(Card, Index);
+			}
+		}
+		const FActivatedPair Pair = T.Pair();
+		UCompareHandsEffectTask* Task = NewObject<UCompareHandsEffectTask>(T.Mode);
+		Task->Initialize(T.Players[0], Pair.CardA, Pair.CardB, TEXT("CompareHands"));
+		T.Mode->ActiveEffectTasks.Add(Task);
+		Task->StartEffect();
+		T.Mode->SubmitParticipantSelection(T.Players[0], T.Hands[1]);
+		const FGuid Session = Task->GetSessionId();
+		TestTrue(TEXT("Comparison is open"), Session.IsValid() && !Task->IsFinished());
+		TestNull(TEXT("Unrelated player receives no comparison"), T.Controllers[2]->GetActiveHandRevealPawn());
+
+		auto CheckParticipantViews = [&]()
+		{
+			for (int32 ViewerIndex = 0; ViewerIndex < 2; ++ViewerIndex)
+			{
+				ASHHandRevealPawn* Stage = T.Controllers[ViewerIndex]->GetActiveHandRevealPawn();
+				if (!TestNotNull(TEXT("Participant receives their own presentation"), Stage)) { continue; }
+				TArray<FSHRevealedHandCard> Entries = Stage->GetCards();
+				Entries.Append(Stage->GetReceivingCards());
+				const TArray<ASHCard*> Visuals = Stage->GetPresentationCards();
+				TestEqual(TEXT("Hidden cards still have a selectable visual copy"), Visuals.Num(), Entries.Num());
+				TestEqual(TEXT("Both hands remain complete"), Entries.Num(), 6);
+				for (int32 Index = 0; Index < Entries.Num(); ++Index)
+				{
+					const FSHRevealedHandCard& Entry = Entries[Index];
+					if (!TestNotNull(TEXT("Blind draw retains source identity"), Entry.SourceCard.Get())) { continue; }
+					const bool bOwnCard = Entry.SourceCard->GetOwningHand() == T.Hands[ViewerIndex];
+					UClass* ExpectedDefinition = bOwnCard ? Definition : nullptr;
+					TestEqual(TEXT("RPC only delivers definitions of the viewer's own cards"),
+						Entry.CardDefinition.Get(), ExpectedDefinition);
+					if (Visuals.IsValidIndex(Index) && TestNotNull(TEXT("Visual card exists"), Visuals[Index]))
+					{
+						TestEqual(TEXT("Only the viewer's own cards show their fronts"), bool(Visuals[Index]->bFaceUp), bOwnCard);
+						TestEqual(TEXT("Hidden copies cannot recover secrets from the listen host's source actor"),
+							Visuals[Index]->GetKnownCardDefinition().Get(), ExpectedDefinition);
+						TestFalse(TEXT("Private copies are never replicated"), Visuals[Index]->GetIsReplicated());
+					}
+				}
+			}
+		};
+		CheckParticipantViews();
+		ASHCard* First = T.Hands[LargerPlayerIndex]->GetCards()[0];
+		Task->TransferCard(T.Players[DrawingPlayerIndex], Session, First, 0);
+		TestEqual(TEXT("Drawing a face-down card still moves it to the receiving hand"),
+			First->GetOwningHand(), T.Hands[DrawingPlayerIndex]);
+		TestFalse(TEXT("One draw leaves the second transfer available"), Task->IsFinished());
+		// The transferred card becomes visible to its new owner and hidden to its former owner.
+		CheckParticipantViews();
+		Task->TransferCard(T.Players[DrawingPlayerIndex], Session,
+			T.Hands[LargerPlayerIndex]->GetCards()[0], 0);
+		TestTrue(TEXT("Face-down presentation does not block completing the effect"), Task->IsFinished());
+		for (int32 Index = 0; Index < 2; ++Index)
+		{
+			TestNull(TEXT("Finishing clears each participant's private view"), T.Controllers[Index]->GetActiveHandRevealPawn());
+		}
+	}
+	return true;
+}
+#endif
 #endif

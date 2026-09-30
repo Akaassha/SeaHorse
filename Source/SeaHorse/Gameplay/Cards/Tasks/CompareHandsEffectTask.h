@@ -46,6 +46,8 @@ private:
 	bool CanTargetHand(ASHHand* Hand) const;
 	ASHPlayerState* FindHandPlayer(ASHHand* Hand) const;
 	TArray<FSHRevealedHandCard> MakeSnapshot(const ASHHand* Hand) const;
+	TArray<FSHRevealedHandCard> MakeSnapshotForViewer(const TArray<FSHRevealedHandCard>& Snapshot,
+		const ASHHand* Hand, const ASHPlayerState* Viewer) const;
 	void RefreshSession();
 	void TryPresentParticipants();
 	void OnPresentationTimeout();
