@@ -14,8 +14,10 @@ ASHPlayerRepresentation::ASHPlayerRepresentation()
 
 void ASHPlayerRepresentation::BeginPlay()
 {
+	bPresentationEnded = false;
 	Super::BeginPlay();
 	RefreshInteractionCollision();
+	ReloadPlayerAvatar();
 }
 
 void ASHPlayerRepresentation::RefreshInteractionCollision()
@@ -69,6 +71,8 @@ void ASHPlayerRepresentation::RefreshFromHand()
 		: nullptr;
 	if (RepresentedPlayerState == NewPlayerState)
 	{
+		// Also initializes offline/NPC presentation when both states are null.
+		RefreshPlayerFace();
 		return;
 	}
 
@@ -82,15 +86,20 @@ void ASHPlayerRepresentation::RefreshFromHand()
 		RepresentedPlayerState->OnPlayerDisplayNameChanged.AddUniqueDynamic(this, &ThisClass::HandlePlayerDisplayNameChanged);
 	}
 	OnRepresentationChanged.Broadcast(RepresentedPlayerState);
+	ReloadPlayerAvatar();
 }
 
 void ASHPlayerRepresentation::HandlePlayerDisplayNameChanged()
 {
 	OnRepresentationChanged.Broadcast(RepresentedPlayerState);
+	RefreshPlayerFace();
 }
 
 void ASHPlayerRepresentation::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	bPresentationEnded = true;
+	++AvatarRequestId;
+	ReleaseFaceResources();
 	if (IsValid(RepresentedPlayerState))
 	{
 		RepresentedPlayerState->OnPlayerDisplayNameChanged.RemoveDynamic(this, &ThisClass::HandlePlayerDisplayNameChanged);
@@ -106,6 +115,7 @@ void ASHPlayerRepresentation::SetSelectable(bool bInSelectable)
 	if (bChanged)
 	{
 		OnPickerStateChanged.Broadcast(bSelectable);
+		RefreshPlayerFace();
 	}
 	RefreshInteractionCollision();
 }
@@ -137,6 +147,10 @@ UTexture2D* ASHPlayerRepresentation::GetPlayerAvatar() const
 	if (UTexture2D* OnlineAvatar = ResolvePlayerAvatar(RepresentedPlayerState))
 	{
 		return OnlineAvatar;
+	}
+	if (IsValid(LoadedAvatar))
+	{
+		return LoadedAvatar;
 	}
 	return FallbackAvatar;
 }

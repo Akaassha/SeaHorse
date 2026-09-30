@@ -25,6 +25,15 @@ bool FSHPlayerPickerCollisionTest::RunTest(const FString& Parameters)
 	}
 	ASHPlayerRepresentation* Picker = World->SpawnActor<ASHPlayerRepresentation>(PickerClass);
 	UWidgetComponent* Widget = Picker->FindComponentByClass<UWidgetComponent>();
+	if (!Widget)
+	{
+		// The current mesh-based representation no longer needs a WidgetComponent.
+		// Add the old hit surface only to exercise the collision regression.
+		Widget = NewObject<UWidgetComponent>(Picker);
+		Picker->AddInstanceComponent(Widget);
+		Widget->SetupAttachment(Picker->GetRootComponent());
+		Widget->RegisterComponent();
+	}
 	UStaticMeshComponent* Mesh = Picker->FindComponentByClass<UStaticMeshComponent>();
 	if (!TestNotNull(TEXT("Representation widget"), Widget) ||
 		!TestNotNull(TEXT("Visible selection mesh"), Mesh))

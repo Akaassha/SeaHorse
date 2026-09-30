@@ -11,7 +11,7 @@ public class SeaHorse : ModuleRules
 	
 		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput", "UMG", "CommonUI", "CommonInput", "GameplayTags", "DeveloperSettings", "SlateCore", "PropertyPath", "OnlineSubsystem" });
 
-		PrivateDependencyModuleNames.AddRange(new string[] { "OnlineSubsystemUtils", "Slate", "PreLoadScreen", "Niagara" });
+		PrivateDependencyModuleNames.AddRange(new string[] { "OnlineSubsystemUtils", "Slate", "PreLoadScreen", "Niagara", "RenderCore" });
 		DynamicallyLoadedModuleNames.Add("OnlineSubsystemSteam");
 		bool bSteamAvatars = Target.Platform == UnrealTargetPlatform.Win64 || Target.Platform == UnrealTargetPlatform.Linux || Target.Platform == UnrealTargetPlatform.Mac;
 		PublicDefinitions.Add("SH_WITH_STEAM_AVATARS=" + (bSteamAvatars ? "1" : "0"));
@@ -19,7 +19,7 @@ public class SeaHorse : ModuleRules
 
 		if (Target.bBuildEditor)
 		{
-			PrivateDependencyModuleNames.Add("RenderCore"); // Viewport-backed input automation tests.
+			PrivateDependencyModuleNames.Add("RHI"); // Validate face material shaders on the active test platform.
 			PrivateDependencyModuleNames.Add("UMGEditor");
 			PrivateDependencyModuleNames.Add("UnrealEd");
 			PrivateDependencyModuleNames.Add("BlueprintGraph");
