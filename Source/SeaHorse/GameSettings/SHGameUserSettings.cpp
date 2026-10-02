@@ -3,6 +3,7 @@
 #include "Frontend/Settings/FrontendDeveloperSettings.h"
 #include "Internationalization/Internationalization.h"
 #include "Internationalization/Culture.h"
+#include "Kismet/KismetInternationalizationLibrary.h"
 #include "Misc/App.h"
 #include "Sound/SoundClass.h"
 
@@ -36,6 +37,22 @@ void USHGameUserSettings::ApplyNonResolutionSettings()
 FString USHGameUserSettings::GetCurrentCulture() const
 {
 	return FInternationalization::Get().GetCurrentCulture()->GetName();
+}
+
+TArray<FString> USHGameUserSettings::GetAvailableGameCultures()
+{
+	TArray<FString> Cultures = UKismetInternationalizationLibrary::GetLocalizedCultures(true, false, false, false);
+	Cultures.Sort();
+	return Cultures;
+}
+
+FString USHGameUserSettings::GetSelectedGameCulture() const
+{
+	const TArray<FString> Cultures = GetAvailableGameCultures();
+	if (Cultures.IsEmpty()) { return FString(); }
+	const FString Native = UKismetInternationalizationLibrary::GetNativeCulture(ELocalizedTextSourceCategory::Game);
+	return UKismetInternationalizationLibrary::GetSuitableCulture(Cultures, GetCurrentCulture(),
+		Cultures.Contains(Native) ? Native : Cultures[0]);
 }
 
 void USHGameUserSettings::SetCurrentCulture(const FString& Value)

@@ -18,6 +18,9 @@ class SEAHORSE_API UFrontendFunctionLibrary : public UBlueprintFunctionLibrary
 	GENERATED_BODY()
 	
 public:
+	/** Editor migration for the authored settings screen, preserving its designer layout and back action. */
+	UFUNCTION(BlueprintCallable, Category = "Frontend|Editor")
+	static bool UpgradeSettingsLanguageWidget(bool bSave = false);
 	/** Keeps at most MaxCharacters display characters, adding an ellipsis only if shortened.
 	 * The optional ellipsis is extra (not included in MaxCharacters). Nonpositive limits return empty text.
 	 * Intended for display: keep the original text for gameplay and identity.
